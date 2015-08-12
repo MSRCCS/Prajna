@@ -14,7 +14,7 @@ Documentation
   <div class="span6">
     <div class="well well-small" id="nuget">
       The Prajna library can be <a href="https://nuget.org/packages/Prajna">installed from NuGet</a>:
-      <pre>PM> Install-Package Prajna</pre>
+      <pre>PM> Install-Package Prajna -Pre</pre>
     </div>
   </div>
   <div class="span1"></div>
@@ -29,7 +29,7 @@ This example demonstrates using a function defined in this sample library.
 #r "Prajna.dll"
 open Prajna
 
-printfn "hello = %i" <| Library.hello 0
+// Examples TO-DO
 
 (**
 Some more info
@@ -59,9 +59,9 @@ The library is available under Public Domain license, which allows modification 
 redistribution for both commercial and non-commercial purposes. For more information see the 
 [License file][license] in the GitHub repository. 
 
-  [content]: https://github.com/fsprojects/Prajna/tree/master/docs/content
-  [gh]: https://github.com/fsprojects/Prajna
-  [issues]: https://github.com/fsprojects/Prajna/issues
-  [readme]: https://github.com/fsprojects/Prajna/blob/master/README.md
-  [license]: https://github.com/fsprojects/Prajna/blob/master/LICENSE.txt
+  [content]: https://github.com/MSRCCS/Prajna/tree/master/docs/content
+  [gh]: https://github.com/MSRCCS/Prajna
+  [issues]: https://github.com/MSRCCS/Prajna/issues
+  [readme]: https://github.com/MSRCCS/Prajna/blob/master/README.md
+  [license]: https://github.com/MSRCCS/Prajna/blob/master/LICENSE.txt
 *)

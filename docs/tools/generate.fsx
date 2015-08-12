@@ -13,13 +13,13 @@ let referenceBinaries = []
 // Web site location for the generated documentation
 let website = "/Prajna"
 
-let githubLink = "http://github.com/Update GitHome in build.fsx/Prajna"
+let githubLink = "http://github.com/MSRCCS/Prajna"
 
 // Specify more information about your project
 let info =
   [ "project-name", "Prajna"
-    "project-author", "Cloud Computing & Storage, MSR NexT"
-    "project-summary", "Prajna: Cloud Service and Interactive Big Data Analytics"
+    "project-author", "Cloud Computing & Storage Group, Microsoft Research"
+    "project-summary", "Prajna: A Distributed Functional Programming Platform for Interactive Big Data Analytics and Cloud Service Building"
     "project-github", githubLink
     "project-nuget", "http://nuget.org/packages/Prajna" ]
 

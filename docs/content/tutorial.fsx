@@ -13,7 +13,7 @@ Say more
 #r "Prajna.dll"
 open Prajna
 
-Library.hello 0
+// TO-DO
 (**
 Some more info
 *)

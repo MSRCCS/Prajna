@@ -57,7 +57,7 @@ let testAssemblies = "tests/**/bin/{0}/*Tests*.dll"
 
 // Git configuration (used for publishing documentation in gh-pages branch)
 // The profile where the project is posted
-let gitOwner = "MSRCCS/Prajna" 
+let gitOwner = "MSRCCS" 
 let gitHome = "https://github.com/" + gitOwner
 
 // The name of the project on GitHub
@@ -469,37 +469,37 @@ Target "AddLangDocs" (fun _ ->
 // --------------------------------------------------------------------------------------
 // Release Scripts
 
-//Target "ReleaseDocs" (fun _ ->
-//    let tempDocsDir = "temp/gh-pages"
-//    CleanDir tempDocsDir
-//    Repository.cloneSingleBranch "" (gitHome + "/" + gitName + ".git") "gh-pages" tempDocsDir
-//
-//    CopyRecursive "docs/output" tempDocsDir true |> tracefn "%A"
-//    StageAll tempDocsDir
-//    Git.Commit.Commit tempDocsDir (sprintf "Update generated documentation for version %s" release.NugetVersion)
-//    Branches.push tempDocsDir
-//)
+Target "ReleaseDocs" (fun _ ->
+    let tempDocsDir = "temp/gh-pages"
+    CleanDir tempDocsDir
+    Repository.cloneSingleBranch "" (gitHome + "/" + gitName + ".git") "gh-pages" tempDocsDir
 
-//#load "paket-files/fsharp/FAKE/modules/Octokit/Octokit.fsx"
-//open Octokit
-//
-//Target "PublicRelease" (fun _ ->
-//    StageAll ""
-//    Git.Commit.Commit "" (sprintf "Bump version to %s" release.NugetVersion)
-//    Branches.push ""
-//
-//    Branches.tag "" release.NugetVersion
-//    Branches.pushTag "" "origin" release.NugetVersion
-//    
-//    // release on github
-//    createClient (getBuildParamOrDefault "github-user" "") (getBuildParamOrDefault "github-pw" "")
-//    |> createDraft gitOwner gitName release.NugetVersion (release.SemVer.PreRelease <> None) release.Notes 
-//    // TODO: |> uploadFile "PATH_TO_FILE"    
-//    |> releaseDraft
-//    |> Async.RunSynchronously
-//)
-//
-//Target "BuildPackage" DoNothing
+    CopyRecursive "docs/output" tempDocsDir true |> tracefn "%A"
+    StageAll tempDocsDir
+    Git.Commit.Commit tempDocsDir (sprintf "Update generated documentation for version %s" release.NugetVersion)
+    Branches.push tempDocsDir
+)
+
+#load "paket-files/fsharp/FAKE/modules/Octokit/Octokit.fsx"
+open Octokit
+
+Target "PublicRelease" (fun _ ->
+    StageAll ""
+    Git.Commit.Commit "" (sprintf "Bump version to %s" release.NugetVersion)
+    Branches.push ""
+
+    Branches.tag "" release.NugetVersion
+    Branches.pushTag "" "origin" release.NugetVersion
+    
+    // release on github
+    createClient (getBuildParamOrDefault "github-user" "") (getBuildParamOrDefault "github-pw" "")
+    |> createDraft gitOwner gitName release.NugetVersion (release.SemVer.PreRelease <> None) release.Notes 
+    // TODO: |> uploadFile "PATH_TO_FILE"    
+    |> releaseDraft
+    |> Async.RunSynchronously
+)
+
+Target "BuildPackage" DoNothing
 
 // --------------------------------------------------------------------------------------
 // Run all targets by default. Invoke 'build <Target>' to override
@@ -536,15 +536,15 @@ Target "R" DoNothing // Incremental build of Release
   =?> ("GenerateReferenceDocs",isLocalBuild)
   =?> ("GenerateDocs",isLocalBuild)
   ==> "Release"
-  //=?> ("ReleaseDocs",isLocalBuild)
+  =?> ("ReleaseDocs",isLocalBuild)
 
-//"Release" 
-//#if MONO
-//#else
-//  =?> ("SourceLink", Pdbstr.tryFind().IsSome )
-//#endif
-//  ==> "NuGet"
-//  ==> "BuildPackage"
+"Release" 
+#if MONO
+#else
+  =?> ("SourceLink", Pdbstr.tryFind().IsSome )
+#endif
+  ==> "NuGet"
+  ==> "BuildPackage"
 
 "CleanDocs"
   ==> "GenerateHelp"
@@ -557,11 +557,11 @@ Target "R" DoNothing // Incremental build of Release
 "GenerateHelp"
   ==> "KeepRunning"
     
-//"ReleaseDocs"
-//  ==> "PublicRelease"
+"ReleaseDocs"
+  ==> "PublicRelease"
 
-//"BuildPackage"
-//  ==> "PublishNuget"
-//  ==> "PublicRelease"
+"BuildPackage"
+  ==> "PublishNuget"
+  ==> "PublicRelease"
 
 RunTargetOrDefault "Debug"

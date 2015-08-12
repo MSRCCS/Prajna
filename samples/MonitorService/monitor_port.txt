@@ -1,0 +1,16 @@
+imhub-ause.cloudapp.net	57709
+imhub-auss.cloudapp.net 62495
+imhub-ausse.cloudapp.net 53764
+imhub-brazils.cloudapp.net 64211
+imhub-cus.cloudapp.net 51694
+imhub-easia.cloudapp.net 52138
+imhub-eastus.cloudapp.net 61137
+imhub-eastus2.cloudapp.net 51295
+imhub-europe.cloudapp.net 58946
+imhub-japane.cloudapp.net 56935
+imhub-japanw.cloudapp.net 54329
+imhub-ncus.cloudapp.net 53765
+imhub-neurope.cloudapp.net 58171
+imhub-scus.cloudapp.net 62242
+imhub-seasia.cloudapp.net 51401
+imhub-westus.cloudapp.net 59746

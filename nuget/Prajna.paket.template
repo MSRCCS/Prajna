@@ -1,0 +1,40 @@
+type file
+id Prajna
+owners
+    MSRCCS
+authors 
+    MSRCCS
+projectUrl
+    http://github.com/MSRCCS/Prajna
+iconUrl
+    https://raw.githubusercontent.com/MSRCCS/Prajna /master/docs/files/img/logo.png
+licenseUrl
+    http://github.com/MSRCCS/Prajna/blob/master/LICENSE.txt
+requireLicenseAcceptance
+    false
+copyright
+    Copyright 2015
+tags
+    Prajna
+summary
+    Prajna
+description
+    Prajna
+files
+    ../src/CoreLib/bin/Releasex64/Prajna.dll ==> lib/net45
+    ../src/CoreLib/bin/Releasex64/Prajna.pdb ==> lib/net45
+    ../src/CoreLib/bin/Releasex64/Prajna.xml ==> lib/net45
+    ../src/Tools/Tools/bin/Releasex64/Prajna.Tools.dll ==> lib/net45
+    ../src/Tools/Tools/bin/Releasex64/Prajna.Tools.pdb ==> lib/net45
+    ../src/Tools/Tools/bin/Releasex64/Prajna.Tools.xml ==> lib/net45
+    ../src/Client/Client/bin/Releasex64/* ==> tools/Client
+    ../src/Client/ClientExt/bin/Releasex64/PrajnaClientExt* ==> tools/Client
+references
+    Prajna.dll
+    Prajna.Tools.dll
+frameworkAssemblies
+    System
+    System.Core
+    System.Management
+dependencies
+    FSharp.Core >= 3.1.2

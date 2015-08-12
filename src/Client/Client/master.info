@@ -1,0 +1,14 @@
+//---------------------------------------------------------------------------
+// Prajna Master Control File
+// Author: Jin Li, jinl@microsoft.com
+// Each additional line contains one executable to be automatically runned. 
+// First valid line of the master info should contain:
+// Version	name 	port_for_home_in	port_for_cluster	Root Deployment folder
+// Each additional line contains one program to be run
+//---------------------------------------------------------------------------
+v0.0.0.5	jinl3	1080	1081	\\research\root\share\jinl\Prajna
+// A list of reporting servers
+// A list of executables. 
+PrajnaClient.exe	-dir 	d:\data
+
+

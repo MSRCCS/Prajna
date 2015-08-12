@@ -1,0 +1,2247 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>ShoViz</name>
+    </assembly>
+    <members>
+        <member name="T:ShoNS.Visualization.ShoDataGridControl">
+            <summary>
+            Displays Sho data in a grid
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.#ctor">
+            <summary>
+            Creates an empty datagrid
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.#ctor(System.Object)">
+            <summary>
+            Creates a datagrid populated with some data
+            </summary>
+            <param name="data">The data to view</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.#ctor(System.Collections.Generic.IList{System.Object},System.Collections.Generic.IDictionary{System.Object,System.Object})">
+            <summary>
+            Creates a datagrid populated with multiple data objects, with optional settings
+            </summary>
+            <param name="args">A list of data objects to display</param>
+            <param name="keyw">A dictionary of keyword arguments</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.update">
+            <summary>
+            Refreshes the datagrid
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.SetRowHeight(System.Int32)">
+            <summary>
+            Sets the height for the rows in the datagrid
+            </summary>
+            <param name="height"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.SetColumnWidth(System.Int32)">
+            <summary>
+            Sets the width of the columns in the datagrid
+            </summary>
+            <param name="width"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.SetColumnTitles(System.Collections.Generic.IList{System.Object})">
+            <summary>
+            Sets the titles for the columns
+            </summary>
+            <param name="titles">A list of column titles</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.Colorize">
+            <summary>
+            Colorize the datagrid with the default settings
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.Colorize(System.Collections.Generic.IDictionary{System.Object,System.Object})">
+            <summary>
+            Colorize the datagrid with given keyword arguments
+            </summary>
+            <param name="keyw"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoDataGridControl.GetPreferredSize(System.Drawing.Size)">
+            <summary>
+            Returns the preferred size for the grid control
+            </summary>
+            <param name="proposedSize"></param>
+            <returns></returns>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoDataGridControl.Locked">
+            <summary>
+            Controls whether or not the datagrid is editable
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.colormapFn">
+            <summary>A delegate type for a color-mapping function. Maps the parameter "val" into the output color, where minVal and maxVal are the minimum and maximum ends of the color scale. The 'val' parameter is not guaranteed to be between minVal and maxVal, however.</summary>
+            <param name="val">The value to map to a color</param>
+            <param name="minVal">The value that should get mapped to the lowest value in the color map</param>
+            <param name="maxVal">The value that should get mapped to the highest value in the color map</param>
+            <returns>The result of mapping "val" to a color</returns>
+        </member>
+        <member name="T:ShoNS.Visualization.ArrayImage">
+            <summary>A class containing static functions for creating false-color images from arrays</summary>
+        </member>
+        <member name="F:ShoNS.Visualization.ArrayImage.ScaleRangeAuto">
+            <summary>
+            Scale value to enable auto-range scaling
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.RGBToColor(System.Double,System.Double,System.Double)">
+            <summary>Creates a color object from fractional r,g,b values</summary>
+            <param name="r">the red value (in [0,1])</param>
+            <param name="g">the green value (in [0,1])</param>
+            <param name="b">the blue value (in [0,1])</param>
+            <returns>The color</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.pseudorainbowFn(System.Double,System.Double,System.Double)">
+            <summary>The default color ramp: blue -> cyan -> green -> yellow -> red</summary>
+            <param name="val">the value to map to a color</param>
+            <param name="minVal">The value that should get mapped to the lowest value in the color map (blue)</param>
+            <param name="maxVal">The value that should get mapped to the highest value in the color map (red)</param>
+            <returns>The mapped color</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.GrayMap(System.Double,System.Double,System.Double)">
+            <summary>A grayscale color ramp</summary>
+            <param name="val">the value to map to a shade of gray</param>
+            <param name="minVal">The value that should get mapped to the lowest value in the color map (black)</param>
+            <param name="maxVal">The value that should get mapped to the highest value in the color map (white)</param>
+            <returns>The mapped color</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.BlueToRedMap(System.Double,System.Double,System.Double)">
+            <summary>A blue-to-red color ramp</summary>
+            <param name="val">the value to map to a color between blue and red</param>
+            <param name="minVal">The value that should get mapped to blue in the color map (black)</param>
+            <param name="maxVal">The value that should get mapped to red in the color map (white)</param>
+            <returns>The mapped color</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.ImageFromMatrix``1(ShoNS.Array.INumArray{``0}[],System.Double,System.Double,ShoNS.Visualization.colormapFn)">
+            <summary>Creates a false-color image of the input array(s)</summary>
+            <typeparam name="T">The type of the array</typeparam>
+            <param name="mats">The input array images -- if there is just 1 image, use a colormap function to convert values to colors; if there are 3 input images, assume they are R,G,B planes</param>
+            <param name="minVal">The value that should get mapped to the lowest value in the color map</param>
+            <param name="maxVal">The value tha should get mapped to the highest value in the color map</param>
+            <param name="fn">The color mapping function</param>
+            <returns>A false-color image representation of the input array</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.ArrayFromImage(System.Drawing.Image)">
+            <summary>Returns an array of brightness values of the input image</summary>
+            <param name="imgIn">the input image</param>
+            <returns>a Sho DoubleArray containing brightness values for the image</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.GetArrayImage(System.Object,System.Double,System.Double)">
+            <summary>Creates a false-color image of the input array using the default color map</summary>
+            <param name="mat">The input array</param>
+            <param name="minVal">The value that should get mapped to the lowest value in the color map</param>
+            <param name="maxVal">The value tha should get mapped to the highest value in the color map</param>
+            <returns>A false-color image representation of the input array</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.GetArrayImage(System.Object,System.Double,System.Double,ShoNS.Visualization.colormapFn)">
+            <summary>Creates a false-color image of the input array</summary>
+            <param name="mat">The input array</param>
+            <param name="minVal">The value that should get mapped to the lowest value in the color map</param>
+            <param name="maxVal">The value tha should get mapped to the highest value in the color map</param>
+            <param name="fn">The color mapping function</param>
+            <returns>A false-color image representation of the input array</returns>
+        </member>
+        <member name="T:ShoNS.Visualization.ArrayImage.IndexMap">
+            <summary>Colormap class for mapping a continuous value onto a discrete set of colors</summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.IndexMap.#ctor(System.Collections.IList)">
+            <summary>Constructor for Colormap class</summary>
+            <param name="colormap">A list of colors that make up the color map</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ArrayImage.IndexMap.mapColor(System.Double,System.Double,System.Double)">
+            <summary>
+            Maps val onto a color
+            </summary>
+            <param name="val">The value to map onto the colormap</param>
+            <param name="minVal">The value to map to the lowest color in the colormap (usually the smallest value in the image)</param>
+            <param name="maxVal">The value to map to the highest color in the colormap (usually the largest value in the image)</param>
+            <returns>The result of mapping parameter val onto a color</returns>
+        </member>
+        <member name="T:ShoNS.Visualization.ImageView">
+            <summary>
+            A class for displaying images
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageView.#ctor">
+            <summary>
+            Constructor for ImageView class
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageView.zoom(System.Double)">
+            <summary>
+            Sets the zoom factor
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageView.toggleZoomToFit">
+            <summary>
+            Toggles zoom-to-fit mode
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageView.setInterpMode(System.Drawing.Drawing2D.InterpolationMode)">
+            <summary>
+            Sets the interpolation mode used for drawing scaled images
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageView.SetImage(System.Drawing.Image)">
+            <summary>
+            Sets the image to display
+            </summary>
+            <param name="img"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageView.update">
+            <summary>
+            Force control to update its display
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ImageView.ZoomToFit">
+            <summary>
+            Controls whether the image is automatically scaled to fit the window
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ImageView.ZoomFactor">
+            <summary>
+            The zoom factor
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ImageView.InterpolationMode">
+            <summary>
+            The interpolation mode to use when scaling the image
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoContourChart">
+            <summary>
+            A ShoChart subclass that contains a contour plot
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoChart">
+            <summary>
+            Represents a Sho charting control. 
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.GetXAxis">
+            <summary>
+            Returns the X axis
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.GetYAxis">
+            <summary>
+            Returns the Y axis
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.#ctor">
+            <summary>
+            Creates an empty Sho chart
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.Clear">
+            <summary>
+            Clears all the series data and view customizations from the chart
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.ClearData">
+            <summary>
+            Clears all the series data from the chart
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.Render">
+            <summary>
+            Render() will refresh the ShoChart, even if it is frozen (.Freeze = true)
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.refresh">
+            <summary>
+            Refresh the chart display
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.Update">
+            <summary>
+            Causes ShoChart to redraw its invalidated regions
+            (unlike Control.Update, this is threadsafe)
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SaveImage(System.String)">
+            <summary>
+            Save an image of the chart to a file
+            </summary>
+            <param name="filename">The filename of the output file</param>
+            <remarks>Available image types include: .jpg, .gif, .bmp, .tif/.tiff, .png, .emf and .eps</remarks>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.GetImage(System.String)">
+            <summary>
+            Get an image of the chart
+            </summary>
+            <param name="extension">The format of the resulting image (".jpg", ".png", ".gif", ".bmp", ".tif", ".emf")</param>
+            <returns></returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SaveSVG(System.String,System.Boolean)">
+            <summary>
+            Saves an image of the chart (Obsolete: use SaveImage instead)
+            </summary>
+            <param name="filename"></param>
+            <param name="compress"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddScatterData(System.Object)">
+            <summary>
+            Adds a new data series (Obsolete: Use AddSeries instead)
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddScatterData(System.Object,System.Object)">
+            <summary>
+            Adds a new data series (Obsolete: Use AddSeries instead)
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddScatterData(System.Object,System.Object,System.Collections.Generic.IDictionary{System.String,System.Object})">
+            <summary>
+            Adds a new data series (Obsolete: Use AddSeries instead)
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddMultipleScatterData(System.Collections.IList,System.Collections.IDictionary)">
+            <summary>
+            Adds multiple new data series (Obsolete: Use AddMultipleSeries instead)
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddBarSeries(System.Object)">
+            <summary>
+            Add a new bar series, with autogenerated x-values
+            </summary>
+            <param name="y">The data to plot</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddBarSeries(System.Object,System.Object)">
+            <summary>
+            Add a new bar series, specifying both x- and y- data
+            </summary>
+            <param name="x">The x-values to plot</param>
+            <param name="y">The corresponding y-values</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddBarSeries(System.Object,System.Object,System.Collections.Generic.IDictionary{System.String,System.Object})">
+            <summary>
+            Add a new bar series, with optional keyword arguments
+            </summary>
+            <param name="x">The x-values to plot</param>
+            <param name="y">The corresponding y-values</param>
+            <param name="options">A dictionary of additional settings (key/value pairs)</param>
+            <remarks>Keyword options include: 
+            <para>    color: The color for this series (Color)</para>
+            <para>    labels: A list of label strings for the data points (list of strings)</para>
+            <para>    barwidth: The width of the bars (double)</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis (string)</para>
+            </remarks>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddSeries(System.Object)">
+            <summary>
+            Add a new line series, with autogenerated x-values
+            </summary>
+            <param name="y">The data to plot</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddSeries(System.Object,System.Object)">
+            <summary>
+            Add a new line series, specifying both x- and y- data
+            </summary>
+            <param name="x">The x-values to plot</param>
+            <param name="y">The corresponding y-values</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddSeries(System.Object,System.Object,System.Collections.Generic.IDictionary{System.String,System.Object})">
+            <summary>
+            Add a new data series, with optional keyword arguments
+            </summary>
+            <param name="x">The x-values to plot</param>
+            <param name="y">The corresponding y-values</param>
+            <param name="options">A dictionary of additional settings (key/value pairs)</param>
+            <remarks>Keyword options include: 
+            <para>    pttype: descriptor for the marker style (string)</para>
+            <para>    linetype: descriptor for the line style (string)</para>
+            <para>    showLine: boolean value that specifies whether or not to draw a line, regardless of the marker style passed in(bool)</para>
+            <para>    size: marker size(double)</para>
+            <para>    linewidth: line width(double)</para>
+            <para>    bubbleSizes: if present, create a bubblechart, with these values as the diameter of the bubbles(list of doubles)</para>
+            <para>    deviations: if present, create a chart with error bars, with these values as the radius of the error bars (list of doubles)</para>
+            <para>    color: The color for this series</para>
+            <para>    labels: A list of label strings for the data points</para>
+            <para>    barwidth: The width of the bars</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis</para>
+            <para>    markerColor: A System.Drawing.Color to fill the markers with</para>
+            <para>    fillMarkers: Either a boolean (fill/no-fill markers), or a System.Drawing.Color to fill markers with</para>
+            </remarks>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.AddMultipleSeries(System.Collections.IList,System.Collections.Generic.IDictionary{System.String,System.Object})">
+            <summary>
+            Add multiple data series to the chart
+            </summary>
+            <param name="args">A list of data points and optional line/marker specifiers</param>
+            <param name="options">A dictionary of optional keyword arguments</param>
+            <remarks>Keyword options include: 
+            <para>    pttype: descriptor for the marker style (string)</para>
+            <para>    linetype: descriptor for the line style (string)</para>
+            <para>    showLine: boolean value that specifies whether or not to draw a line, regardless of the marker style passed in(bool)</para>
+            <para>    size: marker size(double)</para>
+            <para>    linewidth: line width(double)</para>
+            <para>    bubbleSizes: if present, create a bubblechart, with these values as the diameter of the bubbles(list of doubles)</para>
+            <para>    deviations: if present, create a chart with error bars, with these values as the radius of the error bars (list of doubles)</para>
+            <para>    color: The color for this series</para>
+            <para>    labels: A list of label strings for the data points</para>
+            <para>    barwidth: The width of the bars</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis</para>
+            <para>    markerColor: A System.Drawing.Color to fill the markers with</para>
+            <para>    fillMarkers: Either a boolean (fill/no-fill markers), or a System.Drawing.Color to fill markers with</para>
+            </remarks>      
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SetXLabels(System.Collections.IEnumerable,System.Collections.IEnumerable)">
+            <summary>
+            Apply custom labels to the x axis
+            </summary>
+            <param name="positions">The position to place the labels (null to remove any custom labels)</param>
+            <param name="labels">The corresponding label to place at the specified positions. Optional: if null, use the position as a label</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SetYLabels(System.Collections.IEnumerable,System.Collections.IEnumerable)">
+            <summary>
+            Apply custom labels to the y axis
+            </summary>
+            <param name="positions">The position to place the labels (null to remove any custom labels)</param>
+            <param name="labels">The corresponding label to place at the specified positions. Optional: if null, use the position as a label</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SetXRange(System.Double,System.Double)">
+            <summary>
+            Manually set the x-axis range
+            </summary>
+            <param name="xmin"></param>
+            <param name="xmax"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SetXAutoRange">
+            <summary>
+            Enable automatic ranging of the X axis
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SetYRange(System.Double,System.Double)">
+            <summary>
+            Manually set the y-axis range
+            </summary>
+            <param name="ymin"></param>
+            <param name="ymax"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SetYAutoRange">
+            <summary>
+            Enable automatic ranging of the Y axis
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SetXYRange(System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            Manually set the range of the axes
+            </summary>
+            <param name="xmin"></param>
+            <param name="xmax"></param>
+            <param name="ymin"></param>
+            <param name="ymax"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SetXYAutoRange">
+            <summary>
+            Set automatic ranging of both axes
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.Sort">
+            <summary>
+            Sorts a chart by its y-data, in ascending order. Sorting based on the values in the first series, all other series follow the sort.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.Sort(System.String)">
+            <summary>
+            Sorts a chart by a specified axis, in ascending order. Sorting based on the values in the first series, all other series follow the sort.
+            </summary>
+            <param name="axis">The axis to use for sorting data, either "X" or "Y"</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.Sort(System.String,System.Boolean)">
+            <summary>
+            Sorts a chart by a specified axis, in ascending order. Sorting based on the values in the first series, all other series follow the sort.
+            </summary>
+            <param name="axis">The axis to use for sorting data, either "X" or "Y"</param>
+            <param name="descending">A boolean, true if sort in descending order, false if ascending.</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SortBy(System.String,System.Windows.Forms.DataVisualization.Charting.PointSortOrder)">
+            <summary>
+            Sorts a chart by its x- or y- data. Sorting based on the values in the first series, all other series follow the sort.
+            </summary>
+            <param name="axis">The axis to use for sorting data, either "X" or "Y"</param>
+            <param name="order">The order to sort the values, either SortAscending or SortDescending</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.Plot(System.Object[])">
+            <summary>
+            Convenience method to create a new plot (or append to a held plot)
+            </summary>
+            <param name="args">A list of collections to plot, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    pttype: descriptor for the marker style (string)</para>
+            <para>    showLine: boolean value that specifies whether or not to draw a line, regardless of the marker style passed in(bool)</para>
+            <para>    size: marker size(double)</para>
+            <para>    linewidth: line width(double)</para>
+            <para>    bubbleSizes: if present, create a bubblechart, with these values as the diameter of the bubbles(list of doubles)</para>
+            <para>    deviations: if present, create a chart with error bars, with these values as the radius of the error bars (list of doubles)</para>
+            <para>    color: The color for this series</para>
+            <para>    labels: A list of label strings for the data points</para>
+            <para>    legend: whether or not the legend should be shown (bool)</para>
+            <para>    barwidth: The width of the bars</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis</para>
+            <para>    stacked: create a stacked bar chart (if non-null). If stacked value = 100, create a percentile bar chart</para>
+            </remarks>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.Bar(System.Object[])">
+            <summary>
+            Convenience method to create a new bar chart (or append to a held chart)
+            </summary>
+            <param name="args">A list of collections to chart, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    color: The color for this series (Color)</para>
+            <para>    labels: A list of label strings for the data points (list of strings)</para>
+            <para>    legend: whether or not the legend should be shown (bool)</para>
+            <para>    barwidth: The width of the bars (double)</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis (string)</para>
+            </remarks>
+            <example>Examples:
+            <para>    Bar(y) -- create a barchart of the values in y</para>
+            <para>    Bar(c,y) -- create a barchart of the values in y, with the categories in c on the x-axis</para>
+            <para>    Bar(c1,y1, c2,y2) -- create a barchart with multiple series</para>
+            </example>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.DundasChart">
+            <summary>
+            The underlying System.Windows.Forms.DataVisualization.Charting.Chart object for this chart.
+            Users familiar with the object model can use their advanced features directly.\
+            Note: the DundasChart data belongs to a separate thread within the ShoChart, so
+            manipulations should be done with Control.Invoke
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.Key">
+            <summary>
+            The figure key for this chart
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.Description">
+            <summary>
+            The description for this chart
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.Hold">
+            <summary>
+            True if this chart is in hold mode
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.Freeze">
+            <summary>
+            if Freeze=True, chart only updates when .Render() is called
+            If false, chart updates like a normal control
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HasLegend">
+            <summary>
+            Controls whether or not the chart has a legend
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.SeriesNames">
+            <summary>
+            A collection of names of the series in the chart. 
+            Customize the series names by modifying the entries: 
+              chart.SeriesNames[0] = "First series"
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.BackImage">
+            <summary>
+            The background image for this chart
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.BackImageBounds">
+            <summary>
+            The bounds for the background image -- use the empty rectangle to use the chart's bounds
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.BackImageInterpolationMode">
+            <summary>
+            The InterpolationMode to use when drawing the background image
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.PixelOffsetMode">
+            <summary>
+            The PixelOffsetMode to use when drawing the background image
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.ChartAnnotations">
+            <summary>
+            The list of annotations on this chart
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.Title">
+            <summary>
+            The title of the chart
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.TitleFont">
+            <summary>
+            The font to use for the chart's title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.TitleColor">
+            <summary>
+            The color to use for the chart's title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.DefaultLineWidth">
+            <summary>
+            Static property storing the default line width to use for new line charts
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.LineWidth">
+            <summary>
+            The line width to use for line series in this chart
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XTitle">
+            <summary>
+            The title for the X axis
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YTitle">
+            <summary>
+            The title for the Y axis
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XTitleFont">
+            <summary>
+            The font for the X axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YTitleFont">
+            <summary>
+            The font for the Y axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XTitleColor">
+            <summary>
+            The color for the X axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YTitleColor">
+            <summary>
+            The color for the Y axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XTitleAlignment">
+            <summary>
+            The alignment for the X axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YTitleAlignment">
+            <summary>
+            The alignment for the Y axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XTitleOffset">
+            <summary>
+            The distance to offset the X axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YTitleOffset">
+            <summary>
+            The distance to offset the Y axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XTitleOrientation">
+            <summary>
+            The orientation for the X axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YTitleOrientation">
+            <summary>
+            The orientation for the Y axis title
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XLabelFont">
+            <summary>
+            The font for the X axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YLabelFont">
+            <summary>
+            The font for the Y axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XLabelOrientation">
+            <summary>
+            The orientation of the X axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YLabelOrientation">
+            <summary>
+            The orientation of the Y axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XLabelOffset">
+            <summary>
+            The distance to offset the X axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YLabelOffset">
+            <summary>
+            The distance to offset the Y axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XLabelAlign">
+            <summary>
+            The alignment for X axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YLabelAlign">
+            <summary>
+            The alignment for Y axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XMajorTicks">
+            <summary>
+            A list of discrete postions for major tickmarks on the X axis
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YMajorTicks">
+            <summary>
+            A list of discrete postions for major tickmarks on the Y axis
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XMinorTickFrequency">
+            <summary>
+            The number of minor tickmarks between major ticks on the X axis
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YMinorTickFrequency">
+            <summary>
+            The number of minor tickmarks between major ticks on the Y axis
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XLogBase">
+            <summary>
+            The logarithm base to use for the logarithmically-scaled Y axis
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.YLogBase">
+            <summary>
+            The logarithm base to use for the logarithmically-scaled Y axis
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.VerticalMajorGridlinesVisible">
+            <summary>
+            Controls whether or not the major vertical gridlines are visible
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.VerticalMajorGridlineWidth">
+            <summary>
+            The width of the major vertical gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.VerticalMajorGridlineColor">
+            <summary>
+            The color to use when drawing major vertical gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.VerticalMajorGridlinePattern">
+            <summary>
+            The pattern to use when drawing major vertical gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.VerticalMinorGridlinesVisible">
+            <summary>
+            Controls whether or not the minor vertical gridlines are visible
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.VerticalMinorGridlineWidth">
+            <summary>
+            The width of the minor vertical gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.VerticalMinorGridlineColor">
+            <summary>
+            The color to use when drawing minor vertical gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.VerticalMinorGridlinePattern">
+            <summary>
+            The pattern to use when drawing minor vertical gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HorizontalMajorGridlinesVisible">
+            <summary>
+            Controls whether or not the major horizontal gridlines are visible
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HorizontalMajorGridlineWidth">
+            <summary>
+            The width of the major horizontal gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HorizontalMajorGridlineColor">
+            <summary>
+            The color to use when drawing major horizontal gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HorizontalMajorGridlinePattern">
+            <summary>
+            The pattern to use when drawing major horizontal gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HorizontalMinorGridlinesVisible">
+            <summary>
+            Controls whether or not the minor horizontal gridlines are visible
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HorizontalMinorGridlineWidth">
+            <summary>
+            The width of the minor horizontal gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HorizontalMinorGridlineColor">
+            <summary>
+            The color to use when drawing minor horizontal gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.HorizontalMinorGridlinePattern">
+            <summary>
+            The pattern to use when drawing minor horizontal gridlines
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.XLabelLayout">
+            <summary>
+            Controls the layout for x-axis labels
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.SortAscending">
+            <summary>
+            An alias for System.Windows.Forms.DataVisualization.Charting.PointSortOrder.Ascending
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.SortDescending">
+            <summary>
+            An alias for System.Windows.Forms.DataVisualization.Charting.PointSortOrder.Descending
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoChart.SeriesNameCollection">
+            <summary>
+            Represents a list of names for the series in a chart
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.IndexOf(System.String)">
+            <summary>
+            Returns the index of a series name
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.Insert(System.Int32,System.String)">
+            <summary>
+            Not implemented
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.RemoveAt(System.Int32)">
+            <summary>
+            Not implemented
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.Add(System.String)">
+            <summary>
+            Not implemented
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.Clear">
+            <summary>
+            Not implemented
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.Contains(System.String)">
+            <summary>
+            Not implemented
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.CopyTo(System.String[],System.Int32)">
+            <summary>
+            Not implemented
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.Remove(System.String)">
+            <summary>
+            Not implemented
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.GetEnumerator">
+            <summary>
+            Returns an enumerator for the collection
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.SeriesNameCollection.Item(System.Int32)">
+            <summary>
+            Gets or sets the name of a series
+            </summary>
+            <param name="index"></param>
+            <returns></returns>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.SeriesNameCollection.Count">
+            <summary>
+            The number of series in the collection
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.SeriesNameCollection.IsReadOnly">
+            <summary>
+            Always false
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.SeriesNameCollection.IsFixedSize">
+            <summary>
+            Always true
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoChart.SeriesNameCollection.SeriesNameEnumerator">
+            <summary>
+            Enumerator for SeriesNameCollection
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.SeriesNameEnumerator.MoveNext">
+            <summary>
+            Move to the next series name
+            </summary>
+            <returns>Returns true if not at end</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.SeriesNameEnumerator.Reset">
+            <summary>
+            Resets the enumerator to beginning of collection
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChart.SeriesNameCollection.SeriesNameEnumerator.Dispose">
+            <summary>
+            Disposes of the enumerator
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChart.SeriesNameCollection.SeriesNameEnumerator.Current">
+            <summary>
+            Value of the current series name
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoContourChart.#ctor(ShoNS.Array.DoubleArray,System.Collections.IEnumerable)">
+            <summary>
+            Construcor for a contour plot from an input array and list of contour values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoContourChart.#ctor(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF)">
+            <summary>
+            Construcor for a contour plot from an input array and list of contour values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <param name="bounds">The bounding rectangle for the contour plot (if Empty, use the size of the input array as the bounds)</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoContourChart.#ctor(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF,System.Boolean)">
+            <summary>
+            Construcor for a contour plot from an input array and list of contour values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <param name="bounds">The bounding rectangle for the contour plot (if Empty, use the size of the input array as the bounds)</param>
+            <param name="useColorbar">If true, display a colorbar representing the mapping of array value to color</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="T:ShoNS.Visualization.ContourValues">
+            <summary>
+            A collection of values to use for plotting contours.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ContourValues.#ctor(System.Collections.IEnumerable)">
+            <summary>
+            Creates a ContourValues collection from a discrete set of values
+            </summary>
+            <param name="discreteValues">A list of the values to use as contour locations</param>
+        </member>
+        <member name="T:ShoNS.Visualization.IFigure">
+            <summary>
+            Interface for "figures". A figure can contain a Sho plot, bar chart, image view, or other visualization.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.Plot(System.Object[])">
+            <summary>
+            Convenience method to create a new plot (or append to a held plot)
+            </summary>
+            <param name="args">A list of collections to plot, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    pttype: descriptor for the marker style (string)</para>
+            <para>    showLine: boolean value that specifies whether or not to draw a line, regardless of the marker style passed in(bool)</para>
+            <para>    size: marker size(double)</para>
+            <para>    linewidth: line width(double)</para>
+            <para>    bubbleSizes: if present, create a bubblechart, with these values as the diameter of the bubbles(list of doubles)</para>
+            <para>    deviations: if present, create an error bar chart, with these values as the +/- deviations from the y values</para>
+            <para>    color: The color for this series</para>
+            <para>    labels: A list of label strings for the data points</para>
+            <para>    barwidth: The width of the bars</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis</para>
+            </remarks>
+            
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.Bar(System.Object[])">
+            <summary>
+            Convenience method to create a new bar chart (or append to a held chart)
+            </summary>
+            <param name="args">A list of collections to chart, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    stacked: if present, create a stacked bar chart. If value=100, create a percentile bar chart</para>
+            <para>    color: The color for this series (Color)</para>
+            <para>    labels: A list of label strings for the data points (list of strings)</para>
+            <para>    barwidth: The width of the bars (double)</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis (string)</para>
+            </remarks>
+            <example>Examples:
+            <para>    Bar(y) -- create a barchart of the values in y</para>
+            <para>    Bar(c,y) -- create a barchart of the values in y, with the categories in c on the x-axis</para>
+            <para>    Bar(c1,y1,c2,y2) -- create a barchart with multiple series</para>
+            </example>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.Contour(ShoNS.Array.DoubleArray)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <param name="bounds">The bounding rectangle for the contour plot</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF,System.Boolean)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <param name="bounds">The bounding rectangle for the contour plot (if Empty, use the size of the input array as the bounds)</param>
+            <param name="useColorbar">If true, display a colorbar representing the mapping of array value to color</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.DGV(System.Object)">
+            <summary>
+            Static helper method to create and display a datagrid control
+            </summary>
+            <param name="data">The data to display in the grid</param>
+            <returns>The ShoDataGridControl</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.ImageView(ShoNS.Array.DoubleArray)">
+            <summary>
+            Display a DoubleArray as an image
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.ImageView(ShoNS.Array.DoubleArray,ShoNS.Visualization.colormapFn)">
+            <summary>
+            Display a DoubleArray as an image using the given colormap function
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.ImageView(ShoNS.Array.DoubleArray,System.Double,System.Double)">
+            <summary>
+            Display a DoubleArray as an image using the specified value range
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.IFigure.ImageView(ShoNS.Array.DoubleArray,System.Double,System.Double,ShoNS.Visualization.colormapFn)">
+            <summary>
+            Display a DoubleArray as an image using the specified value range and colormap function
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.IFigure.Hold">
+            <summary>
+            Enable holding on the current plot
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.IFigure.Chart">
+            <summary>
+            Gets the current ShoChart
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoChartAnnotation">
+            <summary>
+            Abstract base class for annotations on Sho charts
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartAnnotation.Draw(System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Draw method that gets called by the framework -- to be implemented by subclasses,
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartAnnotation.ConvertToScreenPoint(System.Drawing.PointF,System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Helper method to convert data coordinates to screen coordinates
+            </summary>
+            <param name="pt">The point to convert</param>
+            <param name="g">The ChartGraphics for the chart</param>
+            <param name="chartArea">The ChartArea for the chart</param>
+            <returns>The converted point</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartAnnotation.ConvertToScreenRect(System.Drawing.RectangleF,System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Helper method to convert data coordinates to screen coordinates
+            </summary>
+            <param name="rect">The rectangle to convert</param>
+            <param name="g">The ChartGraphics for the chart</param>
+            <param name="chartArea">The ChartArea for the chart</param>
+            <returns>The converted rectangle</returns>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartAnnotation.Color">
+            <summary>
+            Foreground color for the annotation
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartAnnotation.BackColor">
+            <summary>
+            Background color for the annotation
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartAnnotation.LineWidth">
+            <summary>
+            Line width to use when drawing the annotation
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartAnnotation.Layer">
+            <summary>
+            The layer to use (foreground or background) when drawing the annotation
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartAnnotation.BackBrush">
+            <summary>
+            Brush to use for a patterned background fill, 
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoChartAnnotation.ShoChartLayer">
+            <summary>
+            Enum specifying Foreground or Background, to be used when specifying what layer to draw an annotation in
+            </summary>
+        </member>
+        <member name="F:ShoNS.Visualization.ShoChartAnnotation.ShoChartLayer.Background">
+            <summary>
+            Annotation will be drawn behind the chart
+            </summary>
+        </member>
+        <member name="F:ShoNS.Visualization.ShoChartAnnotation.ShoChartLayer.Foreground">
+            <summary>
+            Annotation will be drawn over the chart
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.RectAnnotation">
+            <summary>
+            A rectangular plot annotation.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.RectAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single)">
+            <summary>
+            Creates a new rectangle annotation
+            </summary>
+            <param name="x">The left edge of the annotation, in plot coordinates</param>
+            <param name="y">The bottom of the annotation, in plot coordinates</param>
+            <param name="width">The width of the annotation, in plot units</param>
+            <param name="height">The height of the annotation, in plot units</param>
+        </member>
+        <member name="M:ShoNS.Visualization.RectAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single,System.Drawing.Color)">
+            <summary>
+            Creates a new rectangle annotation
+            </summary>
+            <param name="x">The left edge of the annotation, in plot coordinates</param>
+            <param name="y">The bottom of the annotation, in plot coordinates</param>
+            <param name="width">The width of the annotation, in plot units</param>
+            <param name="height">The height of the annotation, in plot units</param>
+            <param name="color">The color for the annotation outline</param>
+        </member>
+        <member name="M:ShoNS.Visualization.RectAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single,System.Drawing.Color,System.Single)">
+            <summary>
+            Creates a new rectangle annotation
+            </summary>
+            <param name="x">The left edge of the annotation, in plot coordinates</param>
+            <param name="y">The bottom of the annotation, in plot coordinates</param>
+            <param name="width">The width of the annotation, in plot units</param>
+            <param name="height">The height of the annotation, in plot units</param>
+            <param name="color">The color for the annotation outline</param>
+            <param name="lineWidth">The width of the annotation outline, in pixels</param>
+        </member>
+        <member name="M:ShoNS.Visualization.RectAnnotation.#ctor(System.Drawing.RectangleF)">
+            <summary>
+            Creates a new rectangle annotation
+            </summary>
+            <param name="bounds">The bounds of the annotation, in plot coordinates</param>
+        </member>
+        <member name="M:ShoNS.Visualization.RectAnnotation.#ctor(System.Drawing.RectangleF,System.Drawing.Color)">
+            <summary>
+            Creates a new rectangle annotation
+            </summary>
+            <param name="bounds">The bounds of the annotation, in plot coordinates</param>
+            <param name="color">The color for the annotation outline</param>
+        </member>
+        <member name="M:ShoNS.Visualization.RectAnnotation.#ctor(System.Drawing.RectangleF,System.Drawing.Color,System.Single)">
+            <summary>
+            Creates a new rectangle annotation
+            </summary>
+            <param name="bounds">The bounds of the annotation, in plot coordinates</param>
+            <param name="color">The color for the annotation outline</param>
+            <param name="lineWidth">The width of the annotation outline, in pixels</param>
+        </member>
+        <member name="M:ShoNS.Visualization.RectAnnotation.Draw(System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Draws the annotation
+            </summary>
+            <remarks>Called by the framework when the chart is drawn</remarks>
+        </member>
+        <member name="P:ShoNS.Visualization.RectAnnotation.Bounds">
+            <summary>
+            The bounds of the annotation, in plot coordinates.
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.LineAnnotation">
+            <summary>
+            A plot annotation consisting of a single line segment.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.LineAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single)">
+            <summary>
+            </summary>
+            <param name="x1">The x-location of the first point, in plot coordinates</param>
+            <param name="y1">The y-location of the first point, in plot coordinates</param>
+            <param name="x2">The x-location of the second point, in plot coordinates</param>
+            <param name="y2">The y-location of the second point, in plot coordinates</param>
+        </member>
+        <member name="M:ShoNS.Visualization.LineAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single,System.Drawing.Color)">
+            <summary>
+            
+            </summary>
+            <param name="x1">The x-location of the first point, in plot coordinates</param>
+            <param name="y1">The y-location of the first point, in plot coordinates</param>
+            <param name="x2">The x-location of the second point, in plot coordinates</param>
+            <param name="y2">The y-location of the second point, in plot coordinates</param>
+            <param name="color">The color of the line</param>
+        </member>
+        <member name="M:ShoNS.Visualization.LineAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single,System.Drawing.Color,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="x1">The x-location of the first point, in plot coordinates</param>
+            <param name="y1">The y-location of the first point, in plot coordinates</param>
+            <param name="x2">The x-location of the second point, in plot coordinates</param>
+            <param name="y2">The y-location of the second point, in plot coordinates</param>
+            <param name="color">The color of the line</param>
+            <param name="lineWidth">The width of the line, in pixels</param>
+        </member>
+        <member name="M:ShoNS.Visualization.LineAnnotation.Draw(System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Draws the annotation
+            </summary>
+            <remarks>Called by the framework when the chart is drawn</remarks>
+        </member>
+        <member name="P:ShoNS.Visualization.LineAnnotation.StartPt">
+            <summary>
+            The first point of the line annotation
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.LineAnnotation.EndPt">
+            <summary>
+            The endpoing of the line annotation
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.PolylineAnnotation">
+            <summary>
+            A plot annotation consisting of a series of connected line segments.
+            </summary>
+        </member>
+        <member name="F:ShoNS.Visualization.PolylineAnnotation.Points">
+            <summary>
+            The endpoints of the line segments in the annotation (in plot coordinates)
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.PolylineAnnotation.#ctor(System.Collections.Generic.IList{System.Drawing.PointF})">
+            <summary>
+            
+            </summary>
+            <param name="pts">A list of vertices for the polyline, in plot coordinates</param>
+        </member>
+        <member name="M:ShoNS.Visualization.PolylineAnnotation.#ctor(System.Collections.Generic.IList{System.Drawing.PointF},System.Drawing.Color)">
+            <summary>
+            
+            </summary>
+            <param name="pts">A list of vertices for the polyline, in plot coordinates</param>
+            <param name="color">The color for the polyline</param>
+        </member>
+        <member name="M:ShoNS.Visualization.PolylineAnnotation.#ctor(System.Collections.Generic.IList{System.Drawing.PointF},System.Drawing.Color,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="pts">A list of vertices for the polyline, in plot coordinates</param>
+            <param name="color">The color for the polyline</param>
+            <param name="lineWidth">The line width of the polyline, in pixels</param>
+        </member>
+        <member name="M:ShoNS.Visualization.PolylineAnnotation.Draw(System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Draws the annotation
+            </summary>
+            <remarks>Called by the framework when the chart is drawn</remarks>
+        </member>
+        <member name="T:ShoNS.Visualization.EllipseAnnotation">
+            <summary>
+            A plot annotation in the shape of an ellipse.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.EllipseAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="x">The left edge of the annotation, in plot coordinates</param>
+            <param name="y">The bottom of the annotation, in plot coordinates</param>
+            <param name="width">The width of the annotation, in plot units</param>
+            <param name="height">The height of the annotation, in plot units</param>
+        </member>
+        <member name="M:ShoNS.Visualization.EllipseAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single,System.Drawing.Color)">
+            <summary>
+            
+            </summary>
+            <param name="x">The left edge of the annotation, in plot coordinates</param>
+            <param name="y">The bottom of the annotation, in plot coordinates</param>
+            <param name="width">The width of the annotation, in plot units</param>
+            <param name="height">The height of the annotation, in plot units</param>
+            <param name="color">The color for the annotation outline</param>
+        </member>
+        <member name="M:ShoNS.Visualization.EllipseAnnotation.#ctor(System.Single,System.Single,System.Single,System.Single,System.Drawing.Color,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="x">The left edge of the annotation, in plot coordinates</param>
+            <param name="y">The bottom of the annotation, in plot coordinates</param>
+            <param name="width">The width of the annotation, in plot units</param>
+            <param name="height">The height of the annotation, in plot units</param>
+            <param name="color">The color for the annotation outline</param>
+            <param name="lineWidth">The width of the annotation outline, in pixels</param>
+        </member>
+        <member name="M:ShoNS.Visualization.EllipseAnnotation.#ctor(System.Drawing.RectangleF)">
+            <summary>
+            
+            </summary>
+            <param name="bounds">The bounds of the annotation, in plot coordinates</param>
+        </member>
+        <member name="M:ShoNS.Visualization.EllipseAnnotation.#ctor(System.Drawing.RectangleF,System.Drawing.Color)">
+            <summary>
+            
+            </summary>
+            <param name="bounds">The bounds of the annotation, in plot coordinates</param>
+            <param name="color">The color for the annotation outline</param>
+        </member>
+        <member name="M:ShoNS.Visualization.EllipseAnnotation.#ctor(System.Drawing.RectangleF,System.Drawing.Color,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="bounds">The bounds of the annotation, in plot coordinates</param>
+            <param name="color">The color for the annotation outline</param>
+            <param name="lineWidth">The width of the annotation outline, in pixels</param>
+        </member>
+        <member name="M:ShoNS.Visualization.EllipseAnnotation.Draw(System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Draws the annotation
+            </summary>
+            <remarks>Called by the framework when the chart is drawn</remarks>
+        </member>
+        <member name="P:ShoNS.Visualization.EllipseAnnotation.Bounds">
+            <summary>
+            The bounds of the ellipse
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.TextAnnotation">
+            <summary>
+            A plot annotation consisting of text.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.TextAnnotation.#ctor(System.String,System.Single,System.Single,System.Drawing.Font)">
+            <summary>
+            
+            </summary>
+            <param name="text">The text to display in the annotation</param>
+            <param name="x">The x-coordinate of the lower-left corner of the annotation, in plot coordinates</param>
+            <param name="y">The y-coordinate of the lower-left corner of the annotation, in plot coordinates</param>
+            <param name="font">The font to use to draw the text</param>
+        </member>
+        <member name="M:ShoNS.Visualization.TextAnnotation.#ctor(System.String,System.Single,System.Single,System.String,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="text">The text to display in the annotation</param>
+            <param name="x">The x-coordinate of the lower-left corner of the annotation, in plot coordinates</param>
+            <param name="y">The y-coordinate of the lower-left corner of the annotation, in plot coordinates</param>
+            <param name="fontName">The name of the font to use to draw the text</param>
+            <param name="fontSize">The size, in points, of the font to use</param>
+        </member>
+        <member name="M:ShoNS.Visualization.TextAnnotation.#ctor(System.String,System.Drawing.PointF,System.Drawing.Font)">
+            <summary>
+            
+            </summary>
+            <param name="text">The text to display in the annotation</param>
+            <param name="location">The lower-left corner of the annotation, in plot coordinates</param>
+            <param name="font">The font to use to draw the text</param>
+        </member>
+        <member name="M:ShoNS.Visualization.TextAnnotation.#ctor(System.String,System.Drawing.PointF,System.String,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="text">The text to display in the annotation</param>
+            <param name="location">The lower-left corner of the annotation, in plot coordinates</param>
+            <param name="fontName">The name of the font to use to draw the text</param>
+            <param name="fontSize">The size, in points, of the font to use</param>
+        </member>
+        <member name="M:ShoNS.Visualization.TextAnnotation.Draw(System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Draws the annotation
+            </summary>
+            <remarks>Called by the framework when the chart is drawn</remarks>
+        </member>
+        <member name="P:ShoNS.Visualization.TextAnnotation.Text">
+            <summary>
+            The string to display
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.TextAnnotation.Position">
+            <summary>
+            The position of the text annotation, in plot coordinates
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.TextAnnotation.Font">
+            <summary>
+            The font to use to draw the annotation
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ImageAnnotation">
+            <summary>
+            A plot annotation consisting of an image that covers a given rectangle in plot space.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageAnnotation.#ctor(System.Drawing.Image)">
+            <summary>
+            
+            </summary>
+            <param name="img">The image to display</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageAnnotation.#ctor(System.Drawing.Image,System.Single,System.Single,System.Single,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="img">The image to display</param>
+            <param name="x">The left edge of the image, in plot coordinates</param>
+            <param name="y">The bottom of the image, in plot coordinates</param>
+            <param name="width">The width of the image, in plot units</param>
+            <param name="height">The height of the image, in plot units</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageAnnotation.#ctor(System.Drawing.Image,System.Drawing.RectangleF)">
+            <summary>
+            
+            </summary>
+            <param name="img">The image to display</param>
+            <param name="bounds">The bounding rectangle of the image, in plot coordinates</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ImageAnnotation.Draw(System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Draws the annotation
+            </summary>
+            <remarks>Called by the framework when the chart is drawn</remarks>
+        </member>
+        <member name="P:ShoNS.Visualization.ImageAnnotation.Bounds">
+            <summary>
+            The bounds for the image, in plot coordinates
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ImageAnnotation.Image">
+            <summary>
+            The image to display
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ImageAnnotation.InterpolationMode">
+            <summary>
+            The InterpolationMode to use when drawing the image
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.SpriteAnnotation">
+            <summary>
+            A plot annotation consisting of an image that stays the same size regardless of zoom.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.SpriteAnnotation.#ctor(System.Drawing.Image,System.Single,System.Single)">
+            <summary>
+            
+            </summary>
+            <param name="img">The image to display</param>
+            <param name="x">The x-coordinate of the center of the image, in plot coordinates</param>
+            <param name="y">The y-coordinate of the center of the image, in plot coordinates</param>
+        </member>
+        <member name="M:ShoNS.Visualization.SpriteAnnotation.Draw(System.Windows.Forms.DataVisualization.Charting.ChartGraphics,System.Windows.Forms.DataVisualization.Charting.ChartArea)">
+            <summary>
+            Draws the annotation
+            </summary>
+            <remarks>Called by the framework when the chart is drawn</remarks>
+        </member>
+        <member name="P:ShoNS.Visualization.SpriteAnnotation.Location">
+            <summary>
+            The center point of the annotation
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.SpriteAnnotation.Image">
+            <summary>
+            The image to draw
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.SpriteAnnotation.InterpolationMode">
+            <summary>
+            The InterpolationMode to use to draw the image
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoChartForm">
+            <summary>
+            ShoChartForm is a subclass of WinForms.Form, used to hold one or more Sho Charts
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.#ctor">
+            <summary>
+            Constructor for a Sho chart form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.DisplayForm">
+            <summary>
+            Displays the Sho chart form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.MyDialog">
+            <summary>
+            MyDialog() wraps Form.ShowDialog()
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.GetFigureID">
+            <summary>
+            Finds the figure key for the Sho chart contained in this form.
+            </summary>
+            <returns>The key for this form's chart, or null if there is no chart, or the chart isn't a figure</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.ClearFigure">
+            <summary>
+            Updates the title bar for this form
+            </summary>      
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.UpdateDescription">
+            <summary>
+            Updates the title bar for this form
+            </summary>      
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Grid(System.Int32,System.Int32)">
+            <summary>
+            Create a grid of subplots and direct plotting commands to the first cell
+            </summary>
+            <param name="rows">The number of rows in the grid</param>
+            <param name="cols">The number of columns in the grid</param>
+            <returns>A ShoChartGrid with the specified number of rows and columns</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Plot(System.Object[])">
+            <summary>
+            Convenience method to create a new plot (or append to a held plot)
+            </summary>
+            <param name="args">A list of collections to plot, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    pttype: descriptor for the marker style (string)</para>
+            <para>    showLine: boolean value that specifies whether or not to draw a line, regardless of the marker style passed in(bool)</para>
+            <para>    size: marker size(double)</para>
+            <para>    linewidth: line width(double)</para>
+            <para>    bubbleSizes: if present, create a bubblechart, with these values as the diameter of the bubbles(list of doubles)</para>
+            <para>    color: The color for this series</para>
+            <para>    labels: A list of label strings for the data points</para>
+            <para>    barwidth: The width of the bars</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis</para>
+            </remarks>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Bar(System.Object[])">
+            <summary>
+            Convenience method to create a new bar chart (or append to a held chart)
+            </summary>
+            <param name="args">A list of collections to chart, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    color: The color for this series (Color)</para>
+            <para>    labels: A list of label strings for the data points (list of strings)</para>
+            <para>    barwidth: The width of the bars (double)</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis (string)</para>
+            </remarks>
+            <example>Examples:
+            <para>    Bar(y) -- create a barchart of the values in y</para>
+            <para>    Bar(c,y) -- create a barchart of the values in y, with the categories in c on the x-axis</para>
+            <para>    Bar(c1,y1,c2,y2) -- create a barchart with multiple series</para>
+            </example>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Contour(ShoNS.Array.DoubleArray)">
+            <summary>
+            Create a contour plot of the given array
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable)">
+            <summary>
+            Create a contour plot of the given array for the given set of contour locations
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF)">
+            <summary>
+            Create a contour plot of the given array for the given set of contour locations, scaled to the given bounding rectangle
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF,System.Boolean)">
+            <summary>
+            Create a contour plot of the given array for the given set of contour locations, scaled to the given bounding rectangle, optionally displaying color bars
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.DGV(System.Object)">
+            <summary>
+            Static helper method to create and display a datagrid control
+            </summary>
+            <param name="data">The data to display in the grid</param>
+            <returns>The ShoDataGridControl</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.ImageView(ShoNS.Array.DoubleArray)">
+            <summary>
+            Display a DoubleArray as an image
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.ImageView(ShoNS.Array.DoubleArray,ShoNS.Visualization.colormapFn)">
+            <summary>
+            Display a DoubleArray as an image with a given colormap function
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.ImageView(ShoNS.Array.DoubleArray,System.Double,System.Double)">
+            <summary>
+            Display a DoubleArray as an image with the given value range
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.ImageView(ShoNS.Array.DoubleArray,System.Double,System.Double,ShoNS.Visualization.colormapFn)">
+            <summary>
+            Display a DoubleArray as an image with the given value range and colormap function
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Hist(System.Collections.IEnumerable)">
+            <summary>
+            Convenience function to quickly pop up a histogram control in a form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartForm.Hist(System.Collections.IEnumerable,System.Int32)">
+            <summary>
+            Convenience function to quickly pop up a histogram control in a form
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartForm.Figure">
+            <summary>
+            The visualizer contained in this form.
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartForm.Hold">
+            <summary>
+            The Hold state for this chart form
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartForm.Chart">
+            <summary>
+            The chart contained in this figure
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoChartGrid">
+            <summary>
+            ShoChartGrid is a class that holds multiple ShoCharts in a rectangular grid
+            ShoChartGrid inherits from UserControl, so it can be hosted within a WinForm
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.__repr__">
+            <summary>
+            __repr__() is the Python representation of a ShoChartGrid
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.ResetChart">
+             <summary>
+            
+             </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.SetCurrentChart(System.Int32,System.Int32)">
+            <summary>
+            Set the 'current' cell
+            </summary>
+            <param name="row"></param>
+            <param name="col"></param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.GetCurrentCell">
+            <summary>
+            Get the control for the current cell
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.GetCurrentSubPlot">
+            <summary>
+            Get the currently-selected subplot
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.AdvanceChart">
+            <summary>
+            Advances to the next cell
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.#ctor(System.Int32,System.Int32)">
+            <summary>
+            Creates a new chart grid
+            </summary>
+            <param name="rows">The number of rows in the grid</param>
+            <param name="cols">The number of columns in the grid</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.GetCellIndex(System.Int32,System.Int32)">
+            <summary>
+            Gets the index for the cell at a particular row and column
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.GetCell(System.Int32,System.Int32)">
+            <summary>
+            Gets the cell at a particular for and column
+            </summary>
+            <returns>The container control in the given cell</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.GetSubPlot(System.Int32,System.Int32)">
+            <summary>
+            Gets the plot in the given cell
+            </summary>
+            <returns>The ShoChart control in the given cell</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.Plot(System.Object[])">
+            <summary>
+            Convenience method to create a new plot (or append to a held plot)
+            </summary>
+            <param name="args">A list of collections to plot, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    pttype: descriptor for the marker style (string)</para>
+            <para>    showLine: boolean value that specifies whether or not to draw a line, regardless of the marker style passed in(bool)</para>
+            <para>    size: marker size(double)</para>
+            <para>    linewidth: line width(double)</para>
+            <para>    bubbleSizes: if present, create a bubblechart, with these values as the diameter of the bubbles(list of doubles)</para>
+            <para>    deviations: if present, create an error bar chart, with these values as the +/- deviations from the y values</para>
+            <para>    color: The color for this series</para>
+            <para>    labels: A list of label strings for the data points</para>
+            <para>    barwidth: The width of the bars</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis</para>
+            </remarks>
+            
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.Bar(System.Object[])">
+            <summary>
+            Convenience method to create a new bar chart (or append to a held chart)
+            </summary>
+            <param name="args">A list of collections to chart, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    stacked: if present, create a stacked bar chart. If value=100, create a percentile bar chart</para>
+            <para>    color: The color for this series (Color)</para>
+            <para>    labels: A list of label strings for the data points (list of strings)</para>
+            <para>    barwidth: The width of the bars (double)</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis (string)</para>
+            </remarks>
+            <example>Examples:
+            <para>    Bar(y) -- create a barchart of the values in y</para>
+            <para>    Bar(c,y) -- create a barchart of the values in y, with the categories in c on the x-axis</para>
+            <para>    Bar(c1,y1,c2,y2) -- create a barchart with multiple series</para>
+            </example>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.Contour(ShoNS.Array.DoubleArray)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <param name="bounds">The bounding rectangle for the contour plot</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF,System.Boolean)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <param name="bounds">The bounding rectangle for the contour plot (if Empty, use the size of the input array as the bounds)</param>
+            <param name="useColorbar">If true, display a colorbar representing the mapping of array value to color</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.DGV(System.Object)">
+            <summary>
+            Static helper method to create and display a datagrid control
+            </summary>
+            <param name="data">The data to display in the grid</param>
+            <returns>The ShoDataGridControl</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.ImageView(ShoNS.Array.DoubleArray)">
+            <summary>
+            Display a DoubleArray as an image
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.ImageView(ShoNS.Array.DoubleArray,ShoNS.Visualization.colormapFn)">
+            <summary>
+            Display a DoubleArray as an image using the given colormap function
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.ImageView(ShoNS.Array.DoubleArray,System.Double,System.Double)">
+            <summary>
+            Display a DoubleArray as an image using the specified value range
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.ImageView(ShoNS.Array.DoubleArray,System.Double,System.Double,ShoNS.Visualization.colormapFn)">
+            <summary>
+            Display a DoubleArray as an image using the specified value range and colormap function
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.Hist(System.Collections.IEnumerable)">
+            <summary>
+            Convenience function to quickly pop up a histogram control in a form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.Hist(System.Collections.IEnumerable,System.Int32)">
+            <summary>
+            Convenience function to quickly pop up a histogram control in a form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.SaveImage(System.String)">
+            <summary>
+            Save an image of the grid to a file
+            </summary>
+            <param name="filename">The filename of the output file</param>
+            <remarks>Available image types include: .jpg, .gif, .bmp, .tif/.tiff, .png, .emf and .eps</remarks>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoChartGrid.GetImage(System.String)">
+            <summary>
+            Get an image of the chart
+            </summary>
+            <param name="extension">The format of the resulting image (".jpg", ".png", ".gif", ".bmp", ".tif", ".emf")</param>
+            <returns></returns>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartGrid.AutoAdvance">
+            <summary>
+            Controls whether or not the grid advances to the next cell after plotting.
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartGrid.plot">
+            <summary>
+            plot is the ShoChart object for the current cell
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartGrid.Rows">
+            <summary>
+            Number of rows in the grid
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartGrid.Columns">
+            <summary>
+            Number of columns in the grid
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartGrid.Hold">
+            <summary>
+            Enable holding on the current plot
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoChartGrid.Chart">
+            <summary>
+            The ShoChart object for the current cell
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoHistControl">
+            <summary>
+            A control that contains a histogram of a set of values.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoHistControl.__repr__">
+            <summary>
+            Returns the python string representation for this object
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoHistControl.#ctor(System.Collections.IEnumerable,System.Int32)">
+            <summary>
+            Constructor for the histogram control
+            </summary>
+            <param name="data">The data to histogram</param>
+            <param name="numBins">The initial number of bins to use for the histogram</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoHistControl.#ctor(System.Collections.IEnumerable,System.Collections.IList)">
+            <summary>
+            Constructor for the histogram control
+            </summary>
+            <param name="data">The data to histogram</param>
+            <param name="binCenters">List of bin centers</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoHistControl.SortData(System.String,System.Windows.Forms.DataVisualization.Charting.PointSortOrder)">
+            <summary>
+            Sorts a bar chart by its x- or y- values
+            </summary>
+            <param name="axisname">The axis to sort on -- either "X" or "Y"</param>
+            <param name="order">The directory to sort</param>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoPlotHelper">
+            <summary>
+            Provides static utility methods for figure management and common plotting operations.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.NumElements(System.Object)">
+            <summary>
+            Returns the number of elements in the collection.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.GetFigureID(System.Windows.Forms.Control)">
+            <summary>
+            Get the key for the specified figure control
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.SetCurrentGridCell(System.Int32,System.Int32)">
+            <summary>
+            If the current figure is a Grid, set its current chart to be (row,col)
+            </summary>
+            <param name="row">which row in the grid to plot to</param>
+            <param name="col">which column in the grid plot to</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.GetFigureHandle">
+            <summary>
+            Returns a handle to the current figure
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.GetFigureHandle(System.Object)">
+            <summary>
+            Returns a handle to a specific figure
+            </summary>
+            <param name="id">The key for the desired figure</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.GetNextFigureKey(System.Object)">
+            <summary>
+            Returns the next unused figure key after a given key
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.SetFigure(System.Windows.Forms.Control,System.Object)">
+            <summary>
+            Sets a control to be the container for a given figure key
+            </summary>
+            <param name="fig">The control to use for the figure</param>
+            <param name="inKey">The key for the figure</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.SetFigureUnsafe(System.Windows.Forms.Control,System.Object)">
+            <summary>
+            Thread-unsafe version of SetFigure() -- for internal use only
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.RemoveFigure(System.Windows.Forms.Control)">
+            <summary>
+            Removes a figure control from the system, but does not close it/
+            Not thread-safe.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.CloseFigure(System.Object)">
+            <summary>
+            Close a figure with a specified name. Figure will disappear and all resources
+            associated with the figure will be disposed.
+            </summary>
+            <param name="key">object: key of figure in system</param>
+            <returns>bool: successful close</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.CloseFigure">
+            <summary>
+            Close the current figure, which will disappear and all its resources disposed.
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.CloseAllFigures">
+            <summary>
+            Close all visualization figures. All resources in these figures will be disposed.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.getplotorgrid(System.Object)">
+            <summary>
+            Return the control for the current plot or grid; or,
+            return the control for plot/grid number FIGUREID
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.GetPlot(System.Object)">
+            <summary>
+            Returns the plot with the given key (or the current subplot, if the given figure contains a grid)
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Figure">
+            <summary>
+            Creates a new figure window and returns the figure control
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.FigureControl">
+            <summary>
+            For internal use only
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Figure(System.Object)">
+            <summary>
+            Returns the figure control for the given key, or creates one if needed
+            </summary>
+            <param name="figureid">The key for the desired figure</param>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.FigureControl(System.Object)">
+            <summary>
+            For internal use only
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Hold">
+            <summary>
+            Enable holding on the current plot (see Hold(bool))
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Hold(System.Boolean)">
+            <summary>
+            Enables or disables holding on the current plot. When hold is on, new plot commands
+            will add a series to the plot. When hold is off (the default), new plot commands 
+            replace the current plot.
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Grid(System.Int32,System.Int32)">
+            <summary>
+            Create a grid of subplots and direct plotting commands to the first cell
+            </summary>
+            <param name="rows">The number of rows in the grid</param>
+            <param name="cols">The number of columns in the grid</param>
+            <returns>A ShoChartGrid with the specified number of rows and columns</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Plot(System.Object[])">
+            <summary>
+            Convenience method to create a new plot (or append to a held plot)
+            </summary>
+            <param name="args">A list of collections to plot, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    pttype: descriptor for the marker style (string)</para>
+            <para>    showLine: boolean value that specifies whether or not to draw a line, regardless of the marker style passed in(bool)</para>
+            <para>    size: marker size(double)</para>
+            <para>    linewidth: line width(double)</para>
+            <para>    bubbleSizes: if present, create a bubblechart, with these values as the diameter of the bubbles(list of doubles)</para>
+            <para>    deviations: if present, create an error bar chart, with these values as the +/- deviations from the y values</para>
+            <para>    color: The color for this series</para>
+            <para>    labels: A list of label strings for the data points</para>
+            <para>    barwidth: The width of the bars</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis</para>
+            </remarks>
+            
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Bar(System.Object[])">
+            <summary>
+            Convenience method to create a new bar chart (or append to a held chart)
+            </summary>
+            <param name="args">A list of collections to chart, followed optionally by an IDictionary&lt;string,object&gt; containing keyword arguments</param>
+            <returns>The chart control</returns>
+            <remarks>Keyword options include: 
+            <para>    stacked: if present, create a stacked bar chart. If value=100, create a percentile bar chart</para>
+            <para>    color: The color for this series (Color)</para>
+            <para>    labels: A list of label strings for the data points (list of strings)</para>
+            <para>    barwidth: The width of the bars (double)</para>
+            <para>    xtimeformat: The format to use for time series data on the x axis (string)</para>
+            </remarks>
+            <example>Examples:
+            <para>    Bar(y) -- create a barchart of the values in y</para>
+            <para>    Bar(c,y) -- create a barchart of the values in y, with the categories in c on the x-axis</para>
+            <para>    Bar(c1,y1,c2,y2) -- create a barchart with multiple series</para>
+            </example>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Hist(System.Collections.IEnumerable)">
+            <summary>
+            Convenience function to quickly pop up a histogram control in a form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Hist(System.Collections.IEnumerable,System.Int32)">
+            <summary>
+            Convenience function to quickly pop up a histogram control in a form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Hist(System.Collections.IEnumerable,System.Collections.IList)">
+            <summary>
+            Convenience function to quickly pop up a histogram control in a form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.DGV(System.Object)">
+            <summary>
+            Static helper method to create and display a datagrid control
+            </summary>
+            <param name="data">The data to display in the grid</param>
+            <returns>The ShoDataGridControl</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Contour(ShoNS.Array.DoubleArray)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <param name="bounds">The bounding rectangle for the contour plot</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.Contour(ShoNS.Array.DoubleArray,System.Collections.IEnumerable,System.Drawing.RectangleF,System.Boolean)">
+            <summary>
+            Create a contor plot of a DoubleArray of values
+            </summary>
+            <param name="arr">The input array</param>
+            <param name="contourList">The set level values at which to place the contours</param>
+            <param name="bounds">The bounding rectangle for the contour plot (if Empty, use the size of the input array as the bounds)</param>
+            <param name="useColorbar">If true, display a colorbar representing the mapping of array value to color</param>
+            <returns>The ShoChart control for the contour plot</returns>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.ImageView(System.Object)">
+            <summary>
+            Display a DoubleArray as an image
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.ImageView(System.Object,ShoNS.Visualization.colormapFn)">
+            <summary>
+            Display a DoubleArray as an image using the given colormap function
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.ImageView(System.Object,System.Double,System.Double)">
+            <summary>
+            Display a DoubleArray as an image using the specified value range
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.ImageView(System.Object,System.Double,System.Double,ShoNS.Visualization.colormapFn)">
+            <summary>
+            Display a DoubleArray as an image using the specified value range and colormap function
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.PresentChart(System.Windows.Forms.Control)">
+            <summary>
+            Put a ShoChart into a figure and display it in a new form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.CreateFigureContainer">
+            <summary>
+            Creates a new figure container form
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.CreateFigureContainer(System.Windows.Forms.Control)">
+            <summary>
+            Creates a new figure container form containing the given chart control
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.CreateFigureContainerWithKey(System.Object)">
+            <summary>
+            Creates a new figure container with a given key
+            </summary>
+        </member>
+        <member name="M:ShoNS.Visualization.ShoPlotHelper.CreateFigureContainerWithKeyUnsafe(System.Object)">
+            <summary>
+            Creates a new figure container with a given key
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoPlotHelper.ShoPlotIcon">
+            <summary>
+            The icon for plot windows
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoPlotHelper.CurrentFigureKey">
+            <summary>
+            The current figure's key
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoPlotHelper.FigureKeys">
+            <summary>
+            The list of figure keys currently in use
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoPlotHelper.CurrentFigure">
+            <summary>
+            The current figure
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoPlotHelper.PlotIntoWindow">
+            <summary>
+            Controls whether new plots are placed into figure windows or not. If false, a plot control is created and returned without being displayed.
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoPlotHelper.UseFigures">
+            <summary>
+            Controls whether to use the figure system.
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoPlotHelper.AutoAdvanceGrid">
+            <summary>
+            Controls whether or not a plot grid should automatically advance to the next cell after plotting.
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.ShoPlotHelper.CreateCustomFigureContainer">
+            <summary>
+            Sets the callback for custom figure-window-creation
+            </summary>
+        </member>
+        <member name="T:ShoNS.Visualization.ShoPlotHelper.CreateFigureContainerCallback">
+            <summary>
+            Delegate type for a figure-creation callback
+            </summary>
+            <param name="key">The key to assign to the created figure window</param>
+            <returns>A new figure window for the given key</returns>
+        </member>
+        <member name="T:ShoNS.Visualization.Properties.Resources">
+            <summary>
+              A strongly-typed resource class, for looking up localized strings, etc.
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.Properties.Resources.ResourceManager">
+            <summary>
+              Returns the cached ResourceManager instance used by this class.
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.Properties.Resources.Culture">
+            <summary>
+              Overrides the current thread's CurrentUICulture property for all
+              resource lookups using this strongly typed resource class.
+            </summary>
+        </member>
+        <member name="P:ShoNS.Visualization.Properties.Resources.ShoPlotIcon">
+            <summary>
+            Icon for Sho plot windows
+            </summary>
+        </member>
+    </members>
+</doc>

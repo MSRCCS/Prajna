@@ -1,0 +1,238 @@
+###################################################
+Section 1: Dev Machine Setup
+###################################################
+
+1.1 Install Azure PowerShell if not yet
+
+1.2 Import Azure Publish Settings File
+
+	> Import-AzurePublishSettingsFile [-PublishSettingsFile] <string>
+
+* Note 1: The PublishSettingsFile can be got using 
+
+	> Get-AzurePublishSettingsFile
+
+* Note 2: If your account has more than one subscriptions, and the current subscription is not the intended one, use
+  
+	> Select-AzureSubscription -Current -SubscriptionId <ID>
+  
+  to select the subscription
+
+1.3 Copy config.ps1.sampe to config.alias.ps, customize the values, and run it
+	
+	> config.username.ps1
+  
+###################################################
+Section 2: Create Storage and VM, VM management
+###################################################
+  
+2.1	Create Storage Account:
+
+	> New-AzureStorageAccount -StorageAccountName <string> -Location <string>
+
+2.2 .\createvm.ps1 to create VM
+Example:
+
+	> .\createvm.ps1 -name TestName -ServiceName TestServiceName -User p2plab -Password <password> -InstanceSize Medium
+
+2.3	Install certificate (in admin power-shell window)
+
+	> .\Install-AzureCert.ps1 -name TestName -ServiceName TestServiceName
+
+2.4 Start-AzureVM to start machine
+	
+	> Start-AzureVM [-ServiceName] <string> [-Name] <string>
+
+2.5	Restart-AzureVM to restart machine
+	
+	> Restart-AzureVM [-ServiceName] <string> [-Name] <string>
+
+2.6	Stop-AzureVM to stop machine, automatically deallocates unless -StayProvisioned specified
+
+	> Stop-AzureVM [-ServiceName] <string> [-Name] <string> [[-StayProvisioned]]
+
+2.7	.\openendpt.ps to open up endpoints
+Example:
+	> .\openendpt.ps1 -ServiceName TestServiceName -Name TestName -PrivatePort 1082 -PublicPort 23412
+
+2.8	Get remote session (need in many steps below)
+
+	> $session = .\getremotesession.ps1 -Name TestName -ServiceName TestServiceName -creds $cred		
+	
+2.9 Add a firewall rule
+
+	 > $firewallCmd = 'New-NetFirewallRule -Name "AllowPort1000to1500" -DisplayName "Allow Port 1000-1500" -Direction Inbound -LocalPort 1000-1500 -Protocol TCP -Action Allow'
+	 > $sb1 = $ExecutionContext.InvokeCommand.NewScriptBlock( $firewallCmd )
+	 > Invoke-Command -Session $session -ScriptBlock $sb1
+ 	
+2.10 Generate cluster info from vm and copy it back (and will be used in Section 3)
+
+Example: 
+         > .\vmcopy.ps1 -source C:\Code\PrajnaSrc\bin\debugx64\ClusterInfo -dest C:\prajnauser\ClusterInfo -Name imhub-europe -ServiceName imhub-europe -session $session      
+         > .\vmlaunch.ps1 -exe 'C:\prajnauser\ClusterInfo\PrajnaClusterInfo.exe' -session $session -argumentList @("-outcluster", "c:\prajna\cluster\cluster_imhub_europe.inf", "-nameext",  ".cloudapp.net")
+         > .\vmcopy.ps1 -source c:\Prajna\Cluster\cluster_imhub_europe.inf -dest C:\Prajna\Cluster\cluster_imhub_europe.inf -Name imhub-europe -ServiceName imhub-europe -reverse $true -session $session      
+
+
+###################################################
+Section 3: Deploy/Update Prajna Client to VM
+###################################################
+
+3.0 Assumptions. 
+	
+	(1) Step 1.3
+	(2) Certificate installed from Step 2.3
+	(3) $session from step 2.8
+	(4) "C:\Prajna\Cluster\cluster_imhub_europe.inf" generated from step 2.10
+		 
+3.1 Deployment/update PrajnaClient
+
+	> .\deployvm.ps1 -ServiceName imhub-europe -Name imhub-europe -source C:\Code\PrajnaSrc -dest C:\PrajnaDeploy -ClusterInfo C:\Prajna\Cluster\cluster_imhub_europe.inf -session $session
+
+	This command 
+	(1) copies ""C:\Prajnasrc\bin\debugx64\Client\" to "C:\Users\username\AppData\Local\Prajna\_deploy\yyyy-MM-dd-HH-mm-ss\bin\debugx64\Client". "yyyy-MM-dd-HH-mm-ss" is the timestamp when deployvm.ps1 is invoked. 
+	    If it's the first time deployment, deployvm.ps1 uses vmcopy.ps1. Otherwise, it uses PrajnaRemoteCopy.exe that is located at "C:\Prajnasrc\bin\debugx64\remotecopy"
+	(2) when copy completes, the latest PrajnaClient.exe is launched
+	(3) On the vm, the latest deployment of client can be accessed from ""C:\PrajnaDeploy\_current\bin\debugx64\Client".  "_current" is a symlink to the latest deployment folder.
+
+	Note: when $session is removed via Remove-PSSession, the launched client on the remote VM would be terminated too. To override this behavior, pass parameter "-background $true"
+	
+3.2 Deploy extra folders other than the client
+	
+	> .\deployvm.ps1 -ServiceName imhub-europe -Name imhub-europe -source C:\PrajnaSRc -dest C:\PrajnaDeploy -ClusterInfo C:\Prajna\Cluster\cluster_imhub_europe.inf -session $session -extra OtherDir,C:\Prajna\Cluster
+
+	In addition to deploy/update the client, this command takes "-extra OtherDir,C:\Prajna\Cluster". As a result, two directories will also be copied using PrajnaRemoteCopy
+	* parameter "OtherDir" is a relative path, it triggers the copy from "C:\PrajnaSrc\OtherDir" to "C:\PrajnaDeploy\yyyy-MM-dd-HH-mm-ss\OtherDir"
+	* parameter "C:\Prajna\Cluster" is an absolute path, it triggers the copy from "C:\Prajna\Cluster" to "C:\PrajnaDeploy\yyyy-MM-dd-HH-mm-ss\Cluster". The last portion of the absoulte path is used to name the destination
+	
+3.3 Delete old deployments
+		 
+	> .\deployvm.ps1 -ServiceName imhub-europe -Name imhub-europe -source C:\Code\p2plab\username -dest C:\PrajnaDeploy -ClusterInfo C:\Prajna\Cluster\cluster_imhub_europe.inf -session $session -delete $true	 
+		
+	In addition to deploy/update the client, this command deletes all old deployments on the VM.	
+
+3.4 Launch\List\Kill Client without deployment
+
+Assume a deployment has been done to "C:\PrajnaDeploy" at the VM. The commands below can be used to manage the client. Below are examples using "vmlaunch.ps1". 
+Note, in addition to the client, "vmlaunch.ps1" can also be used to deal with other executables on the remote VM. 
+
+3.4.1 To launch the client
+
+	> .\vmlaunch.ps1 -exe 'c:\PrajnaDeploy\_current\bin\debugx64\Client\prajnaclient.exe' -session $session -argumentList @("-verbose", "4")
+
+3.4.2 To list the client
+
+	> .\vmlaunch.ps1 -exe 'c:\PrajnaDeploy\_current\bin\debugx64\Client\prajnaclient.exe' -session $session -list $true
+	
+3.4.3 To kill the client
+
+	> .\vmlaunch.ps1 -exe 'c:\PrajnaDeploy\_current\bin\debugx64\Client\prajnaclient.exe' -session $session -kill $true
+	
+
+###################################################
+Section 4: Create VMs
+###################################################	
+
+4.1 createvms.ps1 can be used to create/provision multiple Azure VMs. 
+
+	> .\createvms.ps1 -SourceRoot C:\PrajnaSrc -Csv .\vm.csv
+
+	* "-SourceRoot" specifies the root of Prajna enlistment, the script will try to find "ClusterInfo" under it
+	* "-Csv" select a CSV file that specifies the VM to be created, please see "vm.csv" as an examples
+	* There are other arguments can be provided to "createvms.ps1", please check the script. Such parameters are mainly used to specify default values. 
+	  For example, "-Password" can be used to specify a default password. 
+	  For one row in the CSV, if "Password" is not specified, the script can take the one specified by "-Password" parameter. 
+	* The script generates an output csv file named as "result-vms-(date).csv" that contains information for the VMs being processed
+
+###################################################
+Section 5: Batch Execution
+###################################################	
+
+5.1 script .\Batch-Remote-Exe.ps1 is able to execute a command against multiple VMs 
+
+	An example:
+	> .\Batch-Remote-Exe.ps1 -Csv .\vm3.csv -Cmd '.\vmcopy.ps1 -source "C:\TestABC" -dest "C:\TestABC" -Session $Session'
+	
+	Note this is the same as 
+	> .\Batch-Remote-Exe.ps1 -Csv .\vm3.csv -Cmd ".\vmcopy.ps1 -source `"C:\TestABC`" -dest `"C:\TestABC`" -Session `$Session"
+	
+	The latter uses "" instead of '' to provide the "-Cmd". When use "", one needs to use grave-accent ` for escaping charaters such as ", $, etc.
+	
+	It executes command 
+		.\vmcopy.ps1 -source "C:\TestABC" -dest "C:\TestABC" -Session $Session 
+	
+	against each VM listed in .\vm3.csv
+	
+	* "-Csv" reads in an CSV file that describes the target VMs. .\vm.csv is an example
+	* There are optional arguments can be provided to "Batch-Remote-Exe.ps1", please check the script. Such parameters are mainly used to specify default values. 
+	  For example, "-Password" can be used to specify a default password. 
+	  For one row in the CSV, if "Password" is not specified, the script can take the one specified by "-Password" parameter. 	
+	* "-Cmd" specifies the command to execute, in the body of the command
+	  **  "$Name" provides the VM's name
+	  **  "$ServiceName" provides the VM's service name
+	  **  "$Session" provides a remote session to access the VM
+	For each VM, the value of these variables were supplied by the ".\Batch-Remote-Exe.ps1"
+
+	An example of the CSV file
+	
+		Name,ServiceName,User,Password
+		imhub-SCUS,imhub-SCUS,imhub,SomePassword
+		imhub-AusE,imhub-AusE,imhub,
+	
+	The column 'Name' is always required. 
+	If 'ServiceName' is not provided, it uses the same value from 'Name'
+	If 'User' is not specified, then it uses the default one supplied by the script (via -User)
+	If 'Password' is not specified, then it uses the default one supplied by the script (via -Password)
+	
+	Extra columns in CSV is allowed, but will be ignored.
+	
+5.2 More batch execution examples
+
+	Example 1: Open endpoint port "Endpoint99" with both public port and private port as 99 on VMs
+
+	> .\Batch-Remote-Exe.ps1 -Csv .\vm3.csv -Cmd '.\openendpt.ps1 -Name $Name -PrivatePort 99 -PublicPort 99 -PortName Endpoint99'
+	
+	Example 2: Remove endpoint port "Endpoint99" on VMs
+	
+	> .\Batch-Remote-Exe.ps1 -Csv .\vm3.csv -Cmd 'Get-AzureVM -ServiceName $ServiceName -Name $Name | Remove-AzureEndPoint -Name Endpoint99 | Update-AzureVM'
+	
+	Example 3: Remove folder C:\TestABC on VMs
+	
+	> .\Batch-Remote-Exe.ps1 -Csv .\vm3.csv -Cmd 'Invoke-Command -Session $Session { Remove-Item -Path "C:\TestABC" -Recurse -Force}'  -User imhub -Password SomePassword
+
+	Example 4: Check if there is PrajnaClient.exe on remote VMs
+
+	>  .\Batch-Remote-Exe.ps1 -Csv .\vm.csv -Cmd 'Invoke-Command -Session $Session { $p = Get-Process | Where {$_.Path -like "*PrajnaClient*" }; if (!$p) { throw } }'  -User imhub -Password SomePassword
+
+5.3 Install certificate for VMs. 
+
+	For some reason, Batch-Remote-Exe.ps1 cannot be used for calling Install-AzureCert.ps1.
+
+	For now, to install the certs, please do
+
+	> $vms = Import-CSV .\VM.csv
+	> foreach($vm in $vms) { .\Install-AzureCert.ps1 -Name $vm.Name -ServiceName $vm.Name }	
+	
+5.4 Use deployvm.ps1 in a batch
+
+	Example:
+	
+	>  .\deploycluster.ps1 -Csv .\vm1.csv -InfDir C:\Prajna\Cluster -Source C:\Code\p2plab\username -Dest C:\PrajnaDeployUser -User imhub -Password SomePassword -Config .\config.ps1
+
+	Note 
+	* deploycluster.ps1 is a wrapper using Batch-Remote-Exe.ps1 to call deployvm.ps1
+	* the use of -InfDir to provide the directory that holds the INF files.
+	* in the command, $Inf is used in for -ClusterInfo
+	* "-background $true" is specified for .\deployvm.ps1, so that the launched client would not be terminated when the script completes (which removes all the remote session created by the script)
+	
+	When ""-$background $true", the client is left running on the VMs. Thus, we need ways to manage them. 
+	* To check the process on each VM
+	   > .\Batch-Remote-Exe.ps1 -Csv .\vm3.csv -Cmd 'Invoke-Command -Session $Session { Get-Process | Where {$_.Path -like "*PrajnaDeployUser*PrajnaClient.exe" } | Format-Table | Out-String | Write-Host }' -User imhub -Password SomePassword
+	* To stop the client on each VM   
+	   > .\Batch-Remote-Exe.ps1 -Csv .\vm3.csv -Cmd 'Invoke-Command -Session $Session { Get-Process | Where {$_.Path -like "*PrajnaDeployUser*PrajnaClient.exe" } | Stop-Process }' -User imhub -Password SomePassword
+	* To launch the process on each VM again 
+	   > .\Batch-Remote-Exe.ps1 -Csv .\vm3.csv -Cmd '.\vmlaunch.ps1 -exe "c:\PrajnaDeployWezhu\_current\bin\debugx64\Client\prajnaclient.exe" -session $Session -argumentList @("-verbose", "4") -background $true' -User imhub -Password SomePassword
+	   Note '-background $true' needs to be passed to ".\vmlaunch.ps1", otherwise, the client would be terminated when the script completes.
+	   
+	
+	
+	

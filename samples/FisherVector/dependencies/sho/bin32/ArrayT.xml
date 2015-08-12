@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        "ArrayTn4vs2012"
+    </assembly>
+    <members>
+        <member name="M:d_init_helmholtz_2d(System.Double*,System.Double*,System.Double*,System.Double*,System.Int32*,System.Int32*,System.SByte!System.Runtime.CompilerServices.IsSignUnspecifiedByte*,System.Double*,System.Int32*,System.Double*,System.Int32*)">
+#if defined( _WIN32 ) || ( _WIN64 )
+
+#define   d_init_Helmholtz_2D   D_INIT_HELMHOLTZ_2D
+#define d_commit_Helmholtz_2D D_COMMIT_HELMHOLTZ_2D
+#define        d_Helmholtz_2D        D_HELMHOLTZ_2D
+#define     free_Helmholtz_2D     FREE_HELMHOLTZ_2D
+
+#define   d_init_Helmholtz_3D   D_INIT_HELMHOLTZ_3D
+#define d_commit_Helmholtz_3D D_COMMIT_HELMHOLTZ_3D
+#define        d_Helmholtz_3D        D_HELMHOLTZ_3D
+#define     free_Helmholtz_3D     FREE_HELMHOLTZ_3D
+
+#define   s_init_Helmholtz_2D   S_INIT_HELMHOLTZ_2D
+#define s_commit_Helmholtz_2D S_COMMIT_HELMHOLTZ_2D
+#define        s_Helmholtz_2D        S_HELMHOLTZ_2D
+
+#define   s_init_Helmholtz_3D   S_INIT_HELMHOLTZ_3D
+#define s_commit_Helmholtz_3D S_COMMIT_HELMHOLTZ_3D
+#define        s_Helmholtz_3D        S_HELMHOLTZ_3D
+
+#define   d_init_sph_p      D_INIT_SPH_P
+#define d_commit_sph_p    D_COMMIT_SPH_P
+#define        d_sph_p           D_SPH_P
+#define     free_sph_p        FREE_SPH_P
+
+#define   d_init_sph_np     D_INIT_SPH_NP
+#define d_commit_sph_np   D_COMMIT_SPH_NP
+#define        d_sph_np          D_SPH_NP
+#define     free_sph_np       FREE_SPH_NP
+
+#define   s_init_sph_p      S_INIT_SPH_P
+#define s_commit_sph_p    S_COMMIT_SPH_P
+#define        s_sph_p           S_SPH_P
+
+#define   s_init_sph_np     S_INIT_SPH_NP
+#define s_commit_sph_np   S_COMMIT_SPH_NP
+#define        s_sph_np          S_SPH_NP
+
+#else
+
+#define   d_init_Helmholtz_2D    d_init_helmholtz_2d_
+#define d_commit_Helmholtz_2D  d_commit_helmholtz_2d_
+#define        d_Helmholtz_2D         d_helmholtz_2d_
+#define     free_Helmholtz_2D      free_helmholtz_2d_
+
+#define   d_init_Helmholtz_3D    d_init_helmholtz_3d_
+#define d_commit_Helmholtz_3D  d_commit_helmholtz_3d_
+#define        d_Helmholtz_3D         d_helmholtz_3d_
+#define     free_Helmholtz_3D      free_helmholtz_3d_
+
+#define   s_init_Helmholtz_2D    s_init_helmholtz_2d_
+#define s_commit_Helmholtz_2D  s_commit_helmholtz_2d_
+#define        s_Helmholtz_2D         s_helmholtz_2d_
+
+#define   s_init_Helmholtz_3D    s_init_helmholtz_3d_
+#define s_commit_Helmholtz_3D  s_commit_helmholtz_3d_
+#define        s_Helmholtz_3D         s_helmholtz_3d_
+
+#define   d_init_sph_p      d_init_sph_p_
+#define d_commit_sph_p    d_commit_sph_p_
+#define        d_sph_p           d_sph_p_
+#define     free_sph_p        free_sph_p_
+
+#define   d_init_sph_np   d_init_sph_np_
+#define d_commit_sph_np d_commit_sph_np_
+#define        d_sph_np        d_sph_np_
+#define     free_sph_np     free_sph_np_
+
+#define   s_init_sph_p      s_init_sph_p_
+#define s_commit_sph_p    s_commit_sph_p_
+#define        s_sph_p           s_sph_p_
+
+#define   s_init_sph_np   s_init_sph_np_
+#define s_commit_sph_np s_commit_sph_np_
+#define        s_sph_np        s_sph_np_
+
+#endif
+*
+</member>
+    </members>
+</doc>

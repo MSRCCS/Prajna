@@ -1,0 +1,7 @@
+
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/OpenBLAS/lib
+export OMP_NUM_THREADS=8
+export BLAS=/opt/OpenBLAS/lib/libopenblas.so
+export LAPACK=/opt/OpenBLAS/lib/libopenblas.so
+export LIBRARY_PATH=$LIBRARY_PATH:/opt/OpenBLAS/lib:/opt/cudnn-6.5-linux-R1
+

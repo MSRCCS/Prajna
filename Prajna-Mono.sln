@@ -79,8 +79,6 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "DistributedWebCrawler", "sa
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "DKVCopy", "samples\DKVCopy\DKVCopy.fsproj", "{1ABC2F87-7756-44CA-847C-E244EF463FA9}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FisherVector", "samples\FisherVector\FisherVector.fsproj", "{29AF8842-099E-4D7D-94EF-A7D4C5C37997}"
-EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SampleWorkload", "samples\SampleWorkload\SampleWorkload.fsproj", "{F0D7FCD7-AE4F-4420-8651-DF62E2D6B202}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tools", "Tools", "{0DD9305B-6DB2-432B-B4AD-DE49B4316DAC}"

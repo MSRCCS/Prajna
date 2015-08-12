@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>ContractStore - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fsharp.org">fsharp.org</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+
+
+<h1>ContractStore</h1>
+<div class="xmldoc">
+<p>ContractStore provides a central location for export/import contract</p>
+</div>
+  <h3>Static members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Static member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '848', 848)" onmouseover="showTip(event, '848', 848)">
+            ExportAction(name, act, bReload)
+          </code>
+          <div class="tip" id="848">
+            <strong>Signature:</strong> (name:string * act:(&#39;T -&gt; unit) * bReload:bool) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L55-55" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Export an action Action<'T>
+ Name of the action to be exported  An action of type 'T -&gt; unit to be exported  Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '849', 849)" onmouseover="showTip(event, '849', 849)">
+            ExportFunction(name, func, bReload)
+          </code>
+          <div class="tip" id="849">
+            <strong>Signature:</strong> (name:string * func:(unit -&gt; &#39;TResult) * bReload:bool) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L71-71" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Export as a function Func<'T,'TResult>
+ Name of the action to be exported  A function of type unit -&gt; 'TResult to be exported  Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '850', 850)" onmouseover="showTip(event, '850', 850)">
+            ExportFunction(name, func, bReload)
+          </code>
+          <div class="tip" id="850">
+            <strong>Signature:</strong> (name:string * func:(&#39;T -&gt; &#39;TResult) * bReload:bool) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L63-63" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Export as a function Func<'T,'TResult>
+ Name of the action to be exported  A function of type 'T -&gt; 'TResult to be exported  Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '851', 851)" onmouseover="showTip(event, '851', 851)">
+            ExportFunctionTask(name, func, bReload)
+          </code>
+          <div class="tip" id="851">
+            <strong>Signature:</strong> (name:string * func:(unit -&gt; Task&lt;&#39;TResult&gt;) * bReload:bool) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L110-110" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Export as a function that return a Task: unit -&gt; Task<'TResult></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '852', 852)" onmouseover="showTip(event, '852', 852)">
+            ExportFunctionTaskWithParam(...)
+          </code>
+          <div class="tip" id="852">
+            <strong>Signature:</strong> (name:string * func:(&#39;T -&gt; Task&lt;&#39;TResult&gt;) * bReload:bool) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L102-102" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Export as a function that return a Task: 'T-&gt; Task<'TResult></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '853', 853)" onmouseover="showTip(event, '853', 853)">
+            ExportSeqFunction(...)
+          </code>
+          <div class="tip" id="853">
+            <strong>Signature:</strong> (name:string * func:(unit -&gt; seq&lt;&#39;TResult&gt;) * serializationLimit:int * bReload:bool) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L82-82" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Export as a function unit -&gt; seq<'TResult>, the result can be imported and executed by Prajna data analytical pipeline.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '854', 854)" onmouseover="showTip(event, '854', 854)">
+            ExportSeqFunctionWithParam(...)
+          </code>
+          <div class="tip" id="854">
+            <strong>Signature:</strong> (name:string * func:(&#39;T -&gt; seq&lt;&#39;TResult&gt;) * serializationLimit:int * bReload:bool) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L94-94" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Export as a function 'T -&gt; seq<'TResult>, the result can be imported and executed by Prajna data analytical pipeline. 
+F# cannot overload this function with the form unit -&gt; seq<'TResult>, we hence use name to specify the difference.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '855', 855)" onmouseover="showTip(event, '855', 855)">
+            ImportAction(serverInfo, name)
+          </code>
+          <div class="tip" id="855">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; &#39;T -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L139-139" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Action from both local &amp; server, with name, input parameter, if successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '856', 856)" onmouseover="showTip(event, '856', 856)">
+            ImportFunction(serverInfo, name)
+          </code>
+          <div class="tip" id="856">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; unit -&gt; &#39;TResult<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L198-198" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '857', 857)" onmouseover="showTip(event, '857', 857)">
+            ImportFunction(serverInfo, name)
+          </code>
+          <div class="tip" id="857">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; &#39;T -&gt; &#39;TResult<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L191-191" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '858', 858)" onmouseover="showTip(event, '858', 858)">
+            ImportFunctionTask(serverInfo, name)
+          </code>
+          <div class="tip" id="858">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; unit -&gt; Task&lt;&#39;TResult&gt;<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L212-212" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '859', 859)" onmouseover="showTip(event, '859', 859)">
+            ImportFunctionTask(serverInfo, name)
+          </code>
+          <div class="tip" id="859">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; &#39;T -&gt; Task&lt;&#39;TResult&gt;<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L205-205" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '860', 860)" onmouseover="showTip(event, '860', 860)">
+            ImportFunctionTaskWithTimeout(...)
+          </code>
+          <div class="tip" id="860">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; int -&gt; Task&lt;&#39;TResult&gt;<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L167-167" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '861', 861)" onmouseover="showTip(event, '861', 861)">
+            ImportFunctionTaskWithTimeout(...)
+          </code>
+          <div class="tip" id="861">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; &#39;T * int -&gt; Task&lt;&#39;TResult&gt;<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L160-160" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '862', 862)" onmouseover="showTip(event, '862', 862)">
+            ImportFunctionWithTimeout(...)
+          </code>
+          <div class="tip" id="862">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; int -&gt; &#39;TResult<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L153-153" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '863', 863)" onmouseover="showTip(event, '863', 863)">
+            ImportFunctionWithTimeout(...)
+          </code>
+          <div class="tip" id="863">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; &#39;T * int -&gt; &#39;TResult<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L146-146" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '864', 864)" onmouseover="showTip(event, '864', 864)">
+            ImportSeqFunction(serverInfo, name)
+          </code>
+          <div class="tip" id="864">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; unit -&gt; IEnumerable&lt;&#39;TResult&gt;<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L226-226" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '865', 865)" onmouseover="showTip(event, '865', 865)">
+            ImportSeqFunction(serverInfo, name)
+          </code>
+          <div class="tip" id="865">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; &#39;T -&gt; IEnumerable&lt;&#39;TResult&gt;<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L219-219" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '866', 866)" onmouseover="showTip(event, '866', 866)">
+            ImportSeqFunctionWithTimeout(...)
+          </code>
+          <div class="tip" id="866">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; int -&gt; IEnumerable&lt;&#39;TResult&gt;<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L181-181" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '867', 867)" onmouseover="showTip(event, '867', 867)">
+            ImportSeqFunctionWithTimeout(...)
+          </code>
+          <div class="tip" id="867">
+            <strong>Signature:</strong> (serverInfo:ContractServersInfo * name:string) -&gt; &#39;T * int -&gt; IEnumerable&lt;&#39;TResult&gt;<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/contractFSharp.fs#L174-174" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Import a Function from both local &amp; server, with name, input parameter. The function has a timeout to control 
+remote execution behavior. If successfully imported, the function will be cached for faster reimporting.</p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="F# Project" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

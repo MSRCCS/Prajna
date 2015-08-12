@@ -1,0 +1,2183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>DSet<'U> - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fsharp.org">fsharp.org</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+
+
+<h1>DSet<'U></h1>
+<div class="xmldoc">
+<p>Generic distributed dataset. If storing the content of DSet to a persisted store, it is highly advisable that 'U used is either of .Net system type, 
+or using a customized serializer/deserializer to serialize ('U)[]. Otherwise, the stored data may not be retrievable as the BinaryFormatter may fail 
+to deserialize a class if the associated code has changed.</p>
+</div>
+  <h3>Constructors</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Constructor</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '56', 56)" onmouseover="showTip(event, '56', 56)">
+            new()
+          </code>
+          <div class="tip" id="56">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L42-42" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Instance members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Instance member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '57', 57)" onmouseover="showTip(event, '57', 57)">
+            BinSort(partFunc, comparer)
+          </code>
+          <div class="tip" id="57">
+            <strong>Signature:</strong> (partFunc:Func&lt;&#39;U,int&gt; * comparer:IComparer&lt;&#39;U&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L506-506" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bin sort the DSet.
+Apply a partition function, repartition elements of dataset across nodes in the cluster. The number of partitions remains unchanged.
+Elements within each partition/bin are sorted using the 'comparer'.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '58', 58)" onmouseover="showTip(event, '58', 58)">
+            BinSortN(...)
+          </code>
+          <div class="tip" id="58">
+            <strong>Signature:</strong> (numPartitions:int * partFunc:Func&lt;&#39;U,int&gt; * comparer:IComparer&lt;&#39;U&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L498-498" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bin sort the DSet.
+Apply a partition function, repartition elements of dataset into 'numPartitions" partitions across nodes in the cluster.
+Elements within each partition/bin are sorted using the 'comparer'.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '59', 59)" onmouseover="showTip(event, '59', 59)">
+            BinSortP(param, partFunc, comparer)
+          </code>
+          <div class="tip" id="59">
+            <strong>Signature:</strong> (param:DParam * partFunc:Func&lt;&#39;U,int&gt; * comparer:IComparer&lt;&#39;U&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L490-490" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bin sort the DSet.
+Apply a partition function, repartition elements of dataset across nodes in the cluster according to the setting specified by "param".
+Elements within each partition/bin are sorted using the 'comparer'.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '60', 60)" onmouseover="showTip(event, '60', 60)">
+            Bypass()
+          </code>
+          <div class="tip" id="60">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt; * DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L607-607" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bypass the Dset in 2 ways. One of the DSet is pulled, the other DSet will be in push dataflow.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '61', 61)" onmouseover="showTip(event, '61', 61)">
+            Bypass2()
+          </code>
+          <div class="tip" id="61">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt; * DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L612-612" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bypass the Dset in 2 ways. One of the DSet is pulled, the other DSet will be in push dataflow.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '62', 62)" onmouseover="showTip(event, '62', 62)">
+            Bypass3()
+          </code>
+          <div class="tip" id="62">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt; * DSet&lt;&#39;U&gt; * DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L617-617" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bypass the Dset in 3 ways. One of the DSet is pulled, the other two DSets will be in push dataflow.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '63', 63)" onmouseover="showTip(event, '63', 63)">
+            Bypass4()
+          </code>
+          <div class="tip" id="63">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt; * DSet&lt;&#39;U&gt; * DSet&lt;&#39;U&gt; * DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L622-622" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bypass the Dset in 4 ways. One of the DSet is pulled, the other three DSets will be in push dataflow.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '64', 64)" onmouseover="showTip(event, '64', 64)">
+            BypassN(nWays)
+          </code>
+          <div class="tip" id="64">
+            <strong>Signature:</strong> nWays:int -&gt; DSet&lt;&#39;U&gt; * DSet&lt;&#39;U&gt; []<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L627-627" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bypass the Dset in n ways. One of the DSet is pulled, the other n - 1 DSets will be in push dataflow.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '65', 65)" onmouseover="showTip(event, '65', 65)">
+            CacheInMemory()
+          </code>
+          <div class="tip" id="65">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L441-441" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Cache DSet content in memory, in raw object form.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '66', 66)" onmouseover="showTip(event, '66', 66)">
+            Choose(func)
+          </code>
+          <div class="tip" id="66">
+            <strong>Signature:</strong> func:Func&lt;&#39;U,Nullable&lt;&#39;U1&gt;&gt; -&gt; DSet&lt;&#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L379-379" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Applies the given function to each element of the dataset. 
+The new dataset comprised of the results for each element where the function returns some value or null.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '67', 67)" onmouseover="showTip(event, '67', 67)">
+            Choose(func)
+          </code>
+          <div class="tip" id="67">
+            <strong>Signature:</strong> func:Func&lt;&#39;U,&#39;U1&gt; -&gt; DSet&lt;&#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L370-370" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Applies the given function to each element of the dataset. 
+The new dataset comprised of the results for each element where the function returns some value or null.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '68', 68)" onmouseover="showTip(event, '68', 68)">
+            Cluster()
+          </code>
+          <div class="tip" id="68">
+            <strong>Signature:</strong> unit -&gt; Cluster<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L53-53" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get and Set Cluster</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '69', 69)" onmouseover="showTip(event, '69', 69)">
+            Cluster()
+          </code>
+          <div class="tip" id="69">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L52-52" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get and Set Cluster</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '70', 70)" onmouseover="showTip(event, '70', 70)">
+            Collect(func)
+          </code>
+          <div class="tip" id="70">
+            <strong>Signature:</strong> func:Func&lt;&#39;U,IEnumerable&lt;&#39;U1&gt;&gt; -&gt; DSet&lt;&#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L445-445" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Applies the given function to each element of the dataset and concatenates all the results.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '71', 71)" onmouseover="showTip(event, '71', 71)">
+            ContentKey()
+          </code>
+          <div class="tip" id="71">
+            <strong>Signature:</strong> unit -&gt; uint64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L118-118" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Set a content key for DSet that governs partition mapping, 
+For two DSets that have the same content key, a single key will be mapped uniquely to a partition</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '72', 72)" onmouseover="showTip(event, '72', 72)">
+            ContentKey()
+          </code>
+          <div class="tip" id="72">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L117-117" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Set a content key for DSet that governs partition mapping, 
+For two DSets that have the same content key, a single key will be mapped uniquely to a partition</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '73', 73)" onmouseover="showTip(event, '73', 73)">
+            Count()
+          </code>
+          <div class="tip" id="73">
+            <strong>Signature:</strong> unit -&gt; int64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L178-178" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Count the number of elements(rows) in the DSet</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '74', 74)" onmouseover="showTip(event, '74', 74)">
+            CrossJoin(mapFunc, x1)
+          </code>
+          <div class="tip" id="74">
+            <strong>Signature:</strong> (mapFunc:Func&lt;&#39;U,&#39;U1,&#39;U2&gt; * x1:DSet&lt;&#39;U1&gt;) -&gt; DSet&lt;&#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L561-561" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Cross Join, for each entry in x:Dset<'U> and x1:Dset<'U1> apply mapFunc:'U-&gt;'U1-&gt;'U2
+The resultant set is the product of Dset<'U> and Dset<'U1></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '75', 75)" onmouseover="showTip(event, '75', 75)">
+            CrossJoinChoose(mapFunc, x1)
+          </code>
+          <div class="tip" id="75">
+            <strong>Signature:</strong> (mapFunc:Func&lt;&#39;U,&#39;U1,Nullable&lt;&#39;U2&gt;&gt; * x1:DSet&lt;&#39;U1&gt;) -&gt; DSet&lt;&#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L585-585" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Cross Join with Filtering, for each entry in x:Dset<'U> and x1:Dset<'U1> apply mapFunc. 
+Filter out all those result that returns null.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '76', 76)" onmouseover="showTip(event, '76', 76)">
+            CrossJoinChoose(mapFunc, x1)
+          </code>
+          <div class="tip" id="76">
+            <strong>Signature:</strong> (mapFunc:Func&lt;&#39;U,&#39;U1,&#39;U2&gt; * x1:DSet&lt;&#39;U1&gt;) -&gt; DSet&lt;&#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L571-571" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Cross Join with Filtering, for each entry in x:Dset<'U> and x1:Dset<'U1> apply mapFunc
+Filter out all those result that returns null.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '77', 77)" onmouseover="showTip(event, '77', 77)">
+            CrossJoinFold(...)
+          </code>
+          <div class="tip" id="77">
+            <strong>Signature:</strong> (mapFunc:Func&lt;&#39;U,&#39;U1,&#39;U2&gt; * foldFunc:Func&lt;&#39;S,&#39;U2,&#39;S&gt; * initialState:&#39;S * x1:DSet&lt;&#39;U1&gt;) -&gt; DSet&lt;&#39;S&gt;<br />
+                          <strong>Type parameters:</strong> 'U2, 'S          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L599-599" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Cross Join with Fold, for each entry in x:DSet<'U> and x1:DSet<'U1> apply mapFunc:'U-&gt;'U1-&gt;'U2, and foldFunc: 'S-&gt;'U2-&gt;'S</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '78', 78)" onmouseover="showTip(event, '78', 78)">
+            Distribute(sourceEnumerable)
+          </code>
+          <div class="tip" id="78">
+            <strong>Signature:</strong> sourceEnumerable:IEnumerable&lt;&#39;U&gt; -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L323-323" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Span an IEnumerable (dataset) to a distributed dataset by splitting the sequence to N partitions, with N being the number of nodes in the cluster. 
+Each node get one partition of the dataset. The number of partitions of the distributed dataset is N, which is the number of the active nodes in the cluster.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '79', 79)" onmouseover="showTip(event, '79', 79)">
+            DistributeN(num, sourceEnumerable)
+          </code>
+          <div class="tip" id="79">
+            <strong>Signature:</strong> (num:int * sourceEnumerable:IEnumerable&lt;&#39;U&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L334-334" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Span an IEnumerable (dataset) to a distributed dataset by splitting the sequence to NUM * N partitions, with NUM being the number of partitions on each node, 
+and N being the number of nodes in the cluster. Each node get NUM partition of the dataset.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '80', 80)" onmouseover="showTip(event, '80', 80)">
+            Execute(func)
+          </code>
+          <div class="tip" id="80">
+            <strong>Signature:</strong> func:Action -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L345-345" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Execute a distributed customerized functional delegate on each of the machine. 
+The functional delegate is running remotely on each node. If any node in the cluster is not responding, the functional delegate does not run on that node.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '81', 81)" onmouseover="showTip(event, '81', 81)">
+            ExecuteN(num, funcN)
+          </code>
+          <div class="tip" id="81">
+            <strong>Signature:</strong> (num:int * funcN:Action&lt;int&gt;) -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L353-353" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Execute num distributed customerized functional delegates on each of the machine. 
+The functional delegate is running remotely on each node. If any node in the cluster is not responding, the functional delegates do not run on that node.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '82', 82)" onmouseover="showTip(event, '82', 82)">
+            Filter(func)
+          </code>
+          <div class="tip" id="82">
+            <strong>Signature:</strong> func:Func&lt;&#39;U,bool&gt; -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L365-365" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Creates a new dataset containing only the elements of the dataset for which the given predicate returns true.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '83', 83)" onmouseover="showTip(event, '83', 83)">
+            Fold(folder, aggrFunc, state)
+          </code>
+          <div class="tip" id="83">
+            <strong>Signature:</strong> (folder:Func&lt;&#39;State,&#39;U,&#39;State&gt; * aggrFunc:Func&lt;&#39;State,&#39;State,&#39;State&gt; * state:&#39;State) -&gt; &#39;State<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L164-164" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is broadcasted to each partition. 
+Within each partition, the elements are folded into the state variable using 'folder' function. Then 'aggrFunc' is used to aggregate the resulting
+state variables from all partitions to a single state.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '84', 84)" onmouseover="showTip(event, '84', 84)">
+            Identity()
+          </code>
+          <div class="tip" id="84">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L361-361" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Identity Mapping, the new DSet is the same as the old DSet, with an encode function installed.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '85', 85)" onmouseover="showTip(event, '85', 85)">
+            Import(serversInfo, importName)
+          </code>
+          <div class="tip" id="85">
+            <strong>Signature:</strong> (serversInfo:ContractServersInfo * importName:string) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L300-300" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Generate a distributed dataset by importing a customerized functional delegate from a local contract store. The imported functional delegate 
+is usually exported by another service (either in the same remote container or in anotherPrajna remote container. 
+Each node runs one local instance of the functional delegate, which forms one partition of the dataset.
+The number of partitions of dataset is N, where N is the number of the nodes in the cluster. 
+If any node in the cluster is not responding, the dataset does not contain the data resultant from the functional delegates in that node.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '86', 86)" onmouseover="showTip(event, '86', 86)">
+            ImportN(serversInfo, importNames)
+          </code>
+          <div class="tip" id="86">
+            <strong>Signature:</strong> (serversInfo:ContractServersInfo * importNames:string []) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L314-314" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Generate a distributed dataset by importing customerized functional delegates from a local contract store. The imported functional delegate 
+is usually exported by another service (either in the same remote container or in anotherPrajna remote container. 
+Each node runs multiple local instance of the functional delegates, each of which forms one partition of the dataset.
+The number of partitions of dataset is N * num , where N is the number of the nodes in the cluster, and num is the number of contracts 
+in the contract list. 
+If any node in the cluster is not responding, the dataset does not contain the data resultant from the functional delegates in that node.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '87', 87)" onmouseover="showTip(event, '87', 87)">
+            Init(initFunc, partitionSizeFunc)
+          </code>
+          <div class="tip" id="87">
+            <strong>Signature:</strong> (initFunc:Func&lt;(int * int),&#39;U&gt; * partitionSizeFunc:Func&lt;int,int&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L245-245" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Create a distributed dataset on the distributed cluster, with each element created by a functional delegate.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '88', 88)" onmouseover="showTip(event, '88', 88)">
+            InitS(initFunc, partitionSize)
+          </code>
+          <div class="tip" id="88">
+            <strong>Signature:</strong> (initFunc:Func&lt;(int * int),&#39;U&gt; * partitionSize:int) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L255-255" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Create a distributed dataset on the distributed cluster, with each element created by a functional delegate.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '89', 89)" onmouseover="showTip(event, '89', 89)">
+            IsPartitionByKey()
+          </code>
+          <div class="tip" id="89">
+            <strong>Signature:</strong> unit -&gt; bool<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L57-57" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Is the partition of DSet formed by a key function that maps a data item to an unique partition</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '90', 90)" onmouseover="showTip(event, '90', 90)">
+            IsPartitionByKey()
+          </code>
+          <div class="tip" id="90">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L56-56" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Is the partition of DSet formed by a key function that maps a data item to an unique partition</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '91', 91)" onmouseover="showTip(event, '91', 91)">
+            Iter(iterFunc)
+          </code>
+          <div class="tip" id="91">
+            <strong>Signature:</strong> iterFunc:Action&lt;&#39;U&gt; -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L174-174" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Applies a function 'iterFunc' to each element</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '92', 92)" onmouseover="showTip(event, '92', 92)">
+            LazySaveToHDD()
+          </code>
+          <div class="tip" id="92">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L214-214" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Lazily save the DSet to HDD.
+This is a lazy evaluation. This DSet must be a branch generated by Bypass or a child of such branch.
+The save action will be triggered when a pull happens on other branches generated by Bypass.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '93', 93)" onmouseover="showTip(event, '93', 93)">
+            LazySaveToHDDByName(name)
+          </code>
+          <div class="tip" id="93">
+            <strong>Signature:</strong> name:string -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L208-208" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Lazily save the DSet to HDD using "name". 
+This is a lazy evaluation. This DSet must be a branch generated by Bypass or a child of such branch.
+The save action will be triggered when a pull happens on other branches generated by Bypass.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '94', 94)" onmouseover="showTip(event, '94', 94)">
+            LoadSource()
+          </code>
+          <div class="tip" id="94">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L145-145" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Trigger to load metadata.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '95', 95)" onmouseover="showTip(event, '95', 95)">
+            LocalIter(iterFunc)
+          </code>
+          <div class="tip" id="95">
+            <strong>Signature:</strong> iterFunc:Action&lt;&#39;U&gt; -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L182-182" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Read DSet back to local machine and apply a function on each value. Caution: the iter function will be executed locally as the entire DSet is read back.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '96', 96)" onmouseover="showTip(event, '96', 96)">
+            Map(func)
+          </code>
+          <div class="tip" id="96">
+            <strong>Signature:</strong> func:Func&lt;&#39;U,&#39;U1&gt; -&gt; DSet&lt;&#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L389-389" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Creates a new dataset whose elements are the results of applying the given function to each of the elements 
+of the dataset. The given function will be applied per collection as the dataset is being distributedly iterated. 
+The entire dataset never materialize entirely.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '97', 97)" onmouseover="showTip(event, '97', 97)">
+            Map2(func, x1)
+          </code>
+          <div class="tip" id="97">
+            <strong>Signature:</strong> (func:Func&lt;&#39;U,&#39;U1,&#39;V&gt; * x1:DSet&lt;&#39;U1&gt;) -&gt; DSet&lt;&#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L519-519" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Create a new DSet whose elements are the results of applying the given function to the corresponding elements of the two DSets pairwise
+The two DSet must have the same partition mapping structure and same number of element (e.g.), established via Split.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '98', 98)" onmouseover="showTip(event, '98', 98)">
+            Map3(func, x1, x2)
+          </code>
+          <div class="tip" id="98">
+            <strong>Signature:</strong> (func:Func&lt;&#39;U,&#39;U1,&#39;U2,&#39;V&gt; * x1:DSet&lt;&#39;U1&gt; * x2:DSet&lt;&#39;U2&gt;) -&gt; DSet&lt;&#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'U2, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L523-523" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Create a new DSet whose elements are the results of applying the given function to the corresponding elements of the three DSets pairwise</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '99', 99)" onmouseover="showTip(event, '99', 99)">
+            Map4(func, x1, x2, x3)
+          </code>
+          <div class="tip" id="99">
+            <strong>Signature:</strong> (func:Func&lt;&#39;U,&#39;U1,&#39;U2,&#39;U3,&#39;V&gt; * x1:DSet&lt;&#39;U1&gt; * x2:DSet&lt;&#39;U2&gt; * x3:DSet&lt;&#39;U3&gt;) -&gt; DSet&lt;&#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'U2, 'U3, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L527-527" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Create a new DSet whose elements are the results of applying the given function to the corresponding elements of the four DSets pairwise</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '100', 100)" onmouseover="showTip(event, '100', 100)">
+            MapByCollection(func)
+          </code>
+          <div class="tip" id="100">
+            <strong>Signature:</strong> (func:Func&lt;&#39;U [],&#39;U1 []&gt;) -&gt; DSet&lt;&#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L419-419" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Creates a new dataset whose elements are the results of applying the given function to each collection of the elements 
+of the dataset. In the input DSet, a parttition can have multiple collections, 
+the size of the which is determined by the SerializationLimit of the cluster.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '101', 101)" onmouseover="showTip(event, '101', 101)">
+            Mapi(func)
+          </code>
+          <div class="tip" id="101">
+            <strong>Signature:</strong> func:Func&lt;int,int64,&#39;U,&#39;U1&gt; -&gt; DSet&lt;&#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L395-395" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Creates a new dataset whose elements are the results of applying the given function to each of the elements 
+of the dataset. The first integer index passed to the function indicates the partition, and the second integer
+passed to the function index (from 0) element within the partition</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '102', 102)" onmouseover="showTip(event, '102', 102)">
+            MapReduce(mapFunc, reduceFunc)
+          </code>
+          <div class="tip" id="102">
+            <strong>Signature:</strong> (mapFunc:Func&lt;&#39;U,IEnumerable&lt;&#39;K1 * &#39;V1&gt;&gt; * reduceFunc:Func&lt;(&#39;K1 * List&lt;&#39;V1&gt;),&#39;U2&gt;) -&gt; DSet&lt;&#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'V1, 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L482-482" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>MapReduce, see <a href="http://en.wikipedia.org/wiki/MapReduce">http://en.wikipedia.org/wiki/MapReduce</a></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '103', 103)" onmouseover="showTip(event, '103', 103)">
+            MapReduceP(param, mapFunc, reduceFunc)
+          </code>
+          <div class="tip" id="103">
+            <strong>Signature:</strong> (param:DParam * mapFunc:Func&lt;&#39;U,IEnumerable&lt;&#39;K1 * &#39;V1&gt;&gt; * reduceFunc:Func&lt;(&#39;K1 * List&lt;&#39;V1&gt;),&#39;U2&gt;) -&gt; DSet&lt;&#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'V1, 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L476-476" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>MapReduce, see <a href="http://en.wikipedia.org/wiki/MapReduce">http://en.wikipedia.org/wiki/MapReduce</a></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '104', 104)" onmouseover="showTip(event, '104', 104)">
+            MapReducePWithPartitionFunction(...)
+          </code>
+          <div class="tip" id="104">
+            <strong>Signature:</strong> (param:DParam * mapFunc:Func&lt;&#39;U,IEnumerable&lt;&#39;K1 * &#39;V1&gt;&gt; * partFunc:Func&lt;&#39;K1,int&gt; * reduceFunc:Func&lt;(&#39;K1 * List&lt;&#39;V1&gt;),&#39;U2&gt;) -&gt; DSet&lt;&#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'V1, 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L469-469" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>MapReduce, see <a href="http://en.wikipedia.org/wiki/MapReduce">http://en.wikipedia.org/wiki/MapReduce</a></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '105', 105)" onmouseover="showTip(event, '105', 105)">
+            Mix(x1)
+          </code>
+          <div class="tip" id="105">
+            <strong>Signature:</strong> x1:DSet&lt;&#39;U1&gt; -&gt; DSet&lt;&#39;U * &#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L533-533" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Mixing two DSets that have the same size and partition layout into a single DSet by operating a function on the individual data (row).</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '106', 106)" onmouseover="showTip(event, '106', 106)">
+            Mix2(x1)
+          </code>
+          <div class="tip" id="106">
+            <strong>Signature:</strong> x1:DSet&lt;&#39;U1&gt; -&gt; DSet&lt;&#39;U * &#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L539-539" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Mixing two DSets that have the same size and partition layout into a single DSet by operating a function on the individual data (row).</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '107', 107)" onmouseover="showTip(event, '107', 107)">
+            Mix3(x1, x2)
+          </code>
+          <div class="tip" id="107">
+            <strong>Signature:</strong> (x1:DSet&lt;&#39;U1&gt; * x2:DSet&lt;&#39;U2&gt;) -&gt; DSet&lt;&#39;U * &#39;U1 * &#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L545-545" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Mixing three DSets that have the same size and partition layout into a single DSet by operating a function on the individual data (row).</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '108', 108)" onmouseover="showTip(event, '108', 108)">
+            Mix4(x1, x2, x3)
+          </code>
+          <div class="tip" id="108">
+            <strong>Signature:</strong> (x1:DSet&lt;&#39;U1&gt; * x2:DSet&lt;&#39;U2&gt; * x3:DSet&lt;&#39;U3&gt;) -&gt; DSet&lt;&#39;U * &#39;U1 * &#39;U2 * &#39;U3&gt;<br />
+                          <strong>Type parameters:</strong> 'U2, 'U3          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L551-551" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Mixing four DSets that have the same size and partition layout into a single DSet by operating a function on the individual data (row).</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '109', 109)" onmouseover="showTip(event, '109', 109)">
+            Multicast()
+          </code>
+          <div class="tip" id="109">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L449-449" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Multicast a DSet over network, replicate its content to all peers in the cluster.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '110', 110)" onmouseover="showTip(event, '110', 110)">
+            Name()
+          </code>
+          <div class="tip" id="110">
+            <strong>Signature:</strong> unit -&gt; string<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L61-61" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Name of the DSet</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '111', 111)" onmouseover="showTip(event, '111', 111)">
+            Name()
+          </code>
+          <div class="tip" id="111">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L60-60" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Name of the DSet</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '112', 112)" onmouseover="showTip(event, '112', 112)">
+            NumParallelExecution()
+          </code>
+          <div class="tip" id="112">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L124-124" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Maximum number of parallel threads that will execute the data analytic jobs in a remote container. 
+If 0, the remote container will determine the number of parallel threads used according to its computation and memory resource
+available.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '113', 113)" onmouseover="showTip(event, '113', 113)">
+            NumParallelExecution()
+          </code>
+          <div class="tip" id="113">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L123-123" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Maximum number of parallel threads that will execute the data analytic jobs in a remote container. 
+If 0, the remote container will determine the number of parallel threads used according to its computation and memory resource
+available.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '114', 114)" onmouseover="showTip(event, '114', 114)">
+            NumPartitions()
+          </code>
+          <div class="tip" id="114">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L65-65" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Number of partitions</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '115', 115)" onmouseover="showTip(event, '115', 115)">
+            NumPartitions()
+          </code>
+          <div class="tip" id="115">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L64-64" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Number of partitions</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '116', 116)" onmouseover="showTip(event, '116', 116)">
+            NumReplications()
+          </code>
+          <div class="tip" id="116">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L69-69" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Required number of replications for durability</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '117', 117)" onmouseover="showTip(event, '117', 117)">
+            NumReplications()
+          </code>
+          <div class="tip" id="117">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L68-68" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Required number of replications for durability</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '118', 118)" onmouseover="showTip(event, '118', 118)">
+            ParallelMap(func)
+          </code>
+          <div class="tip" id="118">
+            <strong>Signature:</strong> func:Func&lt;&#39;U,Task&lt;&#39;U1&gt;&gt; -&gt; DSet&lt;&#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L403-403" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Map DSet , in which func is an Task<_> function that may contains asynchronous operation. 
+You will need to start the 1st task in the mapping function. Prajna will not be able to start the task for you as the returned
+task may not be the a Task in the creation state. see: <a href="http://blogs.msdn.com/b/pfxteam/archive/2012/01/14/10256832.aspx">http://blogs.msdn.com/b/pfxteam/archive/2012/01/14/10256832.aspx</a></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '119', 119)" onmouseover="showTip(event, '119', 119)">
+            ParallelMapi(func)
+          </code>
+          <div class="tip" id="119">
+            <strong>Signature:</strong> func:Func&lt;int,int64,&#39;U,Task&lt;&#39;U1&gt;&gt; -&gt; DSet&lt;&#39;U1&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L413-413" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Map DSet , in which func is an Task<_> function that may contains asynchronous operation. 
+The first integer index passed to the function indicates the partition, and the second integer
+passed to the function index (from 0) element within the partition. 
+You will need to start the 1st task in the mapping function. Prajna will not be able to start the task for you as the returned
+task may not be the a Task in the creation state. see: <a href="http://blogs.msdn.com/b/pfxteam/archive/2012/01/14/10256832.aspx">http://blogs.msdn.com/b/pfxteam/archive/2012/01/14/10256832.aspx</a></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '120', 120)" onmouseover="showTip(event, '120', 120)">
+            Password()
+          </code>
+          <div class="tip" id="120">
+            <strong>Signature:</strong> unit -&gt; string<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L73-73" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Password that will be hashed and used for triple DES encryption and decryption of data.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '121', 121)" onmouseover="showTip(event, '121', 121)">
+            Password()
+          </code>
+          <div class="tip" id="121">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L72-72" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Password that will be hashed and used for triple DES encryption and decryption of data.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '122', 122)" onmouseover="showTip(event, '122', 122)">
+            PeerRcvdSpeedLimit()
+          </code>
+          <div class="tip" id="122">
+            <strong>Signature:</strong> unit -&gt; int64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L78-78" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Flow control, limits the total bytes send out to PeerRcvdSpeedLimit
+If it is communicating with N peer, each peer, the sending queue limit is PeerRcvdSpeedLimit/N</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '123', 123)" onmouseover="showTip(event, '123', 123)">
+            PeerRcvdSpeedLimit()
+          </code>
+          <div class="tip" id="123">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L77-77" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Flow control, limits the total bytes send out to PeerRcvdSpeedLimit
+If it is communicating with N peer, each peer, the sending queue limit is PeerRcvdSpeedLimit/N</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '124', 124)" onmouseover="showTip(event, '124', 124)">
+            PostGroupByReserialization()
+          </code>
+          <div class="tip" id="124">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L82-82" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>In BinSort/MapReduce, indicate the collection size after the a collection of data is received from network</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '125', 125)" onmouseover="showTip(event, '125', 125)">
+            PostGroupByReserialization()
+          </code>
+          <div class="tip" id="125">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L81-81" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>In BinSort/MapReduce, indicate the collection size after the a collection of data is received from network</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '126', 126)" onmouseover="showTip(event, '126', 126)">
+            PreGroupByReserialization()
+          </code>
+          <div class="tip" id="126">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L86-86" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>In BinSort/MapReduce, indicate whether need to regroup collection before sending a collection of data across network</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '127', 127)" onmouseover="showTip(event, '127', 127)">
+            PreGroupByReserialization()
+          </code>
+          <div class="tip" id="127">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L85-85" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>In BinSort/MapReduce, indicate whether need to regroup collection before sending a collection of data across network</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '128', 128)" onmouseover="showTip(event, '128', 128)">
+            Reduce(reducer)
+          </code>
+          <div class="tip" id="128">
+            <strong>Signature:</strong> reducer:Func&lt;&#39;U,&#39;U,&#39;U&gt; -&gt; &#39;U<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L170-170" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Reduces the elements using the specified 'reducer' function</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '129', 129)" onmouseover="showTip(event, '129', 129)">
+            ReorgWDegree(numParallelJobs)
+          </code>
+          <div class="tip" id="129">
+            <strong>Signature:</strong> numParallelJobs:int -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L423-423" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Reorganization collection in a dataset to accommodate a certain parallel execution degree.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '130', 130)" onmouseover="showTip(event, '130', 130)">
+            Repartition(partFunc)
+          </code>
+          <div class="tip" id="130">
+            <strong>Signature:</strong> partFunc:Func&lt;&#39;U,int&gt; -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L461-461" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Apply a partition function, repartition elements of dataset across nodes in the cluster. The number of partitions remains unchanged.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '131', 131)" onmouseover="showTip(event, '131', 131)">
+            RepartitionN(numPartitions, partFunc)
+          </code>
+          <div class="tip" id="131">
+            <strong>Signature:</strong> (numPartitions:int * partFunc:Func&lt;&#39;U,int&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L457-457" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Apply a partition function, repartition elements of dataset into 'numPartitions" partitions across nodes in the cluster.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '132', 132)" onmouseover="showTip(event, '132', 132)">
+            RepartitionP(param, partFunc)
+          </code>
+          <div class="tip" id="132">
+            <strong>Signature:</strong> (param:DParam * partFunc:Func&lt;&#39;U,int&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L453-453" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Apply a partition function, repartition elements of dataset across nodes in the cluster according to the setting specified by "param".</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '133', 133)" onmouseover="showTip(event, '133', 133)">
+            RowsMergeAll()
+          </code>
+          <div class="tip" id="133">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L437-437" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>merge all rows of a partition into a single collection object</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '134', 134)" onmouseover="showTip(event, '134', 134)">
+            RowsReorg(numRows)
+          </code>
+          <div class="tip" id="134">
+            <strong>Signature:</strong> numRows:int -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L429-429" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Reorganization collection of a dataset. 
+If numRows = 1, the dataset is split into one row per collection. 
+If numRows = Int32.MaxValue, the data set is merged so that all rows in a partition is grouped into a single collection.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '135', 135)" onmouseover="showTip(event, '135', 135)">
+            RowsSplit()
+          </code>
+          <div class="tip" id="135">
+            <strong>Signature:</strong> unit -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L433-433" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Reorganization collection of a dataset so that each collection has a single row.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '136', 136)" onmouseover="showTip(event, '136', 136)">
+            SaveToHDD()
+          </code>
+          <div class="tip" id="136">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L195-195" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Save the DSet to HDD. This is an action.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '137', 137)" onmouseover="showTip(event, '137', 137)">
+            SaveToHDDByName(name)
+          </code>
+          <div class="tip" id="137">
+            <strong>Signature:</strong> name:string -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L191-191" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Save the DSet to HDD using "name". This is an action.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '138', 138)" onmouseover="showTip(event, '138', 138)">
+            SaveToHDDByNameWithMonitor(...)
+          </code>
+          <div class="tip" id="138">
+            <strong>Signature:</strong> (monitorFunc:Func&lt;&#39;U,bool&gt; * localIterFunc:Action&lt;&#39;U&gt; * name:string) -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L225-225" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Save the DSet to HDD using "name". This is an action.
+Attach a monitor function that select elements that will be fetched to local machine to be iterated by 'localIterFunc'</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '139', 139)" onmouseover="showTip(event, '139', 139)">
+            SaveToHDDWithMonitor(...)
+          </code>
+          <div class="tip" id="139">
+            <strong>Signature:</strong> (monitorFunc:Func&lt;&#39;U,bool&gt; * localIterFunc:Action&lt;&#39;U&gt;) -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L230-230" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Save the DSet to HDD. This is an action.
+Attach a monitor function that select elements that will be fetched to local machine to be iterated by 'localIterFunc'</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '140', 140)" onmouseover="showTip(event, '140', 140)">
+            SendingQueueLimit()
+          </code>
+          <div class="tip" id="140">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L91-91" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Sender flow control, DSet/DStream limits the total sending queue to SendingQueueLimit
+If it is communicating with N peer, each peer, the sending queue limit is SendingQueueLimit/N</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '141', 141)" onmouseover="showTip(event, '141', 141)">
+            SendingQueueLimit()
+          </code>
+          <div class="tip" id="141">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L90-90" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Sender flow control, DSet/DStream limits the total sending queue to SendingQueueLimit
+If it is communicating with N peer, each peer, the sending queue limit is SendingQueueLimit/N</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '142', 142)" onmouseover="showTip(event, '142', 142)">
+            SerializationLimit()
+          </code>
+          <div class="tip" id="142">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L97-97" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Number of record in a collection during data analytical jobs. 
+This parameter will not change number of record in an existing collection of a DSet. To change the 
+number of record of an existing collection, please use RowsReorg().</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '143', 143)" onmouseover="showTip(event, '143', 143)">
+            SerializationLimit()
+          </code>
+          <div class="tip" id="143">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L96-96" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Number of record in a collection during data analytical jobs. 
+This parameter will not change number of record in an existing collection of a DSet. To change the 
+number of record of an existing collection, please use RowsReorg().</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '144', 144)" onmouseover="showTip(event, '144', 144)">
+            SizeInBytes
+          </code>
+          <div class="tip" id="144">
+            <strong>Signature:</strong> int64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L127-127" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get the size of all key-values or blobs in DSet</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '145', 145)" onmouseover="showTip(event, '145', 145)">
+            Source(sourceSeqFunc)
+          </code>
+          <div class="tip" id="145">
+            <strong>Signature:</strong> sourceSeqFunc:Func&lt;IEnumerable&lt;&#39;U&gt;&gt; -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L266-266" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Generate a distributed dataset through a customerized seq functional delegate running on each of the machine. 
+Each node runs a local instance of the functional delegate, which generates a seq('U) that forms one partition of DSet('U).
+The number of partitions of DSet('U) is N, which is the number of the nodes in the cluster. The NumReplications is 1. 
+If any node in the cluster is not responding, the dataset does not contain the data resultant from the functional delegate in that node.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '146', 146)" onmouseover="showTip(event, '146', 146)">
+            SourceI(numPartitions, sourceISeqFunc)
+          </code>
+          <div class="tip" id="146">
+            <strong>Signature:</strong> (numPartitions:int * sourceISeqFunc:Func&lt;int,IEnumerable&lt;&#39;U&gt;&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L287-287" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Generate a distributed dataset through customerized seq functional delegates running on each of the machine. 
+The number of partitions of dataset is numPartitions. 
+If any node in the cluster is not responding, the partition may be rerun at a different node.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '147', 147)" onmouseover="showTip(event, '147', 147)">
+            SourceN(num, sourceNSeqFunc)
+          </code>
+          <div class="tip" id="147">
+            <strong>Signature:</strong> (num:int * sourceNSeqFunc:Func&lt;int,IEnumerable&lt;&#39;U&gt;&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L278-278" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Generate a distributed dataset through customerized seq functional delegates running on each of the machine. 
+Each node runs num local instance of the functional delegates, each of which forms one partition of the dataset.
+The number of partitions of dataset is N * num, where N is the number of the nodes in the cluster, and num is the number of partitions per node. 
+The NumReplications is 1. 
+If any node in the cluster is not responding, the dataset does not contain the data resultant from the functional delegates in that node.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '148', 148)" onmouseover="showTip(event, '148', 148)">
+            Split2(fun0, fun1)
+          </code>
+          <div class="tip" id="148">
+            <strong>Signature:</strong> (fun0:Func&lt;&#39;U,&#39;U0&gt; * fun1:Func&lt;&#39;U,&#39;U1&gt;) -&gt; DSet&lt;&#39;U0&gt; * DSet&lt;&#39;U1&gt;<br />
+                          <strong>Type parameters:</strong> 'U1          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L636-636" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Correlated split a dataset to two, each of which is created by running a functional delegate that maps the element of the original dataset.
+The resultant datasets all have the same partition and collection structure of the original dataset. 
+They can be combined later by Map2 transforms.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '149', 149)" onmouseover="showTip(event, '149', 149)">
+            Split3(fun0, fun1, fun2)
+          </code>
+          <div class="tip" id="149">
+            <strong>Signature:</strong> (fun0:Func&lt;&#39;U,&#39;U0&gt; * fun1:Func&lt;&#39;U,&#39;U1&gt; * fun2:Func&lt;&#39;U,&#39;U2&gt;) -&gt; DSet&lt;&#39;U0&gt; * DSet&lt;&#39;U1&gt; * DSet&lt;&#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'U1, 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L645-645" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Correlated split a dataset to three, each of which is created by running a functional delegate that maps the element of the original dataset.
+The resultant datasets all have the same partition and collection structure of the original dataset. 
+They can be combined later by Map3 transforms.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '150', 150)" onmouseover="showTip(event, '150', 150)">
+            Split4(fun0, fun1, fun2, fun3)
+          </code>
+          <div class="tip" id="150">
+            <strong>Signature:</strong> (fun0:Func&lt;&#39;U,&#39;U0&gt; * fun1:Func&lt;&#39;U,&#39;U1&gt; * fun2:Func&lt;&#39;U,&#39;U2&gt; * fun3:Func&lt;&#39;U,&#39;U3&gt;) -&gt; DSet&lt;&#39;U0&gt; * DSet&lt;&#39;U1&gt; * DSet&lt;&#39;U2&gt; * DSet&lt;&#39;U3&gt;<br />
+                          <strong>Type parameters:</strong> 'U1, 'U2, 'U3          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L654-654" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Correlated split a dataset to four, each of which is created by running a functional delegate that maps the element of the original dataset.
+The resultant datasets all have the same partition and collection structure of the original dataset. 
+They can be combined later by Map4 transforms.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '151', 151)" onmouseover="showTip(event, '151', 151)">
+            StorageType()
+          </code>
+          <div class="tip" id="151">
+            <strong>Signature:</strong> unit -&gt; StorageKind<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L101-101" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Storage Type, which include StorageMedia and IndexMethod</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '152', 152)" onmouseover="showTip(event, '152', 152)">
+            StorageType()
+          </code>
+          <div class="tip" id="152">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L100-100" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Storage Type, which include StorageMedia and IndexMethod</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '153', 153)" onmouseover="showTip(event, '153', 153)">
+            Store(o)
+          </code>
+          <div class="tip" id="153">
+            <strong>Signature:</strong> o:IEnumerable&lt;&#39;U&gt; -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L134-134" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Store an IEnumerable to a persisted DSet</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '154', 154)" onmouseover="showTip(event, '154', 154)">
+            ToIEnumerable()
+          </code>
+          <div class="tip" id="154">
+            <strong>Signature:</strong> unit -&gt; IEnumerable&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L153-153" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Convert DSet to an IEnumerable<'U></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '155', 155)" onmouseover="showTip(event, '155', 155)">
+            TypeOfLoadBalancer()
+          </code>
+          <div class="tip" id="155">
+            <strong>Signature:</strong> unit -&gt; LoadBalanceAlgorithm<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L106-106" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get or Set Load Balancer
+Note that the change will affect Partitioner</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '156', 156)" onmouseover="showTip(event, '156', 156)">
+            TypeOfLoadBalancer()
+          </code>
+          <div class="tip" id="156">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L105-105" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get or Set Load Balancer
+Note that the change will affect Partitioner</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '157', 157)" onmouseover="showTip(event, '157', 157)">
+            Union(source)
+          </code>
+          <div class="tip" id="157">
+            <strong>Signature:</strong> source:IEnumerable&lt;DSet&lt;&#39;U&gt;&gt; -&gt; DSet&lt;&#39;U&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L514-514" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Merge the content of multiple dataset into a single dataset. The original dataset become partitions of the resultant dataset. 
+This can be considered as merge dataset by rows, and all dataset have the same column structure.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '158', 158)" onmouseover="showTip(event, '158', 158)">
+            Version()
+          </code>
+          <div class="tip" id="158">
+            <strong>Signature:</strong> unit -&gt; DateTime<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L110-110" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get and Set version</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '159', 159)" onmouseover="showTip(event, '159', 159)">
+            Version()
+          </code>
+          <div class="tip" id="159">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L109-109" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get and Set version</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '160', 160)" onmouseover="showTip(event, '160', 160)">
+            VersionString
+          </code>
+          <div class="tip" id="160">
+            <strong>Signature:</strong> string<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L113-113" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Represent version in a string for display</p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Static members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Static member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '161', 161)" onmouseover="showTip(event, '161', 161)">
+            TryFind(cluster, searchPattern)
+          </code>
+          <div class="tip" id="161">
+            <strong>Signature:</strong> (cluster:Cluster * searchPattern:string) -&gt; DSet&lt;&#39;?13734&gt; []<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L662-662" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="F# Project" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

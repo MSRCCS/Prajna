@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>LocalDNS - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fsharp.org">fsharp.org</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+
+
+<h1>LocalDNS</h1>
+<div class="xmldoc">
+<p>DNS helper functions. Cannot instantiate class, only contains static members.</p>
+</div>
+  <h3>Constructors</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Constructor</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1113', 1113)" onmouseover="showTip(event, '1113', 1113)">
+            new()
+          </code>
+          <div class="tip" id="1113">
+            <strong>Signature:</strong> unit -&gt; LocalDNS<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L53-53" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Static members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Static member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1114', 1114)" onmouseover="showTip(event, '1114', 1114)">
+            AddEntry(hostname, ipAddresses)
+          </code>
+          <div class="tip" id="1114">
+            <strong>Signature:</strong> (hostname:string * ipAddresses:byte [] []) -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L60-60" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Add a DNS entry of hostname <-> ipAddresses
+<param name="hostname">The hostname to add to the cache</param>
+<param name="ipAddresses">The IP addresses corresponding to the hostname being added</param></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1115', 1115)" onmouseover="showTip(event, '1115', 1115)">
+            GetAnyIPAddress(hostname, bTryResolve)
+          </code>
+          <div class="tip" id="1115">
+            <strong>Signature:</strong> (hostname:string * bTryResolve:bool option) -&gt; IPAddress<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L126-126" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Return a random IPv4 address of hostname. 
+<param name="hostname">The hostname</param>
+<param name="bTryResolve">
+Optional argument - default is true
+If bTryResolve is false, the function only attemps to retrieve the DNS entry in cache. 
+If bTryResolve is false and the DNS entry doesn't exist, null is returned for addresses. 
+</param>
+<returns>A random IPv4 address of the hostname</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1116', 1116)" onmouseover="showTip(event, '1116', 1116)">
+            GetHostAddresses(hostname, bTryResolve)
+          </code>
+          <div class="tip" id="1116">
+            <strong>Signature:</strong> (hostname:string * bTryResolve:bool option) -&gt; byte [] []<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L76-76" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Similar to Dns.GetHostAddresses, but only use IPv4 addresses, and caches its result.\
+<param name="hostname">The hostname to resolve</param>
+<param name="bTryResolve">
+Optional argument (default is true).
+Also, if bTryResolve is false, the function only attemps to retrieve the DNS entry in cache. 
+If bTryResolve is false and the DNS entry doesn't exist, null is returned for addresses.
+</param>
+<returns>An array of host addresses, where each address is array of bytes</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1117', 1117)" onmouseover="showTip(event, '1117', 1117)">
+            GetHostByAddress(addr, bTryResolve)
+          </code>
+          <div class="tip" id="1117">
+            <strong>Signature:</strong> (addr:byte [] * bTryResolve:bool option) -&gt; string<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L102-102" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Similar to Dns.GetHostEntry, but cache its result. 
+<param name="addr">The ipaddress as array of bytes</param>
+<param name="bTryResolve">
+Optional argument (default is true).
+Also, if bTryResolve is false, the function only attemps to retrieve the DNS entry in cache. 
+If bTryResolve is false and the DNS entry doesn't exist, null is returned for hostname. 
+</param>
+<returns>A string representing the host address</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1118', 1118)" onmouseover="showTip(event, '1118', 1118)">
+            GetHostInfoInt64(addrSignature)
+          </code>
+          <div class="tip" id="1118">
+            <strong>Signature:</strong> addrSignature:int64 -&gt; string<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L163-163" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Attempt to retrieve the hostname of a 48bit signature of type int64, with port being the lowest 16 bit, and IPv4 address takes 17 to 48 bit. 
+If the DNS entry doesn't exist in cache, the hostname information is shown as x.x.x.x</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1119', 1119)" onmouseover="showTip(event, '1119', 1119)">
+            GetNameForIPAddress(addr)
+          </code>
+          <div class="tip" id="1119">
+            <strong>Signature:</strong> addr:IPAddress -&gt; string<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L147-147" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Attempt to retrieve the hostname for IPAddress addr. If the DNS entry does not exist, the function returns IP addresses information string as x.x.x.x</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1120', 1120)" onmouseover="showTip(event, '1120', 1120)">
+            GetShowInfo(ep)
+          </code>
+          <div class="tip" id="1120">
+            <strong>Signature:</strong> ep:EndPoint -&gt; string<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L137-137" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Show host information of an endpoint ep. If the hostname is not in DNS cache, IP address and port information is shown. 
+<param name="ep">The endpoint</param>
+<returns>A string for display purposes</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1121', 1121)" onmouseover="showTip(event, '1121', 1121)">
+            Int64ToIPEndPoint(addrSignature)
+          </code>
+          <div class="tip" id="1121">
+            <strong>Signature:</strong> addrSignature:int64 -&gt; IPEndPoint<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L157-157" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Convert a 48bit signature of type int64 back to an IPv4 endpoint, with port being the lowest 16 bit, and IPv4 address takes 17 to 48 bit.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1122', 1122)" onmouseover="showTip(event, '1122', 1122)">
+            IPEndPointToInt64(ep)
+          </code>
+          <div class="tip" id="1122">
+            <strong>Signature:</strong> ep:IPEndPoint -&gt; int64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L154-154" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Map an IPv4 endpoint to a 48bit signature of type int64, with port being the lowest 16 bit, and IPv4 address takes 17 to 48 bit.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1123', 1123)" onmouseover="showTip(event, '1123', 1123)">
+            IPv4AddrToInt64(addr, port)
+          </code>
+          <div class="tip" id="1123">
+            <strong>Signature:</strong> (addr:IPAddress * port:int) -&gt; int64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/dns.fs#L151-151" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Map an IPv4 address to a 48bit signature of type int64, with port being the lowest 16 bit, and IPv4 address takes 17 to 48 bit.</p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="F# Project" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

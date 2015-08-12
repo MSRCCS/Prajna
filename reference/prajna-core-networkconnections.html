@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>NetworkConnections - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fsharp.org">fsharp.org</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+
+
+<h1>NetworkConnections</h1>
+<div class="xmldoc">
+<p>A set of NetworkCommandQueue that are established via the Connect call
+Each connect is reference counted, so that the connect will shutdown when the reference reaches 0</p>
+</div>
+  <h3>Constructors</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Constructor</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '718', 718)" onmouseover="showTip(event, '718', 718)">
+            new()
+          </code>
+          <div class="tip" id="718">
+            <strong>Signature:</strong> unit -&gt; NetworkConnections<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1136-1136" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Instance members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Instance member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '719', 719)" onmouseover="showTip(event, '719', 719)">
+            AddConnect(addr, port)
+          </code>
+          <div class="tip" id="719">
+            <strong>Signature:</strong> (addr:IPAddress * port:int) -&gt; NetworkCommandQueue<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1457-1457" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Given a IP address and port, create socket and connect, then create a NetworkCommandQueue and add it to collection
+<param name="addr">The IP address to connect to</param>
+<param name="port">The port to connect to</param>
+<returns>The NetworkCommandQueue created from the socket</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '720', 720)" onmouseover="showTip(event, '720', 720)">
+            AddConnect(machineName, port)
+          </code>
+          <div class="tip" id="720">
+            <strong>Signature:</strong> (machineName:string * port:int) -&gt; NetworkCommandQueue<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1446-1446" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Given a machine name and port, create socket and connect, then create a NetworkCommandQueue and add it to collection
+<param name="machineName">The machine to connect to</param>
+<param name="port">The port to connect to</param>
+<returns>The NetworkCommandQueue created from the socket</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '721', 721)" onmouseover="showTip(event, '721', 721)">
+            AddConnect(socket)
+          </code>
+          <div class="tip" id="721">
+            <strong>Signature:</strong> socket:Socket -&gt; NetworkCommandQueue<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1420-1420" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Given a socket, create a NetworkCommandQueue and add it to collection
+<param name="socket">The socket from which to create NetworkCommandQueue</param>
+<returns>The NetworkCommandQueue created from the socket</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '722', 722)" onmouseover="showTip(event, '722', 722)">
+            AddLoopbackConnect(...)
+          </code>
+          <div class="tip" id="722">
+            <strong>Signature:</strong> (port:int * requireAuth:bool option * guid:Guid option * rsaParam:(byte [] * byte []) option * pwd:string option) -&gt; NetworkCommandQueue<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1470-1470" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Add a loopback connection to specified port, with optional security parameters specified
+<param name="port">The port for loopback connection to connect to</param>
+<param name="requireAuth">Optional - specifies if authentication required</param>
+<param name="guid">Optional - own GUID for loopback</param>
+<param name="rsaParam">Optional - byte array for RSA information blob</param>
+<param name="pwd">Optional - password for decrypting RSA information blob</param>
+<returns>The NetworkCommandQueue for the channel being added</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '723', 723)" onmouseover="showTip(event, '723', 723)">
+            AddToCollection(newChannel)
+          </code>
+          <div class="tip" id="723">
+            <strong>Signature:</strong> newChannel:NetworkCommandQueue -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1405-1405" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Add a channel to collection - this is only needed in case a class inherits NetworkCommandQueue 
+<param name="newChannel">The channel to add to collection</param>
+<returns>The channel in collection</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '724', 724)" onmouseover="showTip(event, '724', 724)">
+            ChannelsCollection
+          </code>
+          <div class="tip" id="724">
+            <strong>Signature:</strong> ConcurrentDictionary&lt;int64,NetworkCommandQueue&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1400-1400" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get the current channel collection</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '725', 725)" onmouseover="showTip(event, '725', 725)">
+            GetAllChannels()
+          </code>
+          <div class="tip" id="725">
+            <strong>Signature:</strong> unit -&gt; seq&lt;NetworkCommandQueue&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1496-1496" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get all channels in the collection as a sequence</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '726', 726)" onmouseover="showTip(event, '726', 726)">
+            GetAuthParam()
+          </code>
+          <div class="tip" id="726">
+            <strong>Signature:</strong> unit -&gt; bool * Guid * (byte [] * byte []) * string<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1189-1189" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Get the authentication parameters
+<returns>
+The authentication parameters as (RequireAuth, MyGUID, PrivateKey, KeyFilePassword)
+RequireAuth - whether authentication is currently required
+MyGUID - my own GUID
+PrivateKey - my own private key
+KeyFilePassword - password for the key file
+</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '727', 727)" onmouseover="showTip(event, '727', 727)">
+            Initialize()
+          </code>
+          <div class="tip" id="727">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1379-1379" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Initialize the object</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '728', 728)" onmouseover="showTip(event, '728', 728)">
+            InitializeAuthentication(...)
+          </code>
+          <div class="tip" id="728">
+            <strong>Signature:</strong> (keyInfo:byte [] * keyfilepwd:string) -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1293-1293" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Initialize authentication / security information from key information obtained in buffer
+<param name="keyInfo>
+The key information blob as a byte array
+The blob consists of:
+Own key information with following format
+- 16 byte GUID
+- Length of authentication key blob (4 bytes)
+- A private key blob which has been encrypted and contains information to initialize RSA
+- Length of encryption key blob (4 bytes)
+- A private key blob which has been encrypted and contains information to initialize RSA
+Key information for allowed connections in following format - can be multiple of these
+- 16 byte GUID
+- Key blob (unencrypted) with length containing authentication public key
+- Key blob (unencrypted) with length containing encryption public key
+</param>
+<param name="keyfilepwd">The password used to decrypt the encrypted private key information</param></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '729', 729)" onmouseover="showTip(event, '729', 729)">
+            InitializeAuthentication(...)
+          </code>
+          <div class="tip" id="729">
+            <strong>Signature:</strong> (pwd:string * keyfile:string * keyfilePwd:string) -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1218-1218" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Initialize authentication / security information from keyfile (encrypted with keyfilePwd)
+while also allowing for shared secret (password) to be used for authentication.
+<param name="pwd">A shared secret password which can be used for authentication</param>
+<param name="keyfile">
+The base key file, other guids are obtained from other files in same directory
+Own key information is stored in a file with the name "keyfile<em>mykey.txt" which has following format
+- 16 byte GUID
+- Length of authentication key blob (4 bytes)
+- A private key blob which has been encrypted and contains information to initialize RSA
+- Length of encryption key blob (4 bytes)
+- A private key blob which has been encrypted and contains information to initialize RSA
+Other key information is stored in files "keyfile</em><GUID>.txt" where <GUID> is guid of connection and has following format
+- 16 byte GUID
+- Key blob (unencrypted) with length containing authentication public key
+- Key blob (unencrypted) with length containing encryption public key
+</param>
+<param name="keyfilepwd">The password used to decrypt the encrypted private key information</param></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '730', 730)" onmouseover="showTip(event, '730', 730)">
+            LookforConnect(endPoint)
+          </code>
+          <div class="tip" id="730">
+            <strong>Signature:</strong> endPoint:IPEndPoint -&gt; NetworkCommandQueue<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1428-1428" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Search for connection in collection by endpoint
+<param name="endPoint">The endpoint to search for</param>
+<returns>The channel if found, else null</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '731', 731)" onmouseover="showTip(event, '731', 731)">
+            LookforConnectBySignature(signature)
+          </code>
+          <div class="tip" id="731">
+            <strong>Signature:</strong> signature:int64 -&gt; NetworkCommandQueue<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1435-1435" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Search for connection in collection by signature
+<param name="signature">The signature of the endpoint to search for</param>
+<returns>The channel if found, else null</returns></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '732', 732)" onmouseover="showTip(event, '732', 732)">
+            RemoveConnect(channel)
+          </code>
+          <div class="tip" id="732">
+            <strong>Signature:</strong> channel:NetworkCommandQueue -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1481-1481" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Remove a channel from collection
+<param name="channel">The channel to remove</param></p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Static members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Static member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '733', 733)" onmouseover="showTip(event, '733', 733)">
+            Current
+          </code>
+          <div class="tip" id="733">
+            <strong>Signature:</strong> NetworkConnections<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1163-1163" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>The current NetworkConnections - only one instantiation exists</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '734', 734)" onmouseover="showTip(event, '734', 734)">
+            ObtainKeyInfoFromFiles(keyfile)
+          </code>
+          <div class="tip" id="734">
+            <strong>Signature:</strong> keyfile:string -&gt; byte []<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L1259-1259" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Obtain key information for security (authentication / encryption) from files and load in memory
+<param name="keyfile">
+The base key file, other guids are obtained from other files in same directory
+Own key information is stored in a file with the name "keyfile<em>mykey.txt" which has following format
+- 16 byte GUID
+- Length of authentication key blob (4 bytes)
+- A private key blob which has been encrypted and contains information to initialize RSA
+- Length of encryption key blob (4 bytes)
+- A private key blob which has been encrypted and contains information to initialize RSA
+Other key information is stored in files "keyfile</em><GUID>.txt" where <GUID> is guid of connection and has following format
+- 16 byte GUID
+- Key blob (unencrypted) with length containing authentication public key
+- Key blob (unencrypted) with length containing encryption public key
+</param></p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="F# Project" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

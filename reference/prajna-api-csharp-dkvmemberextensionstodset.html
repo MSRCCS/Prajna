@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>DKVMemberExtensionsToDSet - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fsharp.org">fsharp.org</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+
+
+<h1>DKVMemberExtensionsToDSet</h1>
+<div class="xmldoc">
+<p>Extension member functions for DSet<Tuple<'K,'V>&gt;</p>
+</div>
+  <h3>Static members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Static member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '39', 39)" onmouseover="showTip(event, '39', 39)">
+            BinSortByKey(x, partFunc, comparer)
+          </code>
+          <div class="tip" id="39">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * partFunc:Func&lt;&#39;K,int&gt; * comparer:IComparer&lt;&#39;K&gt;) -&gt; DSet&lt;&#39;K * &#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L733-733" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bin sort the DKV by key.
+Apply a partition function, repartition elements by key across nodes in the cluster. The number of partitions remains unchanged.
+Elements within each partition/bin are sorted using the 'comparer'.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '40', 40)" onmouseover="showTip(event, '40', 40)">
+            BinSortNByKey(...)
+          </code>
+          <div class="tip" id="40">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * numPartitions:int * partFunc:Func&lt;&#39;K,int&gt; * comparer:IComparer&lt;&#39;K&gt;) -&gt; DSet&lt;&#39;K * &#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L724-724" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bin sort the DKV by key.
+Apply a partition function, repartition elements by key into 'numPartitions" partitions across nodes in the cluster.
+Elements within each partition/bin are sorted using the 'comparer'.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '41', 41)" onmouseover="showTip(event, '41', 41)">
+            BinSortPByKey(...)
+          </code>
+          <div class="tip" id="41">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * param:DParam * partFunc:Func&lt;&#39;K,int&gt; * comparer:IComparer&lt;&#39;K&gt;) -&gt; DSet&lt;&#39;K * &#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L715-715" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Bin sort the DKV by key.
+Apply a partition function, repartition elements by key across nodes in the cluster according to the setting specified by "param".
+Elements within each partition/bin are sorted using the 'comparer'.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '42', 42)" onmouseover="showTip(event, '42', 42)">
+            FilterByKey(x, func)
+          </code>
+          <div class="tip" id="42">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * func:Func&lt;&#39;K,bool&gt;) -&gt; DSet&lt;&#39;K * &#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L738-738" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Creates a new dataset containing only the elements of the dataset for which the given predicate on key returns true.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '43', 43)" onmouseover="showTip(event, '43', 43)">
+            GroupByKey(x)
+          </code>
+          <div class="tip" id="43">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt;) -&gt; DSet&lt;&#39;K * List&lt;&#39;V&gt;&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L697-697" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Group all values of the same key to a List.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '44', 44)" onmouseover="showTip(event, '44', 44)">
+            GroupByKeyN(x, numSerialization)
+          </code>
+          <div class="tip" id="44">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * numSerialization:int) -&gt; DSet&lt;&#39;K * List&lt;&#39;V&gt;&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L692-692" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Group all values of the same key to a List.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '45', 45)" onmouseover="showTip(event, '45', 45)">
+            InnerJoinByMergeAfterBinSortByKey(...)
+          </code>
+          <div class="tip" id="45">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * x1:DSet&lt;&#39;K * &#39;V1&gt; * comp:IComparer&lt;&#39;K&gt; * func:Func&lt;&#39;V,&#39;V1,&#39;V2&gt;) -&gt; DSet&lt;&#39;K * &#39;V2&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V, 'V1, 'V2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L761-761" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Inner join the DKV with another DKV by merge join at each partition.
+It assumes that both DKVs have already been bin sorted by key (using one of the BinSortByKey methods). 
+The bin sorts should have partitioned the two DKVs into the same number of paritions. For elements with the 
+same key, they should have been placed into the same parition.
+Please refer to <a href="http://en.wikipedia.org/wiki/Join_(SQL)">http://en.wikipedia.org/wiki/Join_(SQL)</a> on the join operators.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '46', 46)" onmouseover="showTip(event, '46', 46)">
+            LeftOuterJoinByMergeAfterBinSortByKey(...)
+          </code>
+          <div class="tip" id="46">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * x1:DSet&lt;&#39;K * &#39;V1&gt; * comp:IComparer&lt;&#39;K&gt; * func:Func&lt;&#39;V,Nullable&lt;&#39;V1&gt;,&#39;V2&gt;) -&gt; DSet&lt;&#39;K * &#39;V2&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V, 'V1, 'V2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L785-785" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Left outer join the DKV with another DKV by merge join at each partition.
+It assumes that both DKVs have already been bin sorted by key (using one of the BinSortByKey methods). 
+The bin sorts should have partitioned the two DKVs into the same number of paritions. For elements with the 
+same key, they should have been placed into the same parition.
+Please refer to <a href="http://en.wikipedia.org/wiki/Join_(SQL)">http://en.wikipedia.org/wiki/Join_(SQL)</a> on the join operators.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '47', 47)" onmouseover="showTip(event, '47', 47)">
+            LeftOuterJoinByMergeAfterBinSortByKey(...)
+          </code>
+          <div class="tip" id="47">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * x1:DSet&lt;&#39;K * &#39;V1&gt; * comp:IComparer&lt;&#39;K&gt; * func:Func&lt;&#39;V,&#39;V1,&#39;V2&gt;) -&gt; DSet&lt;&#39;K * &#39;V2&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V, 'V1, 'V2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L770-770" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Left outer join the DKV with another DKV by merge join at each partition.
+It assumes that both DKVs have already been bin sorted by key (using one of the BinSortByKey methods). 
+The bin sorts should have partitioned the two DKVs into the same number of paritions. For elements with the 
+same key, they should have been placed into the same parition.
+Please refer to <a href="http://en.wikipedia.org/wiki/Join_(SQL)">http://en.wikipedia.org/wiki/Join_(SQL)</a> on the join operators.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '48', 48)" onmouseover="showTip(event, '48', 48)">
+            MapByValue(x, func)
+          </code>
+          <div class="tip" id="48">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * func:Func&lt;&#39;V,&#39;V1&gt;) -&gt; DSet&lt;&#39;K * &#39;V1&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V, 'V1          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L743-743" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Create a new dataset by transforming only the value of the original dataset</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '49', 49)" onmouseover="showTip(event, '49', 49)">
+            ParallelMapByValue(x, func)
+          </code>
+          <div class="tip" id="49">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * func:Func&lt;&#39;V,Task&lt;&#39;V1&gt;&gt;) -&gt; DSet&lt;&#39;K * &#39;V1&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V, 'V1          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L752-752" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Map DKV by value, in which func is an Task<_> function that may contains asynchronous operation. 
+You will need to start the 1st task in the mapping function. Prajna will not be able to start the task for you as the returned
+task may not be the a Task in the creation state. see: <a href="http://blogs.msdn.com/b/pfxteam/archive/2012/01/14/10256832.aspx">http://blogs.msdn.com/b/pfxteam/archive/2012/01/14/10256832.aspx</a></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '50', 50)" onmouseover="showTip(event, '50', 50)">
+            ReduceByKey(x, reduceFunc)
+          </code>
+          <div class="tip" id="50">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * reduceFunc:Func&lt;&#39;V,&#39;V,&#39;V&gt;) -&gt; DSet&lt;&#39;K * &#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L706-706" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Aggregate all values of a unique key of the DKV togeter. Caution: as this function uses mapreduce, the network cost is not negligble. If the aggregated result is to be returned to the client, 
+rather than further used in the cluster, the .fold function should be considered instead for performance.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '51', 51)" onmouseover="showTip(event, '51', 51)">
+            RepartitionByKey(x, partFunc)
+          </code>
+          <div class="tip" id="51">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * partFunc:Func&lt;&#39;K,int&gt;) -&gt; DSet&lt;&#39;K * &#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L685-685" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Apply a partition function, repartition elements across nodes in the cluster. The number of partitions remains unchanged.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '52', 52)" onmouseover="showTip(event, '52', 52)">
+            RepartitionNByKey(...)
+          </code>
+          <div class="tip" id="52">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * numPartitions:int * partFunc:Func&lt;&#39;K,int&gt;) -&gt; DSet&lt;&#39;K * &#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L680-680" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Apply a partition function, repartition elements by key into 'numPartitions" partitions across nodes in the cluster.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '53', 53)" onmouseover="showTip(event, '53', 53)">
+            RepartitionPByKey(x, param, partFunc)
+          </code>
+          <div class="tip" id="53">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * param:DParam * partFunc:Func&lt;&#39;K,int&gt;) -&gt; DSet&lt;&#39;K * &#39;V&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L674-674" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Apply a partition function, repartition elements by the key across nodes in the cluster according to the setting specified by "param".</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '54', 54)" onmouseover="showTip(event, '54', 54)">
+            RightOuterJoinByMergeAfterBinSortByKey(...)
+          </code>
+          <div class="tip" id="54">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * x1:DSet&lt;&#39;K * &#39;V1&gt; * comp:IComparer&lt;&#39;K&gt; * func:Func&lt;Nullable&lt;&#39;V&gt;,&#39;V1,&#39;V2&gt;) -&gt; DSet&lt;&#39;K * &#39;V2&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V, 'V1, 'V2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L814-814" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Right outer join the DKV with another DKV by merge join at each partition.
+It assumes that both DKVs have already been bin sorted by key (using one of the BinSortByKey methods). 
+The bin sorts should have partitioned the two DKVs into the same number of paritions. For elements with the 
+same key, they should have been placed into the same parition.
+Please refer to <a href="http://en.wikipedia.org/wiki/Join_(SQL)">http://en.wikipedia.org/wiki/Join_(SQL)</a> on the join operators.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '55', 55)" onmouseover="showTip(event, '55', 55)">
+            RightOuterJoinByMergeAfterBinSortByKey(...)
+          </code>
+          <div class="tip" id="55">
+            <strong>Signature:</strong> (x:DSet&lt;&#39;K * &#39;V&gt; * x1:DSet&lt;&#39;K * &#39;V1&gt; * comp:IComparer&lt;&#39;K&gt; * func:Func&lt;&#39;V,&#39;V1,&#39;V2&gt;) -&gt; DSet&lt;&#39;K * &#39;V2&gt;<br />
+                          <strong>Type parameters:</strong> 'K, 'V, 'V1, 'V2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharp.fs#L800-800" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Right outer join the DKV with another DKV by merge join at each partition.
+It assumes that both DKVs have already been bin sorted by key (using one of the BinSortByKey methods). 
+The bin sorts should have partitioned the two DKVs into the same number of paritions. For elements with the 
+same key, they should have been placed into the same parition.
+Please refer to <a href="http://en.wikipedia.org/wiki/Join_(SQL)">http://en.wikipedia.org/wiki/Join_(SQL)</a> on the join operators.</p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="F# Project" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

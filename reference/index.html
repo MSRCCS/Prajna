@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>Namespaces - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fsharp.org">fsharp.org</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+<h1>Prajna</h1>
+
+
+  <h2>Prajna.Api.CSharp Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-api-csharp-dkvmemberextensionstodset.html">DKVMemberExtensionsToDSet</a>
+          </td>
+          <td class="xmldoc"><p>Extension member functions for DSet<Tuple<'K,'V>&gt;</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-api-csharp-dset-1.html">DSet<'U></a>
+          </td>
+          <td class="xmldoc"><p>Generic distributed dataset. If storing the content of DSet to a persisted store, it is highly advisable that 'U used is either of .Net system type, 
+or using a customized serializer/deserializer to serialize ('U)[]. Otherwise, the stored data may not be retrievable as the BinaryFormatter may fail 
+to deserialize a class if the associated code has changed.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Api.FSharp Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-api-fsharp-dkv-2.html">DKV<'K, 'V></a>
+          </td>
+          <td class="xmldoc"><p>Functions for DSet<'U> when 'U represents a key-value pair with type 'K*'V</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-api-fsharp-dkvextensionstodset.html">DKVExtensionsToDSet</a>
+          </td>
+          <td class="xmldoc"><p>Extension member functions for DSet<'K*'V></p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-api-fsharp-dset-1.html">DSet<'U></a>
+          </td>
+          <td class="xmldoc"><p>Generic distributed dataset. If storing the content of DSet to a persisted store, it is highly advisable that 'U used is either of .Net system type, 
+or using a customized serializer/deserializer to serialize ('U)[]. Otherwise, the stored data may not be retrievable as the BinaryFormatter may fail 
+to deserialize a class if the associated code has changed.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Core Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-blobmetadata.html">BlobMetadata</a>
+          </td>
+          <td class="xmldoc"><p>BlobMetadata used in Job Execution. The class gets exposed because of use in abstract function.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-cachekind.html">CacheKind</a>
+          </td>
+          <td class="xmldoc"><p>PrajnaCacheTye only kicks in for StorageType.RAM
+It is only used for in job DSet</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-clientinfo.html">ClientInfo</a>
+          </td>
+          <td class="xmldoc"><p>ClientInfo contains information of a Prajna remote node and its daemon. 
+Information below is exposed as F# is not capable of suppress comment on internal/private structure member.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-cluster.html">Cluster</a>
+          </td>
+          <td class="xmldoc"><p>Cluster represents a set of remote nodes in either a private cloud or a public cloud. It is the class that govern 
+which remote nodes that services, contracts and data analytical jobs are running upon.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-connectionstatus.html">ConnectionStatus</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-controllercommand.html">ControllerCommand</a>
+          </td>
+          <td class="xmldoc"><p>Verb-Noun pair that forms one Prajna message. 
+Only advance programmer that need to write additional Prajna service should use this data structure</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-controllernoun.html">ControllerNoun</a>
+          </td>
+          <td class="xmldoc"><p>Noun to be used for message passing between Prajna nodes
+Only advance programmer that need to write additional Prajna service should use this data structure</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-controllerverb.html">ControllerVerb</a>
+          </td>
+          <td class="xmldoc"><p>Verb to be used for message passing between Prajna nodes
+Only advance programmer that need to write additional Prajna service should use this data structure</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-dparam.html">DParam</a>
+          </td>
+          <td class="xmldoc"><p>DParam, setting parameters for DSet mapping
+Base of PrajnaDistributed Object</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-dset.html">DSet</a>
+          </td>
+          <td class="xmldoc"><p>DSet is a distributed data set. It is one of the central entity in Prajna. 
+Please use the generic version of this class.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-dstream.html">DStream</a>
+          </td>
+          <td class="xmldoc"><p>DStream is a distributed byte[] stream, a central entity in DSet.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-debugmode.html">DebugMode</a>
+          </td>
+          <td class="xmldoc"><p>Control the launch of container in Debug or Release mode.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-deploymentsettings.html">DeploymentSettings</a>
+          </td>
+          <td class="xmldoc"><p>A set of default parameter that controls Prajna execution behavior</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-distributedobject.html">DistributedObject</a>
+          </td>
+          <td class="xmldoc"><p>Base of DStream/DSet, all exposed functions in this class is internal function to be executed 
+during a data analytical jobs. They shoould not be used by programmer.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-environment.html">Environment</a>
+          </td>
+          <td class="xmldoc"><p>Represent Prajna Environment for running Prajna program</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-jobdependencies.html">JobDependencies</a>
+          </td>
+          <td class="xmldoc"><p>Remote execution roster, which contains a list of file (dlls, data, environment variables) that is required for the job</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-jobinformation.html">JobInformation</a>
+          </td>
+          <td class="xmldoc"><p>Internal data structure to pass data analytical job related information 
+Class exposed because of being used in an Abstract function</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-joblistener.html">JobListener</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-jobtaskkind.html">JobTaskKind</a>
+          </td>
+          <td class="xmldoc"><p>Enumeration class that controls how a remote container for the job/service is executed.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-loadbalancealgorithm.html">LoadBalanceAlgorithm</a>
+          </td>
+          <td class="xmldoc"><p>Enumeration class of constant of type of Load balancing algorithm supported</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-localclusterconfig.html">LocalClusterConfig</a>
+          </td>
+          <td class="xmldoc"><p>The configuration for a local cluster</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-networkcommand.html">NetworkCommand</a>
+          </td>
+          <td class="xmldoc"><p>commands over the wire have 8-byte header followed by body
+A class representing NetworkCommand consisting of ControllerCommand, buffer, offset, count</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-networkcommandqueue.html">NetworkCommandQueue</a>
+          </td>
+          <td class="xmldoc"><p>An extension to GenericConn to process NetworkCommand
+GenericConn is an internal object which contains Send/Recv Components to process SocketAsyncEventArgs objects
+NetworkCommandQueue contains Send/Recv Components to process NetworkCommand objects
+The general pipeline looks like following
+For Recv:
+Network -&gt; GenericConn (ProcessRecvGenericConn) -&gt; NetworkCommandQueue (function from AddRecvProc) -&gt; Application
+RecvAsync-&gt;queue        CompRecv of GenericConn                       CompRecv of NetworkCommandQueue
+                        SocketAsyncEventArgs-&gt;NetworkCommand           NetworkCommand-&gt;application
+                        To Queue of NetworkCommandQueue
+For Send:
+Network &lt;- (SendAsync)          GenericConn     &lt;- (ProcessSendGenericConn) NetworkCommandQueue    &lt;- Application
+           CompSend of GenericConn                 CompSend of NetworkCommandQueue
+           network&lt;-SocketAsyncEventArgs           SocketAsyncEventArgs&lt;-NetworkCommand
+                                                   Application writes to NetworkCommand queue using ToSend</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-networkcommandqueuepeer.html">NetworkCommandQueuePeer</a>
+          </td>
+          <td class="xmldoc"><p>A Prajna CommandQueue that is resulted from accept()</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-networkconnections.html">NetworkConnections</a>
+          </td>
+          <td class="xmldoc"><p>A set of NetworkCommandQueue that are established via the Connect call
+Each connect is reference counted, so that the connect will shutdown when the reference reaches 0</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-networkperformance.html">NetworkPerformance</a>
+          </td>
+          <td class="xmldoc"><p>Network Performance statistics (only activate when service is in use)</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-onacceptaction.html">OnAcceptAction</a>
+          </td>
+          <td class="xmldoc"><p>Delegate that is called when some one connects in</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-remotecontainer.html">RemoteContainer</a>
+          </td>
+          <td class="xmldoc"><p>Access state of RemoteContainer</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-remoteexecutionenvironment.html">RemoteExecutionEnvironment</a>
+          </td>
+          <td class="xmldoc"><p>Parameters related to Prajna remote running environment</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-storagekind.html">StorageKind</a>
+          </td>
+          <td class="xmldoc"><p>Type of Storage used by DSet</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-tpltask.html">TPLTask</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-core-tasklaunchmode.html">TaskLaunchMode</a>
+          </td>
+          <td class="xmldoc"><p>Enumeration Class that controls the behavior of the remote container launch</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Service Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-cacheservice.html">CacheService</a>
+          </td>
+          <td class="xmldoc"><p>Cache Service doesn't do anything itself. It only register a service with an AppDomain/Exe, so that when the client stops, the AppDomain/Exe continues to 
+run and hold cached data.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-contractserverinfolocal.html">ContractServerInfoLocal</a>
+          </td>
+          <td class="xmldoc"><p>Specify contract servers to be monitored, this class can not be serialized</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-contractserversinfo.html">ContractServersInfo</a>
+          </td>
+          <td class="xmldoc"><p>Specify servers to be used to launch services, import and export contract</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-workerroleentrypointunit.html">WorkerRoleEntryPointUnit</a>
+          </td>
+          <td class="xmldoc"><p>WorkerRoleEntryPoint can be extended to run a Prajna worker service. The worker service will extend the class WorkerRoleEntryPoint with the following functions:
+Please note that the extended class will be serialized to the remote end. It is crucial to consider the data footprint in serialization for efficient execution.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-workerroleinstance-1.html">WorkerRoleInstance<'StartParamType></a>
+          </td>
+          <td class="xmldoc"><p>WorkerRoleInstance can be extended to run a Prajna worker service. Unlike WorkerRoleEntryPoint, WorkerRoleInstance is to be instantiated at the remote end 
+so it is class member is not serialized.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-workerroleinstance.html">WorkerRoleInstance</a>
+          </td>
+          <td class="xmldoc"><p>WorkerRoleInstance can be extended to run a Prajna worker service. Unlike WorkerRoleEntryPoint, WorkerRoleInstance is to be instantiated at the remote end 
+so it is class member is not serialized.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-workerroleinstancestartparam.html">WorkerRoleInstanceStartParam</a>
+          </td>
+          <td class="xmldoc"><p>This class contains the parameter used to start a multithreaded WorkerRoleInstance. The class (and if you have derived from the class, any additional information) 
+will be serialized and send over the network to be executed on Prajna platform. Please fill in all class members that are not default.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Service.CSharp Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-csharp-contractserverinfolocal.html">ContractServerInfoLocal</a>
+          </td>
+          <td class="xmldoc"><p>Manifested list of servers to be used to launch services, import and export contract
+This class is a local manifestation of ContractServersInfo that is to be used.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-csharp-contractserversinfo.html">ContractServersInfo</a>
+          </td>
+          <td class="xmldoc"><p>Specify servers to be used to launch services, import and export contract</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-csharp-contractstore.html">ContractStore</a>
+          </td>
+          <td class="xmldoc"><p>ContractStore provides a central location for export/import contract</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-csharp-remoteinstance.html">RemoteInstance</a>
+          </td>
+          <td class="xmldoc"><p>Launching a PrajnaInstance on a group of remote nodes.
+serviceName: name of the serivce
+param: parameter to be called by OnStart
+serviceInstance: OnStart(param), OnStop(), Run(), IsRunning() call for the initiating of the service. 
+        You must derive serviceInstance from WorkerRoleInstance
+PrajnaInstance share similar characteristics with Prajnaservice, with characteristics below.
+1. You can run Service on Azure VM or your own cluster in the data center. 
+2. You can host multiple worker role in a same remote program. 
+3. Service can interact (call each other) with each call being a function call. 
+4. You can perform Big data analytical tasks (map/filter/choose/collect, fold, map-reduce, sort, hash-join, cross-join, etc.) on data generated by Service
+5. You can start Service with a parameter. 
+6. You can track debug output (log, stderr, stdout) of the remote service. 
+But in addition, PrajnaInstance is 
+1. Initialied remotely (with a function that you have specified). As such, PrajnaInstance doesn't need to be serializable, and can contain heavy data element. 
+2. You may specify the number of thread to work on the PrajnaInstance (parameter specified in Start Parameter.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Service.FSharp Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-cacheservice.html">CacheService</a>
+          </td>
+          <td class="xmldoc"><p>Running a empty service, when the service is running, cache data will be hold at remote container.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-contractserverinfolocal.html">ContractServerInfoLocal</a>
+          </td>
+          <td class="xmldoc"><p>Manifested list of servers to be used to launch services, import and export contract
+This class is a local manifestation of ContractServersInfo that is to be used.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-contractserversinfo.html">ContractServersInfo</a>
+          </td>
+          <td class="xmldoc"><p>Specify servers to be used to launch services, import and export contract</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-contractstore.html">ContractStore</a>
+          </td>
+          <td class="xmldoc"><p>ContractStore provides a central location for export/import contract</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-remoteinstance.html">RemoteInstance</a>
+          </td>
+          <td class="xmldoc"><p>Launching a PrajnaInstance on a group of remote nodes.
+serviceName: name of the serivce
+param: parameter to be called by OnStart
+serviceInstance: OnStart(param), OnStop(), Run(), IsRunning() call for the initiating of the service. 
+        You must derive serviceInstance from WorkerRoleInstance
+PrajnaInstance share similar characteristics with Prajnaservice, with characteristics below.
+1. You can run Service on Azure VM or your own cluster in the data center. 
+2. You can host multiple worker role in a same remote program. 
+3. Service can interact (call each other) with each call being a function call. 
+4. You can perform Big data analytical tasks (map/filter/choose/collect, fold, map-reduce, sort, hash-join, cross-join, etc.) on data generated by Service
+5. You can start Service with a parameter. 
+6. You can track debug output (log, stderr, stdout) of the remote service. 
+But in addition, PrajnaInstance is 
+1. Initialied remotely (with a function that you have specified). As such, PrajnaInstance doesn't need to be serializable, and can contain heavy data element. 
+2. You may specify the number of thread to work on the PrajnaInstance (parameter specified in Start Parameter.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-workerroleinstance-1.html">WorkerRoleInstance<'StartParamType></a>
+          </td>
+          <td class="xmldoc"><p>WorkerRoleInstance is extended to run a service. It is to be instantiated at the remote end so that it is class member 
+does not have the constraint to be serializable. 
+</summary></p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-workerroleinstance.html">WorkerRoleInstance</a>
+          </td>
+          <td class="xmldoc"><p>WorkerRoleInstance is extended to run a service. It is to be instantiated at the remote end so that it is class member 
+does not have the constraint to be serializable. 
+</summary></p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-workerroleinstancestartparam.html">WorkerRoleInstanceStartParam</a>
+          </td>
+          <td class="xmldoc"><p>This class contains the parameter used to start a multithreaded WorkerRoleInstance. The class (and if you have derived from the class, any additional information) 
+will be serialized and send over the network to be executed on Prajna platform. Please fill in all class members that are not default.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Service.KVStoreService Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-kvstoreservice-kvstore-2.html">KVStore<'K, 'V></a>
+          </td>
+          <td class="xmldoc"><p>KV class implements a distributed key-value store.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Tools Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-argumentparser.html">ArgumentParser</a>
+          </td>
+          <td class="xmldoc"><p>Utility class to parse commandline argument. Each argument is in the form of -pattern param, and the programmer can supplied a default value for each parameter. Please note that the pattern is case insensitive prefix matched, so pattern
+-dir will match "-directory" "-DIRECT". Please design your commandline argument pattern with different prefix.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-bytescompare.html">BytesCompare</a>
+          </td>
+          <td class="xmldoc"><p>Compare byte[], note that the default comparison of byte[] is Reference Equality</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-customizeddeserializerfunction.html">CustomizedDeserializerFunction</a>
+          </td>
+          <td class="xmldoc"><p>Programmer will implementation CustomizedSerializerAction of Func<MemStream, Object> to customarily deserialize an object</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-customizedserializeraction.html">CustomizedSerializerAction</a>
+          </td>
+          <td class="xmldoc"><p>Programmer will implementation CustomizedSerializerAction of Action<Object*Stream> to customarily serialize an object</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-expandablebuffer.html">ExpandableBuffer</a>
+          </td>
+          <td class="xmldoc"><p>ExpandableBuffer wraps around a bytearray object that can be extended in both direction, front &amp; back
+The valid bytes in the Buffer is between Head &amp; Tail. 
+The current implementation of expandableBuffer is not threadsafe, and should not be used in multiple thread environment.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-iloggerprovider.html">ILoggerProvider</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-loglevel.html">LogLevel</a>
+          </td>
+          <td class="xmldoc"><p>Prajna Trace level, the lower the level, the more important of the message.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-logger.html">Logger</a>
+          </td>
+          <td class="xmldoc"><p>Logger</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-memstream.html">MemStream</a>
+          </td>
+          <td class="xmldoc"><p>MemStream is similar to MemoryStream and provide a number of function to ease the read and write object
+This class is used if you need to implement customized serializer and deserializer.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-randomwithsalt.html">RandomWithSalt</a>
+          </td>
+          <td class="xmldoc"><p>This class is created for initialization of Random(), in which the 
+Random generator can be correlated as they have the same time signature. A salt is added to make sure that the 
+resultant random number is different based on different salt value.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-stringtcomparer-1.html">StringTComparer<'T></a>
+          </td>
+          <td class="xmldoc"><p>Construct a comparer to quick compare String*'T. 
+The class is constructured to take a comparer of string, and a type T that supports equality, and construct a new comparer</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-unitaction.html">UnitAction</a>
+          </td>
+          <td class="xmldoc"><p>UnitAction represent one function to be checked during the wake up of ThreadPool wait. 
+For performance reason, it is important to only put light function in this loop. Any heavy operation should be forked to be executed on another thread/task.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-webcache.html">WebCache</a>
+          </td>
+          <td class="xmldoc"><p>Helper class for caching web object.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+  <table class="table table-bordered module-list">
+    <thead>
+      <tr><td>Module</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="module-name">
+            <a href="prajna-tools-bytestools.html">BytesTools</a>
+          </td>
+          <td class="xmldoc"><p>A set of helper routine for byte[] operations</p>
+</td>
+        </tr>
+        <tr>
+          <td class="module-name">
+            <a href="prajna-tools-filetools.html">FileTools</a>
+          </td>
+          <td class="xmldoc"><p>A set of helper routine for file operations</p>
+</td>
+        </tr>
+        <tr>
+          <td class="module-name">
+            <a href="prajna-tools-httpbuilderhelper.html">HttpBuilderHelper</a>
+          </td>
+          <td class="xmldoc"><p>Helper function to form a properly formatted HTTP page</p>
+</td>
+        </tr>
+        <tr>
+          <td class="module-name">
+            <a href="prajna-tools-runtime.html">Runtime</a>
+          </td>
+          <td class="xmldoc"><p>Runtime related information</p>
+</td>
+        </tr>
+        <tr>
+          <td class="module-name">
+            <a href="prajna-tools-stringtools.html">StringTools</a>
+          </td>
+          <td class="xmldoc"><p>A set of helper routine for string operations</p>
+</td>
+        </tr>
+        <tr>
+          <td class="module-name">
+            <a href="prajna-tools-utils.html">Utils</a>
+          </td>
+          <td class="xmldoc"><p>Utilities</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Tools.CSharp Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-csharp-logger.html">Logger</a>
+          </td>
+          <td class="xmldoc"><p>Provides logging interface and utility functions.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Tools.FSharp Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-fsharp-loglevel.html">LogLevel</a>
+          </td>
+          <td class="xmldoc"><p>LogLevel</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-fsharp-logger.html">Logger</a>
+          </td>
+          <td class="xmldoc"><p>Provides logging interface and utility functions.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Tools.Network Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-component-1.html">Component<'T></a>
+          </td>
+          <td class="xmldoc"><p>A component class provides a generic tool to build a processing pipeline using a threadpool
+It provides the following functionality:
+1. An arbitrary object (an item of type 'T) is dequeue from a queue - a queue must have a BaseQ as a base class
+2. The object is repeatedly "processed" until the processing says it is finished by arbirary piece of processing code
+   The processing code returns a tuple of (bool, ManualResetEvent): (complete, event)
+   When complete == true, then item has completed and new item is to be dequeued
+   When event <> null, then processing cannot continue and must wait for event to fire before trying again
+   There may be cases when complete is true, but event is not null, in these cases, processing waits for event to fire
+   However, if complete is false, event must be non-null
+The processing may occur on its own thread or on a threadpool
+If  event <> null,
+- If threadpool is being used, the component processing is removed from the threadpool work item queue
+  and gets requeued once event fires
+- If processing is occuring on own thread, then that thread blocks for event to fire
+There is also support for multiple processing steps to take place in a single item</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-genericbuf.html">GenericBuf</a>
+          </td>
+          <td class="xmldoc"><p>A class capable of reading/writing a buffer asynchronously using an underlying connection</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-genericconn.html">GenericConn</a>
+          </td>
+          <td class="xmldoc"><p>A generic connection which processes SocketAsyncEventArgs</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-genericnetwork.html">GenericNetwork</a>
+          </td>
+          <td class="xmldoc"><p>base class which maintains multiple GenericConn connections which
+- share a common pool of SocketAsyncEventArgs which are processed by a superclass along with 
+- share a threadpool for receiving and sending</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-genericval-1.html">GenericVal<'V></a>
+          </td>
+          <td class="xmldoc"><p>A class capable of reading/writing value types asynchronously using an underlying connection</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-iconn.html">IConn</a>
+          </td>
+          <td class="xmldoc"><p>A generic interface for a connection</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-localdns.html">LocalDNS</a>
+          </td>
+          <td class="xmldoc"><p>DNS helper functions. Cannot instantiate class, only contains static members.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-netutils.html">NetUtils</a>
+          </td>
+          <td class="xmldoc"><p>Abstract Class with static members for network utility functions</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-network.html">Network</a>
+          </td>
+          <td class="xmldoc"><p>maintains multiple network connections</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.Tools.Queue Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-queue-baseq-1.html">BaseQ<'T></a>
+          </td>
+          <td class="xmldoc"><p>The base class for various concurrent queue structures with and without flow control logic
+all enqueue/dequeue methods return (success, waithandle) in all classes
+1. GrowQ: No limit on queue growth
+2. FixedLenQ: Growth limited by queue length
+3. FixedSizeQ: Growth limited by queue "size", where "size" is sum of all element sizes</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.WCFTools Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-wcftools-httptemplatebuilder.html">HttpTemplateBuilder</a>
+          </td>
+          <td class="xmldoc"><p>Helper class to build HTML page based on template for WCF services.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-wcftools-httptools.html">HttpTools</a>
+          </td>
+          <td class="xmldoc"><p>Helper class to form a HTML page</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+  <table class="table table-bordered module-list">
+    <thead>
+      <tr><td>Module</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="module-name">
+            <a href="prajna-wcftools-safehttpbuilderhelper.html">SafeHttpBuilderHelper</a>
+          </td>
+          <td class="xmldoc"><p>Helper class for string to be used in browser.</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+  <h2>Prajna.WPFTools Namespace</h2>
+    <div>
+      <table class="table table-bordered type-list">
+    <thead>
+      <tr><td>Type</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-wpftools-generaltab.html">GeneralTab</a>
+          </td>
+          <td class="xmldoc"><p>A Customized Tab Control</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-wpftools-gridwithscrollbar.html">GridWithScrollBar</a>
+          </td>
+          <td class="xmldoc"><p>A Grid with both horizontal and vertical scroll bar</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-wpftools-gridwithstringcontent.html">GridWithStringContent</a>
+          </td>
+          <td class="xmldoc"><p>A Grid with Scrollbar, in which each element and column head of the Grid is a string</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-wpftools-scrollfilewindow.html">ScrollFileWindow</a>
+          </td>
+          <td class="xmldoc"><p>A WPF window that display a large text file</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-wpftools-tabwindowwithlog.html">TabWindowWithLog</a>
+          </td>
+          <td class="xmldoc"><p>The collection of UI include a set of tabbed window and a trace log window</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-wpftools-windowwithmenu.html">WindowWithMenu</a>
+          </td>
+          <td class="xmldoc"><p>A window UI with a menu</p>
+</td>
+        </tr>
+    </tbody>
+  </table>
+
+    </div>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="F# Project" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

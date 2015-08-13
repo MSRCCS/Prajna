@@ -64,7 +64,7 @@ let gitHome = "https://github.com/" + gitOwner
 let gitName = "Prajna"
 
 // The url for the raw files hosted
-let gitRaw = environVarOrDefault "gitRaw" "https://raw.github.com/MSRCCS/Prajna"
+let gitRaw = environVarOrDefault "gitRaw" "https://raw.github.com/MSRCCS"
 
 // --------------------------------------------------------------------------------------
 // END TODO: The rest of the file includes standard build steps

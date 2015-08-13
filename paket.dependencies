@@ -9,7 +9,6 @@ nuget FAKE
 nuget SourceLink.Fake
 nuget FSharp.Charting 0.90.9
 nuget Extended.Wpf.Toolkit 2.4
-nuget FSharpx.TypeProviders 1.5.3
 
 github fsharp/FAKE modules/Octokit/Octokit.fsx
 

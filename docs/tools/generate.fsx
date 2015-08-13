@@ -51,6 +51,8 @@ let bin        = __SOURCE_DIRECTORY__ @@ "../../bin"
 let content    = __SOURCE_DIRECTORY__ @@ "../content"
 let output     = __SOURCE_DIRECTORY__ @@ "../output"
 let files      = __SOURCE_DIRECTORY__ @@ "../files"
+let paper      = __SOURCE_DIRECTORY__ @@ "../paper"
+let outputpaper = __SOURCE_DIRECTORY__ @@ "../output/paper"
 let templates  = __SOURCE_DIRECTORY__ @@ "templates"
 let formatting = __SOURCE_DIRECTORY__ @@ "../../packages/FSharp.Formatting/"
 let docTemplate = "docpage.cshtml"
@@ -70,7 +72,9 @@ subDirectories (directoryInfo templates)
 
 // Copy static files and CSS + JS from F# Formatting
 let copyFiles () =
+  ensureDirectory outputpaper
   CopyRecursive files output true |> Log "Copying file: "
+  CopyRecursive paper outputpaper true |> Log "Copying paper: "
   ensureDirectory (output @@ "content")
   CopyRecursive (formatting @@ "styles") (output @@ "content") true 
     |> Log "Copying styles and scripts: "

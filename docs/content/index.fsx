@@ -39,6 +39,8 @@ Samples & documentation
 
  * [Paper](paper/Prajna_v1.pdf) contains a paper that describes the technical components of the project. 
 
+ * [Paper](paper/Prajna_v1.pdf) contains a paper that describes the technical components of the project. 
+
  * [Tutorial](tutorial.html) contains a further explanation of this sample library.
 
  * [API Reference](reference/index.html) contains automatically generated documentation for all types, modules

@@ -41,6 +41,8 @@ The library comes with comprehensible documentation.
 It can include tutorials automatically generated from `*.fsx` files in [the content folder][content]. 
 The API reference is automatically generated from Markdown comments in the library implementation.
 
+ * [Paper](paper/Prajna_v1.pdf) contains a paper that describes the technical components of the project. 
+
  * [Tutorial](tutorial.html) contains a further explanation of this sample library.
 
  * [API Reference](reference/index.html) contains automatically generated documentation for all types, modules

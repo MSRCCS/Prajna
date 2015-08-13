@@ -231,8 +231,9 @@ let KMeans k (key, (data:float[][])) =
     let randomCentroids (sample: float[] seq) (k:int) =
         let rng = new System.Random()
         let size = Seq.length sample
+        let sampleArr = Seq.toArray sample
         seq { for i in 1 .. k do
-                                let pick = Seq.nth (rng.Next(size)) sample
+                                let pick = sampleArr.[(rng.Next(size))]
                                 yield pick 
             }
         |> Seq.toArray 

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -78,16 +78,6 @@
     <ProjectReference Include="..\..\src\CoreLib\CoreLib.fsproj">
       <Name>CoreLib</Name>
       <Project>{b4a6b9fa-a35b-4adb-ac15-6cca66225921}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\src\ServiceLib\BasicServiceData\BasicServiceData.csproj">
-      <Name>BasicServiceData</Name>
-      <Project>{66005bbd-1d3a-4c64-bde6-13132edcfb28}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\src\ServiceLib\BasicService\BasicService.fsproj">
-      <Name>BasicService</Name>
-      <Project>{ae2ac4c3-5e08-4d5d-b358-890940794894}</Project>
       <Private>True</Private>
     </ProjectReference>
     <ProjectReference Include="..\..\src\tools\tools\Tools.fsproj">

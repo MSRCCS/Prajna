@@ -53,8 +53,8 @@ namespace Prajna.Examples.CSharp
             dset.Store(corpus);
 
             var corpusLines = dset.LoadSource();
-            var count1 = 
-                dset.Collect(SplitWords)
+            var count1 =
+                corpusLines.Collect(SplitWords)
                     .Filter(w => w == matchWord)
                     .Count();
             Console.WriteLine("Counted with DSet: The word {0} occurs {1} times", matchWord, count1);

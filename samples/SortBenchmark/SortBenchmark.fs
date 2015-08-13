@@ -43,7 +43,6 @@ open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.StringTools
 open Prajna.Core
-open Prajna.Service.CoreServices
 open Prajna.Api.FSharp
 
 

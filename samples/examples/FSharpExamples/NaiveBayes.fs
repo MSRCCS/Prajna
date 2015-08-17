@@ -1,4 +1,4 @@
-(*---------------------------------------------------------------------------
+﻿(*---------------------------------------------------------------------------
     Copyright 2013 Microsoft
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,55 +51,101 @@ type NaiveBayes() =
         | [|_; label; text|] -> 
             let splitLine = split ' ' text
             Some(HashSet<string>(splitLine), Int32.Parse label)
-        | _ -> None
+        | _ -> 
+            None
 
-    let addWords (counts: Counts[]) (words: HashSet<string>, label: int) = 
+    let addWords (numLabels: int) (countsOrNull: Counts[]) (words: HashSet<string>, label: int) = 
+        let counts = 
+            if countsOrNull = null 
+            then Array.init numLabels (fun _ -> new Counts()) 
+            else countsOrNull
         words |> Seq.iter (fun w -> counts.[label] |> add w 1)
         counts
 
     let addCounts (counts1: Counts[]) (counts2: Counts[]) =
-        Seq.zip counts1 counts2
-        |> Seq.iter (fun (lc1, lc2) ->
-            for wc in lc2 do 
-                lc1 |> add wc.Key wc.Value)
-        counts1
+        let ret = 
+            Array.map2 (fun (lc1: Counts) (lc2: Counts) ->
+                for wc in lc2 do 
+                    if wc.Key <> null then 
+                        lc1 |> add wc.Key wc.Value
+                lc1)
+                counts1 counts2 
+        ret
 
-    let createCounts() = Array.init numLabels (fun _ -> new Counts())
+    let naiveBayesMapReduce (name: string) (cluster: Cluster) (trainSet: string seq) =
+        let sparseCounts = 
+            DSet<string>(Name = name, Cluster = cluster)
+            |> DSet.distributeN 8 trainSet
+            |> DSet.choose chooseLine
+            |> DSet.mapReduce 
+                (fun (words,label) -> seq { for w in words -> w,label } )
+                (fun (word, labels) -> 
+                    let histogram : int[] = Array.zeroCreate numLabels
+                    for l in labels do
+                        histogram.[l] <- histogram.[l] + 1
+                    word, histogram)
+            |> DSet.mapReduce 
+                (fun (word,hist) -> 
+                    seq {for i = 0 to hist.Length-1 do 
+                            if hist.[i] <> 0 then
+                                yield i,(word,hist.[i]) } )
+                (fun (label,wordCounts) -> 
+                    let cs = new Counts()
+                    for w,c in wordCounts do 
+                        if c <> 0 then
+                            cs |> add w c
+                    label,cs)
+            |> DSet.toSeq
+        let ret : Counts[] = Array.zeroCreate numLabels
+        for i,cs in sparseCounts do
+            ret.[i] <- cs
+        ret |> Array.iteri (fun i cs -> if cs = null then ret.[i] <- Counts())
+        ret
 
     let run (cluster: Cluster) = 
 
-        let name = "20News-TinyTest-" + Guid.NewGuid().ToString("D")
         let trainSet, testSet = 
-            let all = data |> File.ReadLines |> Seq.toArray
-            all |> Seq.take 200, all |> Seq.skip 200
+            let all = 
+                data 
+                |> File.ReadLines 
+                |> Seq.toArray
+            let numTrain = 200
+            all |> Seq.take numTrain |> Seq.toArray, all |> Seq.skip numTrain |> Seq.toArray
 
         let sw = Stopwatch.StartNew()
         let seqCounts = 
             trainSet
             |> Seq.choose chooseLine
-            |> Seq.fold addWords (createCounts())
+            |> Seq.fold (addWords numLabels) null
         printfn "Seq train took: %A" (sw.Stop(); sw.Elapsed)
 
+        let name = "20News-TinyTest-" + Guid.NewGuid().ToString("D")
         sw.Restart()
         let dsetCounts = 
             DSet<string>(Name = name, Cluster = cluster)
-            |> DSet.distribute trainSet
-            |> DSet.identity
+            |> DSet.distributeN 8 trainSet
             |> DSet.choose chooseLine
-            |> DSet.fold addWords addCounts (createCounts())
+            |> DSet.fold (addWords numLabels) addCounts null
         printfn "DSet train took: %A" (sw.Stop(); sw.Elapsed)
 
-        let areEqual = 
-            Seq.zip seqCounts dsetCounts
-            |> Seq.map (fun (sc, dsc) -> 
-                let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
-                dictToMap sc = dictToMap dsc)
-            |> Seq.forall id
+        sw.Restart()
+        let mapReduceCounts = naiveBayesMapReduce name cluster trainSet
+        printfn "MapReduce train took: %A" (sw.Stop(); sw.Elapsed)
 
+        let areEqual = 
+            let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
+            Seq.zip3 seqCounts dsetCounts mapReduceCounts
+            |> Seq.map (fun (seqLabelCounts, dsetLabelCounts, mapReduceLabelCounts) -> 
+                let seqMap = dictToMap seqLabelCounts
+                let dsetMap = dictToMap dsetLabelCounts
+                let mrMap = dictToMap mapReduceLabelCounts
+                seqMap = dsetMap && dsetMap = mrMap)
+            |> Seq.forall id
         printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
 
-        // Call this to test accuracy, but not during test
+        // Call this to test prediction accuracy on large dataset, but not during unit test
         let evaluate() =
+//        do
             printfn "Testing..."
             let priors: float[] = 
                 let labelCounts = 

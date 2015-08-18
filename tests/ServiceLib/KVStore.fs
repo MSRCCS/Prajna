@@ -55,15 +55,20 @@ type KVStoreServiceTests () =
     let clusterSize = 1  
     let storeName = "TestKV"
     let serverInfo = ContractServersInfo( Cluster = cluster )
+
+    let sw = Diagnostics.Stopwatch()
+
     // To be called before each test
     [<SetUp>] 
     member x.InitTest () =
+        sw.Start()
         Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s starts (%s) #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString())))
 
     // To be called right after each test
     [<TearDown>] 
     member x.CleanUpTest () =
-        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s ends (%s): %s #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString()) (TestContext.CurrentContext.Result.Status.ToString())))
+        sw.Stop()
+        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s ends (%s): %s (%i ms) #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString()) (TestContext.CurrentContext.Result.Status.ToString()) sw.ElapsedMilliseconds))
 
     [<Test(Description = "Start a service remotely")>]
     member x.KVStoreServiceStart() =

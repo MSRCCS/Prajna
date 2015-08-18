@@ -31,15 +31,19 @@ type DKVTests () =
         (DSet<_> ( Name = defaultDKVName, Cluster = cluster, NumReplications = 1))
         |> DSet.sourceI defaultDKVNumPartitions ( fun i -> seq { for j in 0..(numDKVsPerPartitionForDefaultDKV-1) do yield (i, (j, (sprintf "%i" j))) } )
 
+    let sw = Diagnostics.Stopwatch()
+
     // To be called before each test
     [<SetUp>] 
     member x.InitTest () =
+        sw.Start()
         Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s starts (%s) #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString())))
 
     // To be called right after each test
     [<TearDown>] 
     member x.CleanUpTest () =
-        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s ends (%s): %s #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString()) (TestContext.CurrentContext.Result.Status.ToString())))
+        sw.Stop()
+        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s ends (%s): %s (%i ms) #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString()) (TestContext.CurrentContext.Result.Status.ToString()) sw.ElapsedMilliseconds))
 
 
     [<Test(Description = "Test for DKV.filterByKey")>]

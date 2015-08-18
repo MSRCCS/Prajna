@@ -404,6 +404,7 @@ type internal DSetFoldAction<'U, 'State >()=
     member val AggreFunc: AggregateFunction = null with get, set
     member val GVSerializeFunc = GVSerialize<'State>()
     member val InitialParam = None  with get, set
+    member val CommonStatePerNode = false with get, set
     member x.DoFold( s: 'State ) = 
         if x.ParameterList.Count<>1 then 
             let msg = sprintf "DSetFoldAction should take a single DSet parameter, while %d parameters are given" x.ParameterList.Count
@@ -451,6 +452,7 @@ type internal DSetFoldAction<'U, 'State >()=
         msPayload.WriteVInt32( peeriPartitionArray.Length )
         for parti in peeriPartitionArray do 
             msPayload.WriteVInt32( parti )
+        msPayload.WriteBoolean( x.CommonStatePerNode )
         msPayload.Serialize( x.FoldFunc ) // Don't use Serialize From
         msPayload.Serialize( x.AggreFunc )
         msPayload.Serialize( x.GVSerializeFunc )

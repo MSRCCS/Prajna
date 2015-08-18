@@ -320,6 +320,34 @@ type DSetTests () =
         let sum = (0 + 127 - 1) * 127 / 2
         Assert.AreEqual(sum, v)
 
+    [<Test(Description = "Test for DSet.fold state")>]
+    member x.DSetFoldTestState() =   
+        
+        let nodes = cluster.NumNodes
+        let npartitions = 8
+        let repeat = 100
+        let bins = 10 
+        let createCounts() = 
+            Array.zeroCreate<int> bins 
+
+        let addWords (counts: int[]) (label: int) = 
+            counts.[label] <- counts.[label] + 1
+            Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "Count %d: %A" label counts )
+            counts
+
+        let addCounts (counts1: int[]) (counts2: int[]) =
+            let counts3 = Array.zip counts1 counts2 |> Array.map ( fun (v1, v2) -> v1 + v2 ) 
+            Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "Aggregate %A and %A to %A" counts1 counts2 counts3 )
+            counts3
+        let arr = Array.init (repeat*bins) ( fun i -> i%bins )
+        let guid = Guid.NewGuid().ToString("D") 
+        let d = DSet<_> ( Name = guid, Cluster = cluster)
+                |> DSet.distributeN npartitions arr
+                |> DSet.fold addWords addCounts (createCounts())
+        Assert.AreEqual( d.Length, bins )
+        for i = 0 to d.Length - 1 do
+            Assert.AreEqual( d.[i], repeat )
+
     [<Test(Description = "Test for DSet.iter")>]
     member x.DSetIterTest() =
         let guid = Guid.NewGuid().ToString("D")

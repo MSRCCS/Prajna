@@ -1044,10 +1044,10 @@ and [<AllowNullLiteral; Serializable>]
             beginJob finalJob           
 
 /// Fold, Job (DSet) 
-    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, state ) = 
+    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object ) = 
         let syncFoldFunci (jbInfo:JobInformation) parti param = 
             let meta, elemObject = param
-            jbInfo.FoldState.Item( parti ) <- foldFunc.FoldFunc (jbInfo.FoldState.GetOrAdd(parti, fun partitioni -> state)) param
+            jbInfo.FoldState.Item( parti ) <- foldFunc.FoldFunc (jbInfo.FoldState.GetOrAdd(parti, fun partitioni -> stateFunc() )) param
             if Utils.IsNull elemObject then 
                 Task.ClosePartition jbInfo dset meta
         let beginJob (jbInfo:JobInformation)  =
@@ -1427,17 +1427,48 @@ and [<AllowNullLiteral; Serializable>]
                             | ( ControllerVerb.ReadToNetwork, ControllerNoun.Job ) -> 
                                 ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Read To Network %s" dsetName) ( fun _ -> x.DSetReadToNetworkAsSeparateAppSync( queue, endPoint, useDSet, usePartitions ) )
                             | ( ControllerVerb.Fold, ControllerNoun.Job ) ->
+                                let bCommonStatePerNode = ms.ReadBoolean()
                                 let foldFunc = ms.Deserialize() :?> FoldFunction // Don't use DeserializeTo, as it may be further derived from FoldFunction
                                 let aggregateFunc = ms.Deserialize() :?> AggregateFunction
                                 let serializeFunc = ms.Deserialize() :?> GVSerialize
+                                let startpos = ms.Position
                                 let stateTypeName = ms.ReadString() 
+                                let refCount = ref -1  
                                 let state = 
                                     // Some function may not have a parameter, and that is OK. 
                                     if ms.Position < ms.Length then 
                                         ms.CustomizableDeserializeToTypeName( stateTypeName )
                                     else
                                         null
-                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, state ) )
+                                let endpos = ms.Position
+                                let buf, pos, length = 
+                                    if bCommonStatePerNode || Utils.IsNull state then 
+                                        null, 0, 0
+                                    else
+                                        ms.Seek( startpos, SeekOrigin.Begin ) |> ignore 
+                                        let buf, pos, length = ms.GetBufferPosLength( )
+                                        ms.Seek( endpos, SeekOrigin.Begin ) |> ignore
+                                        buf, pos, length                                                                            
+                                let replicateMsStreamFunc()  = 
+                                    if bCommonStatePerNode || Utils.IsNull state then 
+                                        null
+                                    else 
+                                        // Start pos will not be the end of stream, garanteed by state not null 
+                                        new MemStream( buf, pos, length, false, true )
+                                let stateFunc() = 
+                                    if bCommonStatePerNode || Utils.IsNull state then 
+                                        state
+                                    else
+                                        let cnt = Interlocked.Increment( refCount )
+                                        if cnt = 0 then 
+                                            state 
+                                        else
+                                            let msRead = replicateMsStreamFunc()
+                                            // msRead will not be null, as the null condition is checked above
+                                            let stateTypeName = msRead.ReadString() 
+                                            msRead.CustomizableDeserializeToTypeName( stateTypeName )
+                                        
+                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc ) )
                             | _ ->
                                 ()
 

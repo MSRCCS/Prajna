@@ -6,6 +6,7 @@ open NUnit.Framework
 
 open Prajna.Test.Common
 open Prajna.Examples.Common
+open Prajna.Tools.FSharp
 
 [<TestFixture(Description = "Tests for Examples")>]
 type ExamplesTests() = 
@@ -34,6 +35,7 @@ type ExamplesTests() =
     [<Test(Description = "Test for FSharp Examples")>]
     [<TestCaseSource("FSharpExamples")>]
     member x.FSharpExamplesTest(example : IExample) =
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> "Start F# samples"  )
         let ret = example.Run(sharedCluster)
         Assert.IsTrue(ret)
 

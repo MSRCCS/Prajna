@@ -61,11 +61,25 @@ type DebugMode =
     /// Launch container based on the Debug flag in the main module. 
     | LaunchInEither = 3
 
-
-
-
 /// A set of default parameter that controls Prajna execution behavior
-type DeploymentSettings() =    
+type DeploymentSettings() = 
+    // system drive   
+    static let systemDrive = Path.GetPathRoot(Environment.SystemDirectory)
+    // the drives that are excluded for data storage
+    static let excludedDrivesForDataStorage = 
+        let drivesInfo = DriveInfo.GetDrives() |> Array.filter ( fun dInfo -> dInfo.IsReady && dInfo.DriveType = DriveType.Fixed )
+        if Utils.IsNull drivesInfo || Array.isEmpty drivesInfo then
+            failwith("There is no driver")
+        else
+            if not (drivesInfo |> Array.exists(fun f -> f.Name = systemDrive)) then
+                failwith(sprintf "System drive '%s' does not exist!" systemDrive)
+            if drivesInfo.Length = 1 then
+                // If there is only one drive, do not exclude any drive
+                Array.empty
+            else 
+                // exclude system drive for data storage
+                [| KeyValuePair(systemDrive, true) |]
+
     /// Running on Mono
     static member val internal RunningOnMono = Runtime.RunningOnMono
     /// Control the launch of container in Debug or Release mode. 
@@ -79,10 +93,11 @@ type DeploymentSettings() =
     static member val internal LibVersion = "v0.0.0.6" with get, set
     static member val internal RegisterKeyForMasterInfo = "PRAJNA_MASTER_INFO" with get, set
     static member val internal RegisterKeyForDataDir = "PRAJNA_DIR" with get, set
+    
     // Mono Note: For Mono, use user's home directory for now, more investigations needed
-    static member val internal RootFolder = if DeploymentSettings.RunningOnMono then Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) else @"C:\" with get
+    static member val internal RootFolder = if DeploymentSettings.RunningOnMono then Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) else systemDrive with get
     /// A set of drives to be excluded for data storage
-    static member val internal ExcludedDrives = ConcurrentDictionary<_,_>( [| KeyValuePair(@"C:\", true) |], StringComparer.OrdinalIgnoreCase ) with get
+    static member val internal ExcludedDrives = ConcurrentDictionary<_,_>( excludedDrivesForDataStorage, StringComparer.OrdinalIgnoreCase ) with get
     static member private GetAllDataDrivesInfoImpl() = 
         let drivesInfo = DriveInfo.GetDrives() 
         drivesInfo |> Seq.filter ( fun dInfo -> dInfo.IsReady && dInfo.DriveType=DriveType.Fixed ) 
@@ -103,13 +118,21 @@ type DeploymentSettings() =
     /// Get all data drives
     static member val internal GetAllDrives = DeploymentSettings.GetAllDrivesImpl with get, set
     static member private GetAllDataDrivesImpl() = 
-        let drives = DeploymentSettings.GetAllDrives()
-        drives |> Seq.filter( fun drive -> not (DeploymentSettings.ExcludedDrives.ContainsKey( drive )) ) |> Seq.toArray
+        if DeploymentSettings.RunningOnMono then 
+            // Mono Note: use home directory as StorageDrive for now, more investigations are needed
+            [| Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) |]
+        else
+            let drives = DeploymentSettings.GetAllDrives()
+            drives |> Seq.filter( fun drive -> not (DeploymentSettings.ExcludedDrives.ContainsKey( drive )) ) |> Seq.toArray
     static member val internal GetAllDataDrives = DeploymentSettings.GetAllDataDrivesImpl with get, set
     /// Get first data drives
     static member private GetFirstDataDriveImpl() = 
-        let drives = DeploymentSettings.GetAllDrives()
-        drives |> Seq.find( fun drive -> not (DeploymentSettings.ExcludedDrives.ContainsKey( drive )) )
+        if DeploymentSettings.RunningOnMono then 
+            // Mono Note: use home directory as DataDrive for now, more investigations are needed
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) 
+        else 
+            let drives = DeploymentSettings.GetAllDrives()
+            drives |> Seq.find( fun drive -> not (DeploymentSettings.ExcludedDrives.ContainsKey( drive )) )
     static member val internal GetFirstDataDrive = DeploymentSettings.GetFirstDataDriveImpl with get, set
     /// Directory at remote node that holds Prajna operating state. 
     static member val LocalFolder = Path.Combine(DeploymentSettings.RootFolder, "OneNet") with get
@@ -119,9 +142,7 @@ type DeploymentSettings() =
     static member val internal ServiceFolder = Path.Combine(DeploymentSettings.LocalFolder, "Service") with get, set
     static member val internal KeyFile = Path.Combine( [| DeploymentSettings.LocalFolder; "Keys"; "ClientKeys" |] ) with get
     static member val internal MachineIdFile = @"MachineId" with get
-    // Mono Note: use home directory as DataDrive for now, more investigations are needed
     static member val internal DataDrive = DeploymentSettings.GetFirstDataDrive() with get, set
-    // Mono Note: The D/E/F drive does not necessary exist in Mono
     static member val internal StorageDrives = DeploymentSettings.GetAllDataDrives() with get, set
     /// Are we using all drives 
     static member val internal StatusUseAllDrivesForData = false with get, set

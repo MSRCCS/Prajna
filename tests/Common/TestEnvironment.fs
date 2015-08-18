@@ -2,6 +2,7 @@ namespace Prajna.Test.Common
 
 open System
 open System.IO
+open System.Diagnostics
 
 open Prajna.Core
 open Prajna.Tools
@@ -19,9 +20,10 @@ type TestEnvironment private () =
                           AppDomain.CurrentDomain.DomainUnload.Add(fun _ -> (e :> IDisposable).Dispose())
                           e)
 
+
     do
         Environment.Init()
-        let dirLog = Path.Combine ( [| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
+        let dirLog = Path.Combine ([| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
         let fileLog = Path.Combine( dirLog, "UnitTestApp_" + StringTools.UtcNowToString() + ".log" )
         let args = [| "-verbose"; "4"; 
                        "-log"; fileLog |]
@@ -46,6 +48,8 @@ type TestEnvironment private () =
         Logger.Log( LogLevel.Info, sprintf "Current AppDomain: %s" (AppDomain.CurrentDomain.FriendlyName))
 
     let localCluster =
+        let sw = Stopwatch()
+        sw.Start()
         Logger.Log( LogLevel.Info, "##### Setup LocalCluster for tests starts.... #####")
         //DeploymentSettings.LocalClusterTraceLevel <- LogLevel.WildVerbose
         let cl =
@@ -63,7 +67,8 @@ type TestEnvironment private () =
                 Cluster(localClusterCfg)
 
         CacheService.Start(cl)
-        Logger.Log( LogLevel.Info, "##### Setup LocalCluster for tests .... completed #####")        
+        sw.Stop()
+        Logger.Log( LogLevel.Info, (sprintf "##### Setup LocalCluster for tests .... completed (%i ms) #####" (sw.ElapsedMilliseconds)))
         cl
 
     let completed = 
@@ -73,10 +78,13 @@ type TestEnvironment private () =
     let mutable disposed = false
     let dispose () =
         if not disposed then
+            let sw = Stopwatch()
+            sw.Start()
             Logger.Log( LogLevel.Info, "##### Dispose test environment starts ..... #####") 
             CacheService.Stop(localCluster)
             Prajna.Core.Environment.Cleanup()
-            Logger.Log( LogLevel.Info, "##### Dispose test environment ..... completed #####")             
+            sw.Stop()
+            Logger.Log( LogLevel.Info, (sprintf "##### Dispose test environment ..... completed ##### (%i ms)" (sw.ElapsedMilliseconds)))             
             disposed <- true
 
     interface IDisposable with

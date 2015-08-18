@@ -300,28 +300,37 @@ Target "CheckXmlDocsR" (fun _ -> checkXmlDocs "Releasex64")
 // Run the unit tests using test runner
 
 let runTests (target:string) =
-    let pattern = String.Format(testAssemblies, target)
-    !! pattern
+    try
+        let pattern = String.Format(testAssemblies, target)
+        !! pattern
 #if MONO
-    // With Mono-4.0, if pass multiple test assemblies to nunit-console it throws an NullReferenceException
-    // So, for Mono, we invoke nunit-console multiple times, each time just pass it one assembly
-    |> Seq.iteri (fun i testAsm -> printfn "test suite: %s" testAsm
-                                   seq { yield testAsm }
-                                   |> NUnit (fun p ->
-                                       { p with
-                                           DisableShadowCopy = true
-                                           TimeOut = TimeSpan.FromMinutes 20.
-                                           OutputFile = sprintf "TestResults_%s_%d.xml" target i})
-                )
+        // With Mono-4.0, if pass multiple test assemblies to nunit-console it throws an NullReferenceException
+        // So, for Mono, we invoke nunit-console multiple times, each time just pass it one assembly
+        |> Seq.iteri (fun i testAsm -> printfn "test suite: %s" testAsm
+                                       seq { yield testAsm }
+                                       |> NUnit (fun p ->
+                                           { p with
+                                               DisableShadowCopy = true
+                                               TimeOut = TimeSpan.FromMinutes 20.
+                                               OutputFile = sprintf "TestResults_%s_%d.xml" target i})
+                    )
 #else
-    |> NUnit (fun p ->
-        { p with
-            DisableShadowCopy = true
-            ProcessModel = SeparateProcessModel
-            Domain = SingleDomainModel
-            TimeOut = TimeSpan.FromMinutes 20.
-            OutputFile = sprintf "TestResults_%s.xml" target})    
+        |> NUnit (fun p ->
+            { p with
+                DisableShadowCopy = true
+                ProcessModel = SeparateProcessModel
+                Domain = SingleDomainModel
+                TimeOut = TimeSpan.FromMinutes 20.
+                OutputFile = sprintf "TestResults_%s.xml" target})    
 #endif
+    finally
+        // Kill nunit-agent.exe if it is alive (it can sometimes happen when the test timeouts)
+        let procs = Diagnostics.Process.GetProcessesByName("nunit-agent")
+        if not (procs |> Array.isEmpty) then
+            Threading.Thread.Sleep(TimeSpan.FromSeconds(10.))
+            let procs = Diagnostics.Process.GetProcessesByName("nunit-agent")
+            procs |> Array.iter (fun p -> printfn "Kill process %s (%i)" p.ProcessName p.Id
+                                          p.Kill())
 
 Target "RunTests" (fun _ -> runTests "Debugx64")
 Target "RunReleaseTests" (fun _ -> runTests "Releasex64")

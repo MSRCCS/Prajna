@@ -64,7 +64,7 @@ type DebugMode =
 /// A set of default parameter that controls Prajna execution behavior
 type DeploymentSettings() = 
     // system drive   
-    static let systemDrive = Path.GetPathRoot(Environment.SystemDirectory)
+    static let systemDrive = if Runtime.RunningOnMono then "/" else Path.GetPathRoot(Environment.SystemDirectory)
     // the drives that are excluded for data storage
     static let excludedDrivesForDataStorage = 
         let drivesInfo = DriveInfo.GetDrives() |> Array.filter ( fun dInfo -> dInfo.IsReady && dInfo.DriveType = DriveType.Fixed )

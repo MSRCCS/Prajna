@@ -383,22 +383,38 @@ type DSet<'U> () =
     /// at client end
     member private y.FoldAction (foldFunc: 'GV -> 'U -> 'GV) (aggrFunc: 'GV -> 'GV -> 'GV) = 
         let x = y.IfSourceIdentity()
-        let action = DSetFoldAction<'U, 'GV >( Param=x, 
+        let action = DSetFoldAction<'U, 'GV >( CommonStatePerNode = true, Param=x, 
                                                     FoldFunc=FoldFunction<'U, 'GV >(  foldFunc ), 
                                                     AggreFunc=AggregateFunction<'GV>( aggrFunc ) )
         x.Action <- action :> DSetAction
         action.DoFold
 
     /// <summary>
-    /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is broadcasted to each partition. 
+    /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is broadcasted to each node, and is shared
+    /// across partitions, the elements are folded into the state variable using 'folder' function. Then 'aggrFunc' is used to aggregate the resulting
+    /// state variables from all partitions to a single state.
+    /// </summary>
+    /// <param name="folder"> 'State -> 'U -> 'State, update the state given the input elements </param>
+    /// <param name="aggrFunc"> 'State -> 'State -> 'State, which aggregate the state from different partitions to a single state variable.</param>
+    /// <param name="state"> initial state for each partition </param>
+    member internal x.FoldWithCommonStatePerNode (folder, aggrFunc, state:'State) = 
+        x.FoldAction folder aggrFunc state
+
+    /// <summary>
+    /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is deserialized (separately) for each partition. 
     /// Within each partition, the elements are folded into the state variable using 'folder' function. Then 'aggrFunc' is used to aggregate the resulting
     /// state variables from all partitions to a single state.
     /// </summary>
     /// <param name="folder"> 'State -> 'U -> 'State, update the state given the input elements </param>
     /// <param name="aggrFunc"> 'State -> 'State -> 'State, which aggregate the state from different partitions to a single state variable.</param>
     /// <param name="state"> initial state for each partition </param>
-    member x.Fold (folder, aggrFunc, state:'State) = 
-        x.FoldAction folder aggrFunc state
+    member public y.Fold (foldFunc: 'GV -> 'U -> 'GV, aggrFunc: 'GV -> 'GV -> 'GV, state:'GV) = 
+        let x = y.IfSourceIdentity()
+        let action = DSetFoldAction<'U, 'GV >(  Param=x, 
+                                                    FoldFunc=FoldFunction<'U, 'GV >(  foldFunc ), 
+                                                    AggreFunc=AggregateFunction<'GV>( aggrFunc ) )
+        x.Action <- action :> DSetAction
+        action.DoFold( state )
 
     /// <summary>
     /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is broadcasted to each partition. 
@@ -422,7 +438,7 @@ type DSet<'U> () =
         let aggrWrapper (s1 : 'U option) (s2 : 'U option) = 
             reducer s1.Value s2.Value |> Some
         let y = x.MapImpl (fun v -> v |> Some)
-        y.Fold(folder, aggrWrapper, None).Value
+        y.FoldWithCommonStatePerNode(folder, aggrWrapper, None).Value
 
     /// <summary>
     /// Reduces the elements using the specified 'reducer' function
@@ -437,7 +453,7 @@ type DSet<'U> () =
             s
         let aggr s1 s2 = 
             s1
-        x.FoldAction folder aggr ( Unchecked.defaultof<'U> ) |> ignore
+        x.FoldWithCommonStatePerNode( folder, aggr, Unchecked.defaultof<'U> ) |> ignore
 
     /// Iterate the given function to each element. This is an action.
     static member iter iterFunc (x:DSet<'U>) = 
@@ -447,7 +463,7 @@ type DSet<'U> () =
     /// Count the number of elements(rows) in the DSet </summary>
     /// <return> number of elments(rows) </return>
     member x.Count() = 
-        x.Fold((fun count _ -> count + 1L), (fun c1 c2 -> c1 + c2), 0L)
+        x.FoldWithCommonStatePerNode((fun count _ -> count + 1L), (fun c1 c2 -> c1 + c2), 0L)
 
     /// <summary> 
     /// Count the number of elements(rows) in the DSet </summary>

@@ -85,7 +85,7 @@ type DKV<'K, 'V when 'K : equality> =
             else
                 null
         let d = x |> DSet.cacheInMemory |> DSet.map (fun (k, v) -> k )
-        let set = d.Fold(foldFunc, aggrFunc, null)
+        let set = d.FoldWithCommonStatePerNode(foldFunc, aggrFunc, null)
         let dic = Dictionary<_,_>()
         let npart = ref 0
         for k in set do 

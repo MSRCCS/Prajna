@@ -154,14 +154,26 @@ type DSet<'U> () =
         x.DSet.ToSeq()
 
     /// <summary>
-    /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is broadcasted to each partition. 
+    /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is broadcasted to each node, 
+    /// and shared across partition within the node.  
     /// Within each partition, the elements are folded into the state variable using 'folder' function. Then 'aggrFunc' is used to aggregate the resulting
     /// state variables from all partitions to a single state.
     /// </summary>
     /// <param name="folder"> update the state given the input elements </param>
     /// <param name="aggrFunc"> aggregate the state from different partitions to a single state variable.</param>
     /// <param name="state"> initial state for each partition </param>
-    member x.Fold (folder : Func<'State, 'U, 'State>, aggrFunc : Func<'State, 'State, 'State>, state : 'State) = 
+    member private x.FoldWithCommonStatePerNode (folder : Func<'State, 'U, 'State>, aggrFunc : Func<'State, 'State, 'State>, state : 'State) = 
+        x.DSet.FoldWithCommonStatePerNode(folder.ToFSharpFunc(), aggrFunc.ToFSharpFunc(), state)
+
+    /// <summary>
+    /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is deserialized (separately) for each partition. 
+    /// Within each partition, the elements are folded into the state variable using 'folder' function. Then 'aggrFunc' is used to aggregate the resulting
+    /// state variables from all partitions to a single state.
+    /// </summary>
+    /// <param name="folder"> update the state given the input elements </param>
+    /// <param name="aggrFunc"> aggregate the state from different partitions to a single state variable.</param>
+    /// <param name="state"> initial state for each partition </param>
+    member private x.Fold (folder : Func<'State, 'U, 'State>, aggrFunc : Func<'State, 'State, 'State>, state : 'State) = 
         x.DSet.Fold(folder.ToFSharpFunc(), aggrFunc.ToFSharpFunc(), state)
 
     /// <summary>

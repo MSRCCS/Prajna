@@ -271,7 +271,11 @@ let checkXmlDocs target =
                             if File.Exists(f) then
                                 f
                             else
-                                dir @@ ("Prajna" + file + ".xml")
+                                let sf = dir @@ ("Prajna.Service." + file + ".xml")
+                                if File.Exists(sf) then
+                                    sf
+                                else
+                                    dir @@ ("Prajna" + file + ".xml")
                 )
     |>  Seq.iter (fun f -> 
                     try

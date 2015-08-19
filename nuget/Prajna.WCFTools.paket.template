@@ -1,0 +1,38 @@
+type file
+id Prajna.WCFTools
+owners
+    MSRCCS
+authors 
+    MSRCCS
+projectUrl
+    http://github.com/MSRCCS/Prajna
+iconUrl
+    https://raw.githubusercontent.com/MSRCCS/Prajna /master/docs/files/img/logo.png
+licenseUrl
+    http://github.com/MSRCCS/Prajna/blob/master/LICENSE.txt
+requireLicenseAcceptance
+    false
+copyright
+    Copyright 2015
+tags
+    Prajna.WCFTools
+summary
+    Prajna WCFTools
+description
+    Prajna WCFTools
+files
+    ../src/tools/WCFtools/bin/Releasex64/Prajna.WCFTools.dll ==> lib/net45
+    ../src/tools/WCFtools/bin/Releasex64/Prajna.WCFTools.pdb ==> lib/net45
+    ../src/tools/WCFtools/bin/Releasex64/Prajna.WCFTools.xml ==> lib/net45
+references
+    Prajna.WCFTools.dll
+frameworkAssemblies
+    System
+    System.Core
+    System.Numerics    
+    System.ServiceModel
+    System.ServiceModel.Web
+    System.Web
+dependencies
+    FSharp.Core >= 3.1.2
+    Prajna    

@@ -1,0 +1,49 @@
+type file
+id Prajna.Services
+owners
+    MSRCCS
+authors 
+    MSRCCS
+projectUrl
+    http://github.com/MSRCCS/Prajna
+iconUrl
+    https://raw.githubusercontent.com/MSRCCS/Prajna /master/docs/files/img/logo.png
+licenseUrl
+    http://github.com/MSRCCS/Prajna/blob/master/LICENSE.txt
+requireLicenseAcceptance
+    false
+copyright
+    Copyright 2015
+tags
+    Prajna.Services
+summary
+    Prajna Service Libs
+description
+    Prajna Service Libs
+files
+    ../src/ServiceLib/BasicServiceData/bin/Releasex64/Prajna.BasicServiceData.dll ==> lib/net45
+    ../src/ServiceLib/BasicServiceData/bin/Releasex64/Prajna.BasicServiceData.pdb ==> lib/net45
+    ../src/ServiceLib/BasicServiceData/bin/Releasex64/Prajna.BasicServiceData.xml ==> lib/net45
+    ../src/ServiceLib/BasicService/bin/Releasex64/Prajna.BasicService.dll ==> lib/net45
+    ../src/ServiceLib/BasicService/bin/Releasex64/Prajna.BasicService.pdb ==> lib/net45
+    ../src/ServiceLib/BasicService/bin/Releasex64/Prajna.BasicService.xml ==> lib/net45
+    ../src/ServiceLib/ServiceEndpoint/bin/Releasex64/Prajna.Service.ServiceEndpoint.dll ==> lib/net45
+    ../src/ServiceLib/ServiceEndpoint/bin/Releasex64/Prajna.Service.ServiceEndpoint.pdb ==> lib/net45
+    ../src/ServiceLib/ServiceEndpoint/bin/Releasex64/Prajna.Service.ServiceEndpoint.xml ==> lib/net45    
+    ../src/ServiceLib/Gateway/bin/Releasex64/Prajna.Service.Gateway.dll ==> lib/net45
+    ../src/ServiceLib/Gateway/bin/Releasex64/Prajna.Service.Gateway.pdb ==> lib/net45
+    ../src/ServiceLib/Gateway/bin/Releasex64/Prajna.Service.Gateway.xml ==> lib/net45       
+references
+    Prajna.BasicServiceData.dll
+    Prajna.BasicService.dll    
+    Prajna.Service.ServiceEndpoint.dll
+    Prajna.Service.Gateway.dll
+frameworkAssemblies
+    System
+    System.Core
+    System.Management
+    System.Net.Http
+    System.Numerics    
+dependencies
+    FSharp.Core >= 3.1.2
+    Prajna    

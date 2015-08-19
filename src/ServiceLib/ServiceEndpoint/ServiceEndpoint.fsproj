@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -28,7 +28,7 @@
     <OutputPath>bin\Debugx64\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debugx64\Prajna.QueryService.XML</DocumentationFile>
+    <DocumentationFile>bin\Debugx64\Prajna.Service.ServiceEndpoint.XML</DocumentationFile>
     <PlatformTarget>x64</PlatformTarget>
     <StartArguments>-mem 48000 -verbose 7 -dirlog c:\PrajnaQueryService\Log\JinL -homein JINL4 -port 1002 -jobport 1100,1149</StartArguments>
   </PropertyGroup>
@@ -39,7 +39,7 @@
     <OutputPath>bin\Releasex64\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Releasex64\Prajna.QueryService.XML</DocumentationFile>
+    <DocumentationFile>bin\Releasex64\Prajna.Service.ServiceEndpoint.XML</DocumentationFile>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <Choose>

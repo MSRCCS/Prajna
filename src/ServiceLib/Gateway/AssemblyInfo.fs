@@ -1,7 +1,7 @@
 ﻿namespace System
 open System.Reflection
 
-[<assembly: AssemblyTitleAttribute("Prajna.QueryFrontEnd")>]
+[<assembly: AssemblyTitleAttribute("Prajna.Gateway")>]
 [<assembly: AssemblyProductAttribute("Prajna")>]
 [<assembly: AssemblyDescriptionAttribute("Prajna: A Distributed Functional Programming Platform for Interactive Big Data Analytics and Cloud Service Building")>]
 [<assembly: AssemblyVersionAttribute("0.0.1.2")>]

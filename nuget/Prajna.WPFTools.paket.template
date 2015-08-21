@@ -1,5 +1,5 @@
 type file
-id Prajna.WCFTools
+id Prajna.WPFTools
 owners
     MSRCCS
 authors 
@@ -15,24 +15,27 @@ requireLicenseAcceptance
 copyright
     Copyright 2015
 tags
-    Prajna.WCFTools
+    Prajna.WPFTools
 summary
-    Prajna WCFTools
+    Prajna WPFTools
 description
-    Prajna WCFTools
+    Prajna WPFTools
 files
-    ../src/tools/WCFtools/bin/Releasex64/Prajna.WCFTools.dll ==> lib/net45
-    ../src/tools/WCFtools/bin/Releasex64/Prajna.WCFTools.pdb ==> lib/net45
-    ../src/tools/WCFtools/bin/Releasex64/Prajna.WCFTools.xml ==> lib/net45
+    ../src/tools/WPFtools/bin/Releasex64/Prajna.WPFTools.dll ==> lib/net45
+    ../src/tools/WPFtools/bin/Releasex64/Prajna.WPFTools.pdb ==> lib/net45
+    ../src/tools/WPFtools/bin/Releasex64/Prajna.WPFTools.xml ==> lib/net45
 references
-    Prajna.WCFTools.dll
+    Prajna.WPFTools.dll
 frameworkAssemblies
+    PresentationCore
+    PresentationFramework
     System
     System.Core
     System.Numerics    
-    System.ServiceModel
-    System.ServiceModel.Web
-    System.Web
+    System.Xaml
+    UIAutomationProvider
+    UIAutomationTypes
+    WindowsBase
 dependencies
     FSharp.Core >= 3.1.2
     Prajna    

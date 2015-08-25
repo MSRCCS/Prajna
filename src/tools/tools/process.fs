@@ -692,6 +692,7 @@ type internal ThreadTracking private () as this =
             let thread = new Threading.Thread( threadStart )
             thread.SetApartmentState( apartmentState )
             thread.IsBackground <- true
+            thread.Name <- "PrajnaTrackedThread"
             // Storing name, instead of function as some parameter of the nameFunc() may not be available at the end of the thread. 
             let param = ThreadStartParam( thread, nameFunc(), action, cancelFunc, threadAffinity  )
             thread.Start( param )
@@ -754,13 +755,14 @@ type internal ThreadTracking private () as this =
         | :? ThreadStartParam as x -> 
             let name = ref null 
             try 
+                let id = Guid.NewGuid().ToString("D")
                 Logger.LogF(ThreadTracking.ThreadLifeMonitorTraceLevel, ( fun _ -> name := x.Name
                                                                                    let cnt = Interlocked.Increment( ThreadTracking.NumThreadsAlive)
-                                                                                   sprintf "ThreadTracking, %s started (%d) .... " !name cnt  ))
+                                                                                   sprintf "ThreadTracking (%s), %s started (%d) .... " id !name cnt  ))
                 let action = x.DoFunc
                 action.Invoke()
                 Logger.LogF(ThreadTracking.ThreadLifeMonitorTraceLevel, ( fun _ -> let cnt = Interlocked.Decrement( ThreadTracking.NumThreadsAlive)
-                                                                                   sprintf "ThreadTracking, %s terminated (%d) .... " !name cnt ))
+                                                                                   sprintf "ThreadTracking (%s), %s terminated (%d) .... " id !name cnt ))
             with 
             | e -> 
                 Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "thread %s has an exception %A .... " !name e ))
@@ -1332,48 +1334,69 @@ type internal ThreadPoolStart<'K> =
         new( pool, id ) = { UsePool=pool; ThreadID=id; }
     end
 
+
 /// <summary> 
 /// Managing blocking event in thread pool. </summary>
 and internal ThreadPoolWaitHandles() = 
-    static member val Current = ThreadPoolWaitHandles() with get
-    static member val MinActiveThreads = 1 with get, set
-    member val ThreadPoolCollection = ConcurrentDictionary<_,_>() with get
-    member x.RegisterThread( id, y: ThreadPoolWithWaitHandlesBase ) = 
-        x.ThreadPoolCollection.GetOrAdd( id, (y, ref 0) ) |> ignore
-    member x.UnRegisterThread( id ) = 
-        x.ThreadPoolCollection.TryRemove( id ) |> ignore
-    member x.EnterBlock() = 
+    static member val private Current = ThreadPoolWaitHandles() with get
+    static member val private MinActiveThreads = 1 with get, set
+    member val private Thread2ThreadPoolMap = ConcurrentDictionary<_,_>() with get
+    member private x.RegisterThread(y: ThreadPoolWithWaitHandlesBase ) = 
         let id = Thread.CurrentThread.ManagedThreadId
-        let bExist, tuple = x.ThreadPoolCollection.TryGetValue( id ) 
+        x.Thread2ThreadPoolMap.GetOrAdd( id, y ) |> ignore
+    member private x.UnRegisterThread() = 
+        let id = Thread.CurrentThread.ManagedThreadId
+        x.Thread2ThreadPoolMap.TryRemove( id ) |> ignore
+    member private x.EnterBlock() = 
+        let id = Thread.CurrentThread.ManagedThreadId
+        let bExist, y = x.Thread2ThreadPoolMap.TryGetValue( id ) 
         if bExist then 
-            let y, refcount = tuple
-            Interlocked.Increment( refcount ) |> ignore
-            if !y.NumThreads - !refcount < Math.Min( ThreadPoolWaitHandles.MinActiveThreads, !y.NumberOfWaitedTasks ) then 
+            let cnt = Interlocked.Increment( y.NumberOfBlockedThreads ) 
+            let numTasks = Volatile.Read( y.NumberOfTasks )
+            let numThreads = Volatile.Read( y.NumThreads )
+            if numThreads - cnt < Math.Min( ThreadPoolWaitHandles.MinActiveThreads, numTasks - !y.NumberOfWaitedTasks ) then 
                 // Launch one additional thread, if blocked. 
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Threadpool %s, %d of %d threads has been blocked, %d tasks waiting, a new thread is being launched"
-                                                                           y.ThreadPoolName !refcount !y.NumThreads !y.NumberOfWaitedTasks ))
+                                                                           y.ThreadPoolName cnt !y.NumThreads !y.NumberOfWaitedTasks ))
                 y.TryExecuteN( !y.NumThreads + 1 ) 
         ()
-    member x.LeaveBlock() = 
+    member private x.LeaveBlock() = 
         let id = Thread.CurrentThread.ManagedThreadId
-        let bExist, tuple = x.ThreadPoolCollection.TryGetValue( id ) 
+        let bExist, y = x.Thread2ThreadPoolMap.TryGetValue( id ) 
         if bExist then 
-            let _, refcount = tuple
-            Interlocked.Decrement( refcount ) |> ignore
-    member x.SafeWaitOne( ev: WaitHandle, millisecondsTimeout:int ) = 
+            let cnt = Interlocked.Decrement( y.NumberOfBlockedThreads ) 
+            ()
+    member private x.WaitOne(ev: WaitHandle, millisecondsTimeout:int) =
+        x.EnterBlock() 
+        let bWaitStatus = ev.WaitOne(millisecondsTimeout) 
+        x.LeaveBlock() 
+        bWaitStatus         
+    member private x.SafeWaitOne( ev: WaitHandle, millisecondsTimeout:int ) = 
         let bStatus = ev.WaitOne(0)
         if not bStatus then 
-            x.EnterBlock() 
-            let bWaitStatus = ev.WaitOne(millisecondsTimeout) 
-            x.LeaveBlock() 
-            bWaitStatus 
+            x.WaitOne(ev, millisecondsTimeout)
         else
             bStatus
+    member private x.SafeWaitOne( ev: ManualResetEvent, millisecondsTimeout:int, shouldReset : bool ) = 
+        let bStatus = ev.WaitOne(0)
+        let ret =
+            if not bStatus then x.WaitOne(ev, millisecondsTimeout)
+            else true
+        if shouldReset then
+            ev.Reset() |> ignore
+        ret
     static member safeWaitOne ( ev ) = 
         ThreadPoolWaitHandles.Current.SafeWaitOne( ev, Timeout.Infinite )
     static member safeWaitOne ( ev,  millisecondsTimeout ) = 
         ThreadPoolWaitHandles.Current.SafeWaitOne( ev, millisecondsTimeout )
-
+    static member safeWaitOne ( ev, shouldReset ) = 
+        ThreadPoolWaitHandles.Current.SafeWaitOne( ev, Timeout.Infinite, shouldReset )
+    static member safeWaitOne ( ev,  millisecondsTimeout, shouldReset) =
+        ThreadPoolWaitHandles.Current.SafeWaitOne( ev, millisecondsTimeout, shouldReset )
+    static member RegisterThread(y: ThreadPoolWithWaitHandlesBase ) = 
+        ThreadPoolWaitHandles.Current.RegisterThread(y)
+    static member UnRegisterThread() = 
+        ThreadPoolWaitHandles.Current.UnRegisterThread()
 
 /// <summary> 
 /// Managed a customzied thread pool that executes a set of (key, func() -> handle, bTerminated )
@@ -1385,10 +1408,18 @@ and [<AllowNullLiteral; AbstractClass>]
     internal ThreadPoolWithWaitHandlesBase() = 
     let mutable threadpoolName = ""
     member x.ThreadPoolName with get() = threadpoolName and set(v) = threadpoolName <- v
-    member val NumThreads = ref 0 with get
-    member val NumberOfTasks = ref 0 with get
-    // Should reduce at the end of thawing. 
+    member val NumThreads : int ref = ref 0 with get
+    member val NumberOfTasks : int ref = ref 0 with get
+    /// NumberOfWaitedTasks counts for number of RepeatableFunction that nicely waits in ThreadPool for execution.
+    /// Nicely wait in the sense that a blocking ManualResetEvent is given, and all stack of execution can be cleared. When the function is ready to execute, the 
+    /// function will execute from beginning.  
+    /// Should reduce at the end of thawing. 
     member val NumberOfWaitedTasks = ref 0 with get
+    /// NumberOfBlockedThreads counts for number of RepeatableFunction that blocks a thread for execution. The blocking behavior here is ungraceful, as 
+    /// a safeWaitOne is called in the middle of a Repeatable function, and it is not possible for the call stack to be cleared for repeated entry. The actual thread of the 
+    /// execution engine (ThreadPoolWithWaitHandles) is blocked. If the system detects enough of such thread blocking, a new thread will be launched to compensate for the 
+    /// blocked (non running ) thread. 
+    member val NumberOfBlockedThreads : int ref = ref 0 with get
     abstract TryExecuteN: int -> unit
     /// TraceLevel for the life cycle of ThreadPoolWithWaitHandles
     static member val TraceLevelThreadPoolWithWaitHandles = LogLevel.WildVerbose with get, set
@@ -1515,12 +1546,15 @@ and [<AllowNullLiteral>]
         if Volatile.Read(x.InLaunching)=0 then 
             if Interlocked.CompareExchange( x.InLaunching, 1, 0 ) = 0 then 
                 x.InLaunchingEvent.Reset()
+                Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "TryExecute: InLaunchingEvent is reset, pool = %s" x.ThreadPoolName)
                 let allAffinityMasks = x.AllAffinityTasks.ToArray() |> Array.map ( fun pair -> pair.Key )
                 // We use x.NumberOfTasks instead of x.ExecutionQueue.Count as the later is much more complicated. 
-                let orgParallels = x.GetNumParallelExecution (!x.NumberOfTasks)
+                let numTasks = Volatile.Read( x.NumberOfTasks )
+                let orgParallels = x.GetNumParallelExecution (numTasks)
                 let numParallels = Math.Max( orgParallels, targetNumThreads )
-                let useNumThreads = Math.Min( Math.Max( numParallels, 1), (!x.NumberOfTasks) )
-                while (!x.NumThreads) < useNumThreads do
+                let useNumThreads = Math.Min( Math.Max( numParallels, 1), (numTasks) )
+                Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "TryExecute: NumThreads %i, useNumThreads %i, pool = %s" !x.NumThreads useNumThreads x.ThreadPoolName)
+                while (!x.NumThreads) < useNumThreads do                    
                     // launch new thread to execute the action
                     let numThreads = Interlocked.Increment( x.NumThreads )
                     if numThreads > useNumThreads then 
@@ -1536,13 +1570,14 @@ and [<AllowNullLiteral>]
                         let thread = ThreadTracking.StartThreadForActionWithCancelation useAffinityMask cancelFunc nameFunc (Action<_>(x.ExecuteOneJob x.CancelThis.Token useAffinityMask threadID))
                         ()
                 x.InLaunchingEvent.Set()
+                Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "TryExecute: InLaunchingEvent is set, pool = %s" x.ThreadPoolName)
                 Volatile.Write(x.InLaunching, 0)
 
     /// Repeated execute partition jobs until all jobs have been executed. 
     // How many jobs that this thread can execute?
     member x.ExecuteOneJob ctsThread threadAffinityMask (threadID: int) ()= 
         let threadID = Thread.CurrentThread.ManagedThreadId
-        ThreadPoolWaitHandles.Current.RegisterThread( threadID, x )
+        ThreadPoolWaitHandles.RegisterThread( x )
         let tuple = ref Unchecked.defaultof<_>
         let taskQueue = ref null
         let mutable bDoneAllJobs = not (x.TaskList.TryGetValue( threadAffinityMask, taskQueue ))
@@ -1563,6 +1598,7 @@ and [<AllowNullLiteral>]
                 x.HandleWaitForMoreJob.Set() |> ignore
             while (!taskQueue).TryDequeue( tuple ) do
                 let cts, key, action, affinityMask = !tuple  
+                Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "%s:%d, dequeue a job key = %A" x.ThreadPoolName threadID key))
                 // There are some jobs with the affinityMask
                 let mutable bDoneExecution = false
                 try
@@ -1626,14 +1662,28 @@ and [<AllowNullLiteral>]
                         Logger.Log( LogLevel.Error, errMsg )
 
         while Volatile.Read(x.InLaunching) <> 0 do 
+            Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "%s:%d: wait for InLaunchingEvent" x.ThreadPoolName threadID))
             x.InLaunchingEvent.Wait()
 
         let curThreads = Interlocked.Decrement( x.NumThreads )
-        ThreadPoolWaitHandles.Current.UnRegisterThread ( threadID )
-        // Stuck below, don't understand
-        Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, ( fun _ -> sprintf "ThreadPoolWithWaitHandles:%s, terminating thread %d surviving threads %d" x.ThreadPoolName threadID curThreads ))
+        
         if curThreads = 0 then 
-            x.HandleDoneExecution.Set() |> ignore
+            if ( Volatile.Read( x.NumberOfTasks) > 0 ) then
+                // There are still remaining tasks enqueued, 
+                // this can be due to another TryExecute started before Interlocked.Decrement, and decideds it cannot start any task.
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "%s:%d: there are still tasks, TryExecute" x.ThreadPoolName threadID))                
+                // Need to make sure the concurrent "TryExecute" has exited. Then it's safe for this thread to do a TryExecute to work on the remaining tasks if
+                // any. It's OK to have another concurrent "TryExecute" kicks after Wait. No matter which one wins, it will work on remaining tasks.
+                while Volatile.Read(x.InLaunching) <> 0 do 
+                    Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "%s:%d: wait for InLaunchingEvent before TryExecute" x.ThreadPoolName threadID))
+                    x.InLaunchingEvent.Wait()
+                x.TryExecute()
+            else 
+                x.HandleDoneExecution.Set() |> ignore
+
+        ThreadPoolWaitHandles.UnRegisterThread ( )
+        Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, ( fun _ -> sprintf "ThreadPoolWithWaitHandles:%s, terminating thread %d surviving threads %d" x.ThreadPoolName threadID curThreads ))
+
     member x.continueDel (o : obj) (bTimeOut : bool) =
         let (rwh, handle, wrappedInfo, cts, key, action, affinityMask) = o :?> RegisteredWaitHandle ref*ManualResetEvent*(unit->string)*CancellationToken*'K*(unit->ManualResetEvent*bool)*IntPtr
         //Console.WriteLine("Release {0}", wrappedInfo())
@@ -1671,6 +1721,7 @@ and [<AllowNullLiteral>]
     /// Finished the job
     member x.Finished affinityMask cts key action threadID = 
         let nJobs = x.AllAffinityTasks.AddOrUpdate( affinityMask, 0, (fun _ v -> v-1) ) 
+        Interlocked.Decrement( x.NumberOfTasks ) |> ignore 
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, %d jobs left in affinity group %A" nJobs affinityMask ))
         let tuple = ref Unchecked.defaultof<_>
         if x.TaskStatus.TryRemove( key, tuple ) then 
@@ -1682,6 +1733,12 @@ and [<AllowNullLiteral>]
                 x.CompletedTasks.Item( key ) <- (PerfADateTime.UtcNow())
         else
             Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, done exeucting task of key %A on thread %d, but can't find entry in TaskStatus" key (threadID) ))
+
+    /// Check if all tasks have been executed. 
+    member x.CheckForAll() = 
+        let nTasks = Volatile.Read(x.NumberOfTasks)
+        if  nTasks > 0 then
+            Logger.LogF(LogLevel.Warning, (fun _ -> sprintf "ThreadPool %s: reached WaitForAll but still have %i remaining tasks." x.ThreadPoolName nTasks))
     /// Execute all
     /// True: done execution, False: not complete execution during timeout. 
     member x.WaitForAll( timeOut:int ) = 
@@ -1689,6 +1746,7 @@ and [<AllowNullLiteral>]
         Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, (fun _ -> sprintf "Starting wait for handle done execution"))
         let ret = x.HandleDoneExecution.WaitOne( timeOut )
         Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, (fun _ -> sprintf "Done wait for handle done execution"))
+        x.CheckForAll()
         ret
     /// Execute all
     /// True: done execution, False: not complete execution during timeout. 

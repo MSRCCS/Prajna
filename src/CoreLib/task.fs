@@ -2621,7 +2621,7 @@ and [<AllowNullLiteral>]
                             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Successfully Unload AppDomain for task %s:%s...................... " x.Name (x.Version.ToString("X")) )  )
                         with 
                         | e -> 
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt %d, fail to unload AppDomain@StartProgram......................" i ))
+                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt %d, fail to unload AppDomain@StartProgram...... %s" i e.Message))
                             // Threading.Thread.Sleep( 1000 )       
         with 
         | e ->

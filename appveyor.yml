@@ -5,8 +5,7 @@ build_script:
 test: off
 version: 0.0.1.{build}
 
-# on the build failure
-on_failure:
-  - ps: $root = Resolve-Path C:\OneNet\Log; [IO.Directory]::GetFiles($root.Path, '*.*', 'AllDirectories') | % { Push-AppveyorArtifact $_ -FileName $_.Substring($root.Path.Length + 1) -DeploymentName to-publish }
-
+# after build failure or success
+on_finish:
+  - ps: Add-Type -AssemblyName System.IO.Compression.FileSystem; $dest = [System.IO.Path]::Combine((Resolve-Path temp), "Log.Zip") ; [System.IO.Compression.ZipFile]::CreateFromDirectory("C:\OneNet\Log", $dest) ; Push-AppveyorArtifact $dest -FileName Log.Zip -DeploymentName to-publish
 

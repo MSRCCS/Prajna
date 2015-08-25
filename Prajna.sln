@@ -124,6 +124,14 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ServiceEndpoint", "src\Serv
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Gateway", "src\ServiceLib\Gateway\Gateway.fsproj", "{C588134A-466C-4453-89AB-7DD7CEC58F06}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "nuget", "nuget", "{C6D427CA-328B-4F94-9628-DB5A3A4F413A}"
+	ProjectSection(SolutionItems) = preProject
+		nuget\Prajna.paket.template = nuget\Prajna.paket.template
+		nuget\Prajna.Services.paket.template = nuget\Prajna.Services.paket.template
+		nuget\Prajna.WCFTools.paket.template = nuget\Prajna.WCFTools.paket.template
+		nuget\Prajna.WPFTools.paket.template = nuget\Prajna.WPFTools.paket.template
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

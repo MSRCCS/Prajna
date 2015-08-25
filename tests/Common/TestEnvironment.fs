@@ -25,7 +25,7 @@ type TestEnvironment private () =
         Environment.Init()
         let dirLog = Path.Combine ([| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
         let fileLog = Path.Combine( dirLog, "UnitTestApp_" + StringTools.UtcNowToString() + ".log" )
-        let args = [| "-verbose"; "4"; 
+        let args = [| "-verbose"; "6"; 
                        "-log"; fileLog |]
         let dirInfo= FileTools.DirectoryInfoCreateIfNotExists dirLog
         let dirs = dirInfo.GetDirectories()
@@ -46,12 +46,20 @@ type TestEnvironment private () =
         let parse = ArgumentParser(args)      
         Logger.Log( LogLevel.Info, "##### Setup test environment starts .... #####")
         Logger.Log( LogLevel.Info, sprintf "Current AppDomain: %s" (AppDomain.CurrentDomain.FriendlyName))
+    
+    let reportProcessStatistics msg = 
+        // GC.Collect()
+        let proc = Process.GetCurrentProcess()
+        Logger.Log(LogLevel.Info, 
+                   sprintf "%s -- # of TH: %i, GC Heap: %f MB, Private Memory: %f MB" 
+                       msg (proc.Threads.Count) ((float (GC.GetTotalMemory(false))) / 1e6) (float proc.PrivateMemorySize64 / 1e6))
 
     let localCluster =
+        Logger.Log( LogLevel.Info, "##### Setup LocalCluster for tests starts.... #####")
+        reportProcessStatistics("Before local cluster is created")
         let sw = Stopwatch()
         sw.Start()
-        Logger.Log( LogLevel.Info, "##### Setup LocalCluster for tests starts.... #####")
-        //DeploymentSettings.LocalClusterTraceLevel <- LogLevel.WildVerbose
+        DeploymentSettings.LocalClusterTraceLevel <- LogLevel.WildVerbose
         let cl =
             if useAppDomainForDaemonsAndContainers then
                 Cluster(sprintf "local[%i]" clusterSize)
@@ -65,9 +73,10 @@ type TestEnvironment private () =
                                         PortsRange = (20000, 20011)
                                       }
                 Cluster(localClusterCfg)
-
+        reportProcessStatistics("After local cluster is created")
         CacheService.Start(cl)
         sw.Stop()
+        reportProcessStatistics("After containers are created")
         Logger.Log( LogLevel.Info, (sprintf "##### Setup LocalCluster for tests .... completed (%i ms) #####" (sw.ElapsedMilliseconds)))
         cl
 
@@ -79,11 +88,14 @@ type TestEnvironment private () =
     let dispose () =
         if not disposed then
             let sw = Stopwatch()
-            sw.Start()
             Logger.Log( LogLevel.Info, "##### Dispose test environment starts ..... #####") 
+            reportProcessStatistics("Before closing containers")
+            sw.Start()
             CacheService.Stop(localCluster)
+            reportProcessStatistics("After closing containers")
             Prajna.Core.Environment.Cleanup()
             sw.Stop()
+            reportProcessStatistics("After environment cleanup")
             Logger.Log( LogLevel.Info, (sprintf "##### Dispose test environment ..... completed ##### (%i ms)" (sw.ElapsedMilliseconds)))             
             disposed <- true
 

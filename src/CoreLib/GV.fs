@@ -1011,9 +1011,11 @@ and [<AllowNullLiteral>]
             x.ThreadPool.CloseAllThreadPool()
             x.ThreadPool <- null
     /// Final clean up job resources
-    member val internal PostCloseAllStreams : JobInformation -> unit = this.PostCloseAllStreamsImpl with get, set
-    member private x.PostCloseAllStreamsImpl (jbInfo) = 
+    member val internal PostCloseAllStreams : JobInformation -> unit = this.PostCloseAllStreamsBaseImpl with get, set
+    member internal x.PostCloseAllStreamsBaseImpl (jbInfo) = 
         x.FreeBaseResource()
+        if Utils.IsNotNull x.ThreadPool then 
+            x.ThreadPool.CheckForAll()
     /// Clear all resources used in job
     member val internal ResetAll: unit -> unit = this.ResetAllImpl with get, set
     /// Clear all resources used in job

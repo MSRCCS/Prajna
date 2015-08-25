@@ -17,6 +17,7 @@ open Prajna.Tools.FSharp
 
 [<TestFixture(Description = "Tests for type DSet")>]
 type DSetTests () =
+    inherit Prajna.Test.Common.Tester()
 
     let cluster = TestSetup.SharedCluster
     let clusterSize = TestSetup.SharedClusterSize   
@@ -26,22 +27,8 @@ type DSetTests () =
     let [<Literal>] defaultDSetNumPartitions = 64
 
     let defaultDSet = 
-        (DSet<_> ( Name = defaultDsetName, Cluster = cluster, NumReplications = 1)) 
+        (DSet<_> ( Name = defaultDsetName, Cluster = cluster, NumReplications = 1, NumParallelExecution = Math.Max(Environment.ProcessorCount / cluster.NumNodes, 1))) 
         |> DSet.sourceI defaultDSetSize ( fun i -> seq { yield i } )
-
-    let sw = Diagnostics.Stopwatch()
-
-    // To be called before each test
-    [<SetUp>] 
-    member x.InitTest () =
-        sw.Start()
-        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s starts (%s) #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString())))
-
-    // To be called right after each test
-    [<TearDown>] 
-    member x.CleanUpTest () =
-        sw.Stop()
-        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s ends (%s): %s (%i ms) #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString()) (TestContext.CurrentContext.Result.Status.ToString()) sw.ElapsedMilliseconds))
 
     [<Test(Description = "Test for DSet.identity")>]
     member x.DSetIdentityTest() =

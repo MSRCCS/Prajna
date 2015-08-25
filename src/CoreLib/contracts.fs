@@ -1415,7 +1415,7 @@ type internal ContractStoreAtProgram() =
                                                            name
                                                            (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(queueSignature))) ))
 
-    member x.SyncLookForContractAtServersWithTimeout timeoutInMilliseconds (servers) constructReqFunc ( name, info: ContractInfo) = 
+    member x.SyncLookForContractAtServersWithTimeout (timeoutInMilliseconds : int) (servers) constructReqFunc ( name, info: ContractInfo) = 
         let resolver = x.LookforContractAtServers (x.RegisterContract name ) (x.UnregisterContract ) constructReqFunc servers (name, info )
         if Utils.IsNull resolver then 
             Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Failed in SyncLookForContractAtServersWithTimeout to get a valid resolver" ))

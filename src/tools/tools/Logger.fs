@@ -262,8 +262,18 @@ type internal DefaultLogger () =
         let str =
             if shouldShowStackTrace || logLevel <= LogLevel.Warning then 
                 let stack = new StackTrace (2, true)
-                let frame = stack.GetFrame(0)
-                sprintf "%s.%s : %s" (frame.GetMethod().DeclaringType.FullName) (frame.GetMethod().Name) message
+                if Utils.IsNotNull stack then
+                    let frame = stack.GetFrame(0)
+                    if Utils.IsNotNull frame then
+                        let m = frame.GetMethod()
+                        if Utils.IsNotNull m then
+                            sprintf "%s.%s : %s" (m.DeclaringType.FullName) (m.Name) message
+                        else
+                            message
+                    else
+                        message
+                else
+                    message
             else
                 message
         sb.Append(str) |> ignore

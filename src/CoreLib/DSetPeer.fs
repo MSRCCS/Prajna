@@ -687,6 +687,7 @@ and [<AllowNullLiteral>]
             msError.WriteString( msg )
             ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
     member private x.PostCloseAllStreamsImpl( jbInfo ) = 
+        x.PostCloseAllStreamsBaseImpl( jbInfo )
         x.CloseAllStreams( true )
     member private x.CloseAllStreamsImpl( bUpStream ) = 
         lock( x ) ( fun _ -> 

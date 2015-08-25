@@ -3,6 +3,10 @@
 // --------------------------------------------------------------------------------------
 
 #r "System.Xml.Linq"
+#if MONO
+#else
+#r "Microsoft.VisualBasic"
+#endif
 #r @"packages/FAKE/tools/FakeLib.dll"
 open Fake
 open Fake.Git
@@ -80,6 +84,20 @@ let (|Fsproj|Csproj|Vbproj|) (projFileName:string) =
     | f when f.EndsWith("csproj") -> Csproj
     | f when f.EndsWith("vbproj") -> Vbproj
     | _                           -> failwith (sprintf "Project file %s not supported. Unknown project type." projFileName)
+
+Target "PrintBuildMachineConfiguration" ( fun _ ->
+    printfn "Build Machine Configuration: "
+    printfn "    # of Logical Processors: %d" Environment.ProcessorCount
+#if MONO
+#else
+    let ci = Microsoft.VisualBasic.Devices.ComputerInfo()
+    printfn "    Total Physical Memory: %.2f GB" ((float ci.TotalPhysicalMemory)/1e9)
+    printfn "    Available Physical Memory: %.2f GB" ((float ci.AvailablePhysicalMemory)/1e9)
+    printfn "    Total Virtual Memory: %.2f GB" ((float ci.TotalVirtualMemory)/1e9)
+    printfn "    Available Virtual Memory: %.2f GB" ((float ci.AvailableVirtualMemory)/1e9)
+    printfn "    OS: %s" ci.OSFullName
+#endif
+)
 
 // Generate assembly info files with the right version & up-to-date information
 Target "AssemblyInfo" (fun _ ->
@@ -532,7 +550,8 @@ Target "R" DoNothing // Incremental build of Release
   ==> "CopyBinariesR"
   ==> "R"   
 
-"Clean"
+"PrintBuildMachineConfiguration"
+  ==> "Clean"
   ==> "AssemblyInfo"
   ==> "Rebuild"
   ==> "CheckXmlDocs"
@@ -540,7 +559,8 @@ Target "R" DoNothing // Incremental build of Release
   ==> "RunTests"
   ==> "Debug"
 
-"Clean"
+"PrintBuildMachineConfiguration"
+  ==> "Clean"
   ==> "AssemblyInfo"
   ==> "RebuildRelease"
   ==> "CheckReleaseXmlDocs"

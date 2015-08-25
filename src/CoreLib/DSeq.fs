@@ -320,7 +320,7 @@ and [<AllowNullLiteral>]
         x.SyncCloseSentCollection.Clear()
         ()
     member private x.PostCloseAllStreamsImpl( jbInfo ) = 
-        x.FreeBaseResource()
+        x.PostCloseAllStreamsBaseImpl( jbInfo )
         x.CloseAllStreamsThis()
         x.FreeNetwork( )
     member internal x.GetStoreStreamArray() = 

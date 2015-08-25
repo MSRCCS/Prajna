@@ -18,6 +18,7 @@ open Prajna.Tools.FSharp
 
 [<TestFixture(Description = "Tests for DSet<'K*'V> (a DKV)")>]
 type DKVTests () =
+    inherit Prajna.Test.Common.Tester()
 
     let cluster = TestSetup.SharedCluster
     let clusterSize = TestSetup.SharedClusterSize   
@@ -28,23 +29,8 @@ type DKVTests () =
     let defaultDKVSize = defaultDKVNumPartitions * numDKVsPerPartitionForDefaultDKV
 
     let defaultDKV = 
-        (DSet<_> ( Name = defaultDKVName, Cluster = cluster, NumReplications = 1))
+        (DSet<_> ( Name = defaultDKVName, Cluster = cluster, NumReplications = 1, NumParallelExecution = Environment.ProcessorCount ))
         |> DSet.sourceI defaultDKVNumPartitions ( fun i -> seq { for j in 0..(numDKVsPerPartitionForDefaultDKV-1) do yield (i, (j, (sprintf "%i" j))) } )
-
-    let sw = Diagnostics.Stopwatch()
-
-    // To be called before each test
-    [<SetUp>] 
-    member x.InitTest () =
-        sw.Start()
-        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s starts (%s) #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString())))
-
-    // To be called right after each test
-    [<TearDown>] 
-    member x.CleanUpTest () =
-        sw.Stop()
-        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### Test %s ends (%s): %s (%i ms) #####" TestContext.CurrentContext.Test.FullName (StringTools.UtcNowToString()) (TestContext.CurrentContext.Result.Status.ToString()) sw.ElapsedMilliseconds))
-
 
     [<Test(Description = "Test for DKV.filterByKey")>]
     member x.DKVFilterByKeyTest() =   
@@ -265,7 +251,7 @@ type DKVTests () =
         x.TestBinSortByKey 4 16 3 (DKV.binSortPByKey (DParam(NumPartitions = 3)) (fun x -> x % 3) Comparer<int>.Default)
         x.TestBinSortByKey 9 6 7 (DKV.binSortPByKey (DParam(NumPartitions = 7)) (fun x -> x % 7) Comparer<int>.Default)
 
-    member x.CreateTwoSortedDKVsForJoin numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 =
+    member x.CreateTwoSortedDKVsForJoin numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 numParallelExecution =
         // output:
         // * sortedA:  
         //   + # of bins: numBins
@@ -286,7 +272,7 @@ type DKVTests () =
         
         let size1 = binSize * numBins1
 
-        let a = (DSet<int*int64> ( Name = guid1, Cluster = cluster, SerializationLimit = binSize / 2))                
+        let a = (DSet<int*int64> ( Name = guid1, Cluster = cluster, SerializationLimit = binSize / 2, NumParallelExecution = numParallelExecution))
                  .SourceI(size1, (fun i ->  if i % binSize < numElemsInBin1 then
                                               seq { yield (i, (int64) i) }
                                             else 
@@ -295,7 +281,7 @@ type DKVTests () =
         let size2 = binSize * numBins2
         let start2 = (numBins - numBins2) * binSize
 
-        let b = (DSet<int*string> ( Name = guid2, Cluster = cluster, SerializationLimit = binSize / 2))
+        let b = (DSet<int*string> ( Name = guid2, Cluster = cluster, SerializationLimit = binSize / 2, NumParallelExecution = numParallelExecution))
                  .SourceI(size2, (fun i ->  let j = start2 + i
                                             if (j % binSize) >= (binSize - numElemsInBin2) then
                                                  seq { yield (j, (sprintf "%i" j)) }
@@ -308,7 +294,7 @@ type DKVTests () =
 
         (sortedA, sortedB)
 
-    member x.TestJoin joinName numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 (joinFunc : DSet<int*int64> -> DSet<int*string> -> DSet<int * ('U * 'V)>) verifyFunc = 
+    member x.TestJoin joinName numParallelExecution numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 (joinFunc : DSet<int*int64> -> DSet<int*string> -> DSet<int * ('U * 'V)>) verifyFunc = 
             let overlapBins = numBins1 + numBins2 - numBins
             let overlapSizeInBin = numElemsInBin1 + numElemsInBin2 - binSize
             let overlapSize = overlapBins * overlapSizeInBin
@@ -319,7 +305,7 @@ type DKVTests () =
             Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "##### %s Test: %i bins, %i elems each bin, first DSet has bins (%i .. %i), each bin has first %i elems; second DSet has bins (%i .. %i), each bin has last %i elems; overlap bins %i, overlap elems %i #####" 
                                                            joinName numBins binSize 0 (numBins1 - 1) numElemsInBin1 overlapBinStart (numBins - 1) numElemsInBin2 overlapBins overlapSize))
 
-            let (sortedA, sortedB) = x.CreateTwoSortedDKVsForJoin numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2
+            let (sortedA, sortedB) = x.CreateTwoSortedDKVsForJoin numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 numParallelExecution
 
             let joinedSet = joinFunc sortedA sortedB
 
@@ -328,127 +314,111 @@ type DKVTests () =
             verifyFunc r overlapSize overlapBinStart overlapBins overlapElemStartInBin overlapSizeInBin
 
     [<Test(Description = "Test for DKV.innerJoinByMergeAfterBinSortByKey")>]
-    member x.DKVInnerJoinByMergeAfterBinSortByKeyTest() =
-        let testInnerJoin numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 =
-
-            let joinFunc =  DKV.innerJoinByMergeAfterBinSortByKey (Comparer<int>.Default) (fun x y -> (x, y))
-            let verifyFunc (r: (int * (int64 * string))[]) overlapSize overlapBinStart overlapBins overlapElemStartInBin overlapSizeInBin =
-                if overlapSize = 0 then
-                    Assert.IsEmpty(r)
-                else
-                    Assert.IsNotEmpty(r)
-                    Assert.AreEqual(overlapSize, r.Length)
-
-                    let mutable idx = 0
-                    for i in overlapBinStart..(overlapBinStart + overlapBins - 1) do
-                        for j in overlapElemStartInBin..(overlapElemStartInBin + overlapSizeInBin - 1) do
-                            let (a, (b, c)) = r.[idx]
-                            let elem = i * binSize + j
-                            Assert.AreEqual(elem, a)
-                            Assert.AreEqual((int64) elem, b)
-                            Assert.AreEqual((sprintf "%i" elem), c)
-                            idx <- idx + 1                
-            x.TestJoin "InnerJoin" numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 joinFunc verifyFunc
-
-        testInnerJoin 3 1 2 2 1 1
-        testInnerJoin 7 1 4 4 1 1
-        testInnerJoin 6 2 4 4 2 2
-        testInnerJoin 96 1 64 64 1 1
-        testInnerJoin 24 4 16 16 4 4
-        testInnerJoin 12 8 8 8 8 8
-        testInnerJoin 15 8 8 8 8 8
-        testInnerJoin 112 1 64 64 1 1
-        testInnerJoin 6 2 4 4 1 1
-        testInnerJoin 24 4 16 16 3 3
-        testInnerJoin 24 4 16 16 4 3
-        testInnerJoin 24 4 16 16 3 4
-        testInnerJoin 12 8 8 8 6 6
-        testInnerJoin 12 8 8 8 6 4
-        testInnerJoin 12 8 8 8 4 6
-        testInnerJoin 12 8 8 8 8 1
-        testInnerJoin 12 8 8 8 2 8
-
-    [<Test(Description = "Test for DKV.leftOuterJoinByMergeAfterBinSortByKey")>]
-    member x.DKVLeftOuterJoinByMergeAfterBinSortByKeyTest() =
-        let testLeftJoin numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 =
-            let joinFunc =  DKV.leftOuterJoinByMergeAfterBinSortByKey (Comparer<int>.Default) (fun x y -> (x, y))
-            let verifyFunc (r: (int * (int64 * string option))[]) overlapSize overlapBinStart overlapBins overlapElemStartInBin overlapSizeInBin = 
+    [<TestCaseSource("DKVInnerJoinByMergeAfterBinSortByKeyTestCases")>]
+    member x.DKVInnerJoinByMergeAfterBinSortByKeyTest(numBins, binSize, numBins1, numBins2, numElemsInBin1, numElemsInBin2) =
+        let numParallelExecution = 1
+        let joinFunc =  DKV.innerJoinByMergeAfterBinSortByKey (Comparer<int>.Default) (fun x y -> (x, y))
+        let verifyFunc (r: (int * (int64 * string))[]) overlapSize overlapBinStart overlapBins overlapElemStartInBin overlapSizeInBin =
+            if overlapSize = 0 then
+                Assert.IsEmpty(r)
+            else
                 Assert.IsNotEmpty(r)
-                Assert.AreEqual(numBins1 * numElemsInBin1, r.Length)
+                Assert.AreEqual(overlapSize, r.Length)
 
                 let mutable idx = 0
-                for i in 0..(numBins1 - 1) do
-                    for j in 0..(numElemsInBin1 - 1) do
+                for i in overlapBinStart..(overlapBinStart + overlapBins - 1) do
+                    for j in overlapElemStartInBin..(overlapElemStartInBin + overlapSizeInBin - 1) do
                         let (a, (b, c)) = r.[idx]
                         let elem = i * binSize + j
                         Assert.AreEqual(elem, a)
                         Assert.AreEqual((int64) elem, b)
-                        if i < overlapBinStart || j < overlapElemStartInBin then
-                            Assert.IsTrue(Option.isNone(c))
-                        else
-                            Assert.IsTrue(Option.isSome(c))
-                            Assert.AreEqual((sprintf "%i" elem), c.Value)
-                        idx <- idx + 1
+                        Assert.AreEqual((sprintf "%i" elem), c)
+                        idx <- idx + 1                
+        x.TestJoin "InnerJoin" numParallelExecution numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 joinFunc verifyFunc
 
-            x.TestJoin "LeftOuterJoin" numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 joinFunc verifyFunc
+    static member val DKVInnerJoinByMergeAfterBinSortByKeyTestCases = 
+        [| 
+            [| 7; 1; 4; 4; 1; 1 |]
+            [| 7; 1; 4; 5; 1; 1 |]
+            [| 6; 2; 4; 4; 2; 2 |]
+            [| 15; 8; 8; 8; 8; 8 |]
+            [| 24; 4; 16; 16; 4; 4 |]
+            [| 24; 4; 16; 16; 3; 3 |]
+            [| 24; 4; 16; 16; 4; 3 |]
+            [| 24; 4; 16; 16; 3; 4 |]
+            [| 96; 1; 64; 64; 1; 1 |]
+            [| 112; 5; 64; 64; 3; 4 |]
+        |]
 
-        testLeftJoin 7 1 4 4 1 1
-        testLeftJoin 6 2 4 4 2 2
-        testLeftJoin 96 1 64 64 1 1 
-        testLeftJoin 24 4 16 16 4 4
-        testLeftJoin 12 8 8 7 8 8
-        testLeftJoin 15 8 6 8 8 8
-        testLeftJoin 112 1 64 64 1 1
-        testLeftJoin 6 2 4 4 1 1
-        testLeftJoin 24 4 14 15 3 3
-        testLeftJoin 24 4 15 13 4 3
-        testLeftJoin 24 4 16 12 3 4
-        testLeftJoin 12 8 8 8 6 5
-        testLeftJoin 12 8 8 8 6 4
-        testLeftJoin 12 8 8 8 5 6
-        testLeftJoin 12 8 8 8 8 3
-        testLeftJoin 12 8 8 8 2 8
+    [<Test(Description = "Test for DKV.leftOuterJoinByMergeAfterBinSortByKey")>]
+    [<TestCaseSource("DKVLeftOuterJoinByMergeAfterBinSortByKeyTestCases")>]
+    member x.DKVLeftOuterJoinByMergeAfterBinSortByKeyTest(numBins, binSize, numBins1, numBins2, numElemsInBin1, numElemsInBin2) =
+        let numParallelExecution = 0
+        let joinFunc =  DKV.leftOuterJoinByMergeAfterBinSortByKey (Comparer<int>.Default) (fun x y -> (x, y))
+        let verifyFunc (r: (int * (int64 * string option))[]) overlapSize overlapBinStart overlapBins overlapElemStartInBin overlapSizeInBin = 
+            Assert.IsNotEmpty(r)
+            Assert.AreEqual(numBins1 * numElemsInBin1, r.Length)
+
+            let mutable idx = 0
+            for i in 0..(numBins1 - 1) do
+                for j in 0..(numElemsInBin1 - 1) do
+                    let (a, (b, c)) = r.[idx]
+                    let elem = i * binSize + j
+                    Assert.AreEqual(elem, a)
+                    Assert.AreEqual((int64) elem, b)
+                    if i < overlapBinStart || j < overlapElemStartInBin then
+                        Assert.IsTrue(Option.isNone(c))
+                    else
+                        Assert.IsTrue(Option.isSome(c))
+                        Assert.AreEqual((sprintf "%i" elem), c.Value)
+                    idx <- idx + 1
+
+        x.TestJoin "LeftOuterJoin" numParallelExecution numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 joinFunc verifyFunc
+
+    static member val DKVLeftOuterJoinByMergeAfterBinSortByKeyTestCases = 
+        [| 
+            [| 7; 1; 4; 4; 1; 1 |]
+            [| 6; 2; 4; 4; 2; 2 |]
+            [| 15; 8; 8; 8; 8; 8 |]
+            [| 12; 8; 8; 8; 6; 5 |]
+            [| 12; 8; 8; 8; 6; 4 |]
+            [| 12; 8; 8; 8; 5; 6 |]
+            [| 117; 4; 70; 75; 4; 3 |]
+        |]
 
     [<Test(Description = "Test for DKV.RightJoinByMergeAfterBinSortByKey")>]
-    member x.DKVRightOuterJoinByMergeAfterBinSortByKeyTest() =
-        let testRightJoin numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 =
-            let joinFunc = DKV.rightOuterJoinByMergeAfterBinSortByKey (Comparer<int>.Default) (fun x y -> (x, y) )
-            let verifyFunc (r: (int * (int64 option * string))[])  overlapSize overlapBinStart overlapBins overlapElemStartInBin overlapSizeInBin = 
-                Assert.IsNotEmpty(r)
-                Assert.AreEqual(numBins2 * numElemsInBin2, r.Length)
+    [<TestCaseSource("DKVRightOuterJoinByMergeAfterBinSortByKeyTestCases")>]
+    member x.DKVRightOuterJoinByMergeAfterBinSortByKeyTest(numBins, binSize, numBins1, numBins2, numElemsInBin1, numElemsInBin2) =
+        let numParallelExecution = Environment.ProcessorCount
+        let joinFunc = DKV.rightOuterJoinByMergeAfterBinSortByKey (Comparer<int>.Default) (fun x y -> (x, y) )
+        let verifyFunc (r: (int * (int64 option * string))[])  overlapSize overlapBinStart overlapBins overlapElemStartInBin overlapSizeInBin = 
+            Assert.IsNotEmpty(r)
+            Assert.AreEqual(numBins2 * numElemsInBin2, r.Length)
 
-                let mutable idx = 0
-                for i in overlapBinStart..(numBins - 1) do
-                    for j in overlapElemStartInBin..(binSize - 1) do
-                        let (a, (b, c)) = r.[idx]
-                        let elem = i * binSize + j
-                        Assert.AreEqual(elem, a)
-                        if i >= overlapBinStart + overlapBins || j >= overlapElemStartInBin + overlapSizeInBin then
-                            Assert.IsTrue(Option.isNone(b))
-                        else
-                            Assert.IsTrue(Option.isSome(b))
-                            Assert.AreEqual((int64) elem, b.Value)
-                        Assert.AreEqual((sprintf "%i" elem), c)
-                        idx <- idx + 1
+            let mutable idx = 0
+            for i in overlapBinStart..(numBins - 1) do
+                for j in overlapElemStartInBin..(binSize - 1) do
+                    let (a, (b, c)) = r.[idx]
+                    let elem = i * binSize + j
+                    Assert.AreEqual(elem, a)
+                    if i >= overlapBinStart + overlapBins || j >= overlapElemStartInBin + overlapSizeInBin then
+                        Assert.IsTrue(Option.isNone(b))
+                    else
+                        Assert.IsTrue(Option.isSome(b))
+                        Assert.AreEqual((int64) elem, b.Value)
+                    Assert.AreEqual((sprintf "%i" elem), c)
+                    idx <- idx + 1
 
-            x.TestJoin "RightOuterJoin" numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 joinFunc verifyFunc
+        x.TestJoin "RightOuterJoin" numParallelExecution numBins binSize numBins1 numBins2 numElemsInBin1 numElemsInBin2 joinFunc verifyFunc
 
-        testRightJoin 7 1 4 4 1 1
-        testRightJoin 6 2 4 4 2 2
-        testRightJoin 96 1 64 64 1 1
-        testRightJoin 24 4 15 15 4 4
-        testRightJoin 12 8 8 7 8 8
-        testRightJoin 15 6 6 8 5 5
-        testRightJoin 112 1 64 64 1 1
-        testRightJoin 6 2 4 4 1 1
-        testRightJoin 24 4 13 15 3 3
-        testRightJoin 24 4 15 11 4 3
-        testRightJoin 24 4 17 12 3 4
-        testRightJoin 12 8 7 7 6 5
-        testRightJoin 12 8 7 8 6 4
-        testRightJoin 12 8 8 7 5 6
-        testRightJoin 12 8 6 9 8 3
-        testRightJoin 12 8 8 8 2 8
+    static member val DKVRightOuterJoinByMergeAfterBinSortByKeyTestCases = 
+        [| 
+            [| 8; 3; 3; 3; 3; 3 |]
+            [| 8; 8; 3; 5; 2; 7 |]
+            [| 13; 8; 8; 8; 8; 8 |]
+            [| 17; 8; 8; 9; 6; 5 |]
+            [| 19; 9; 8; 7; 6; 4 |]
+        |]
 
     member x.GroupByKeyTest (groupFunc : DSet<int * (int * int)> -> DSet<int * List<int * int>>) numPartitions numElemsPerPartition numKeys = 
         Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "%%%% GroupByKeyTest %i %i %i" numPartitions numElemsPerPartition numKeys))

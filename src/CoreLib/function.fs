@@ -721,18 +721,21 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
         let depositWaitHandle = x.DepositWaitHandle
         let executionWaitHandle = x.ExecutionWaitHandle
         if Utils.IsNotNull depositWaitHandle then 
+            x.DepositWaitHandle <- null
             for tuple in depositWaitHandle do
                 let handles = tuple.Value
                 for handle in handles do 
                     handle.Set() |> ignore
         if Utils.IsNotNull executionWaitHandle then 
+            x.ExecutionWaitHandle <- null
             for tuple in executionWaitHandle do
                 let handle = tuple.Value
-                handle.Set() |> ignore           
+                handle.Set() |> ignore
     member internal x.DepositForMix parenti (meta, o:Object ) = 
         let executionWaitHandle = x.ExecutionWaitHandle
         let depositEndReached = x.DepositEndReached
         if Utils.IsNull o then            
+            Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "DepositForMix: partition %i, o = null" meta.Partition)
             let depositAllEndReached = x.DepositAllEndReached
             if Utils.IsNull x.DepositBuffer then 
                 // Reset has been called, do nothing. 
@@ -751,8 +754,10 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
                             bAllEndReached := false
                         pi <- pi + 1 
                 if ( !bAllEndReached ) then 
+                    Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "DepositForMix: partition %i, all end reached" meta.Partition)
                     depositAllEndReached.Item( meta.Partition ) <- true   
         else
+            Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "DepositForMix: partition %i, o <> null" meta.Partition)
             let depositBuffer = x.DepositBuffer
             let depositNumElems = x.DepositNumElems
             let depositLength = x.DepositLength
@@ -769,6 +774,7 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
                     // If blocked on mix, wait below
                     x.ToBlockOnDeposit parenti meta.Partition 
                     if Utils.IsNotNull x.DepositBuffer then 
+                        Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "DepositForMix: partition %i, deposit" meta.Partition)
                         let co = x.CastFunc.[parenti]( o )
                         let dic = depositBuffer.[parenti]
                         let addFunc _ =
@@ -793,9 +799,9 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
         if Utils.IsNotNull executionWaitHandle then 
             let _, numElemsCanExecute = x.NumElemsToExecute meta.Partition
             if x.CanExecute numElemsCanExecute meta.Partition then 
-                let handle = ref null 
-                if executionWaitHandle.TryGetValue( meta.Partition, handle ) && Utils.IsNotNull (!handle) then 
-                    (!handle).Set() |> ignore // Unblock execution
+                let handle = executionWaitHandle.GetOrAdd( meta.Partition, fun _ -> new ManualResetEvent(false))
+                handle.Set() |> ignore // Unblock execution
+                Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "DepositForMix: Set handle for partition %i" meta.Partition)
     member internal x.NumElemsToExecute parti =
         let depositNumElems = x.DepositNumElems
         let depositEndReached = x.DepositEndReached
@@ -839,14 +845,13 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
     member internal x.ToBlockOnDeposit parenti parti = 
             let depositWaitHandle = x.DepositWaitHandle
             if Utils.IsNotNull depositWaitHandle then 
-                let handles = depositWaitHandle.GetOrAdd( parenti, fun _ -> Array.init num ( fun _ -> new ManualResetEvent(true)) )
                 if x.bBlockOnDeposit parenti parti then 
                     // If Reset is called, bBlock will return false
-                    handles.[parenti].Reset() |> ignore 
                     if Utils.IsNotNull x.DepositBuffer then 
                         // The statement "Utils.IsNotNull x.DepositBuffer" is necessary here to make sure that UnblockAll() has not been called 
                         // This avoids the deadlock
-                        ThreadPoolWaitHandles.safeWaitOne( handles.[parenti] ) |> ignore
+                        let handles = depositWaitHandle.GetOrAdd( parenti, fun _ -> Array.init num ( fun _ -> new ManualResetEvent(false)) )
+                        ThreadPoolWaitHandles.safeWaitOne( handles.[parenti], shouldReset = true ) |> ignore
     member internal x.bBlockOnDeposit parenti parti = 
         let depositNumElems = x.DepositNumElems
         let depositLengths = x.DepositLength
@@ -951,10 +956,8 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
                     failwith msg
             dic.AddOrUpdate( parti, executeAdd, executeUpdate ) |> ignore
             if not( x.bBlockOnDeposit parenti parti ) then 
-                let handles = ref null 
-                if depositWaitHandle.TryGetValue( parenti, handles ) && Utils.IsNotNull !handles then 
-                    // Unblock 
-                    (!handles).[parenti].Set() |> ignore     
+                let handles = depositWaitHandle.GetOrAdd( parenti, fun _ -> Array.init num (fun _ ->  new ManualResetEvent(false)))
+                (handles).[parenti].Set() |> ignore
             !retMeta, !retVal 
         else
             x.GetFinalMetadata parti, null
@@ -978,16 +981,17 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
                         Seq.empty
             else
                 if Utils.IsNotNull executionWaitHandle then
-                    let handle = executionWaitHandle.GetOrAdd( parti, fun _ -> new ManualResetEvent(false) )
-                    handle.Reset() |> ignore 
                     let numElems, numElemsCanExecute = x.NumElemsToExecute parti
                     if not (x.CanExecute numElemsCanExecute parti) then 
                         // If CanExecute remains false, go ahead to block. Otherwise, a "Set" may have happened before handle.Reset, thus a signal is lost, should not block
                         if Utils.IsNotNull x.DepositBuffer then 
                             // The statement "Utils.IsNotNull x.DepositBuffer" is necessary here to make sure that UnblockAll() has not been called 
                             // This avoids the deadlock
-                            ThreadPoolWaitHandles.safeWaitOne( handle ) |> ignore                    
-                            // block on execution 
+                            let handle = executionWaitHandle.GetOrAdd( parti, fun _ -> new ManualResetEvent(false) )
+                            // block on execution
+                            Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i" parti)
+                            ThreadPoolWaitHandles.safeWaitOne( handle, shouldReset = true ) |> ignore
+                            Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i returned" parti)
                     Seq.empty
                 else
                     Seq.empty
@@ -1109,13 +1113,10 @@ type internal JoinByMergeFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEn
             let dicLengths = depositLengths.[parenti]
             let blobLenUsed = int ( int64 meta0.BlobLength * int64 numCurrent / int64 elems0Array.Length - int64 meta0.BlobLength * int64 numLastTime / int64 elems0Array.Length )
             dicLengths.AddOrUpdate( parti, 0L, fun pi existLen -> existLen - int64 blobLenUsed ) |> ignore
-            let handles = ref null 
-            if depositWaitHandle.TryGetValue( parenti, handles ) && Utils.IsNotNull !handles then 
-                let handle = (!handles).[parenti]
-                if not (handle.WaitOne(0)) then 
-                    if not( x.bBlockOnDeposit parenti parti ) then 
-                        // Unblock 
-                        handle.Set() |> ignore  
+            if not( x.bBlockOnDeposit parenti parti ) then 
+                // Unblock 
+                let handles = depositWaitHandle.GetOrAdd( parenti, fun _ -> Array.init num ( fun _ -> new ManualResetEvent(false)) )
+                handles.[parenti].Set() |> ignore  
     member internal x.StoreBackBlob<'U> parenti parti (meta0:BlobMetadata) (elems0Array:'U[]) numUsed =        
         let depositBuffer = x.DepositBuffer
         if Utils.IsNotNull elems0Array && Utils.IsNotNull depositBuffer && elems0Array.Length > numUsed then 

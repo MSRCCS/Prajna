@@ -692,7 +692,6 @@ type DSet<'U> () =
     member x.SourceN(num, sourceNSeqFunc) = 
         x.NumPartitions <- x.Cluster.NumNodes * num
         x.NumReplications <- 1
-        x.NumParallelExecution <- num
         // i%num is the thread on particular node. 
         x.Mapping <- Array.init (x.Cluster.NumNodes*num) ( fun i -> Array.create 1 (i/num) )
         x.Dependency <- Source
@@ -719,7 +718,6 @@ type DSet<'U> () =
     /// <return> generated dataset </return>
     member x.SourceI(numPartitions, sourceISeqFunc) = 
         x.NumPartitions <- numPartitions
-        x.NumParallelExecution <- numPartitions
         // i%num is the thread on particular node. 
         x.Mapping <- Array.init (numPartitions) ( fun i -> Array.create 1 (i%x.Cluster.NumNodes) )
         x.Dependency <- Source
@@ -1689,7 +1687,6 @@ type DSet<'U> () =
     /// <summary>
     /// Correlated split a dataset to two, each of which is created by running a functional delegate that maps the element of the original dataset.
     /// The resultant datasets all have the same partition and collection structure of the original dataset. 
-    /// They can be combined later by Map2 transforms. 
     /// </summary> 
     member x.Split2(fun0, fun1) = 
         let newDSet1 = x.Derived<'U1>( DSetMetadataCopyFlag.Passthrough, "_s1" )
@@ -1702,7 +1699,6 @@ type DSet<'U> () =
     /// <summary>
     /// Correlated split a dataset to two, each of which is created by running a functional delegate that maps the element of the original dataset.
     /// The resultant datasets all have the same partition and collection structure of the original dataset. 
-    /// They can be combined later by Map2 transforms. 
     /// </summary> 
     static member split2 fun0 fun1 (x:DSet<'U>) = 
         x.Split2(fun0, fun1)
@@ -1710,7 +1706,6 @@ type DSet<'U> () =
     /// <summary>
     /// Correlated split a dataset to three, each of which is created by running a functional delegate that maps the element of the original dataset.
     /// The resultant datasets all have the same partition and collection structure of the original dataset. 
-    /// They can be combined later by Map3 transforms. 
     /// </summary> 
     member x.Split3(fun0, fun1, fun2) = 
         let newDSet2 = x.Derived<'U2>( DSetMetadataCopyFlag.Passthrough, "_s2" )
@@ -1725,7 +1720,6 @@ type DSet<'U> () =
     /// <summary>
     /// Correlated split a dataset to three, each of which is created by running a functional delegate that maps the element of the original dataset.
     /// The resultant datasets all have the same partition and collection structure of the original dataset. 
-    /// They can be combined later by Map3 transforms. 
     /// </summary> 
     static member split3 fun0 fun1 fun2 (x:DSet<'U>) = 
         x.Split3(fun0, fun1, fun2)
@@ -1733,7 +1727,6 @@ type DSet<'U> () =
     /// <summary>
     /// Correlated split a dataset to four, each of which is created by running a functional delegate that maps the element of the original dataset.
     /// The resultant datasets all have the same partition and collection structure of the original dataset. 
-    /// They can be combined later by Map4 transforms. 
     /// </summary> 
     member x.Split4(fun0, fun1, fun2, fun3) = 
         let newDSet3 = x.Derived<'U3>( DSetMetadataCopyFlag.Passthrough, "_s3" )

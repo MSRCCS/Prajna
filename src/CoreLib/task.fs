@@ -949,7 +949,7 @@ and [<AllowNullLiteral; Serializable>]
     member x.DSetReadAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
         let readFunc (jbInfo:JobInformation) ( meta, ms:MemStream ) = 
             if Utils.IsNotNull ms then 
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
+                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
                 let msWire = new MemStream( int ms.Length + 1024 )
                 msWire.WriteString( dset.Name )
                 msWire.WriteInt64( dset.Version.Ticks )
@@ -1021,7 +1021,7 @@ and [<AllowNullLiteral; Serializable>]
                 if bNullObject then 
                     jbInfo.FoldState.Item( meta.Partition ) <- meta.Serial
             let t1 = PerfADateTime.UtcNow()
-            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Start readToNetworkFunci partition %d" parti))
+            Logger.LogF( LogLevel.MediumVerbose, (fun _ -> sprintf "Start readToNetworkFunci partition %d" parti))
             let ret = dset.SyncIterateProtected jbInfo parti (wrappedFunc jbInfo parti )
             Logger.LogF( LogLevel.WildVerbose, (fun _ -> 
                let t2 = PerfADateTime.UtcNow()

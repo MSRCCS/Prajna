@@ -25,7 +25,7 @@ type TestEnvironment private () =
         Environment.Init()
         let dirLog = Path.Combine ([| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
         let fileLog = Path.Combine( dirLog, "UnitTestApp_" + StringTools.UtcNowToString() + ".log" )
-        let args = [| "-verbose"; "6"; 
+        let args = [| "-verbose"; "5"; 
                        "-log"; fileLog |]
         let dirInfo= FileTools.DirectoryInfoCreateIfNotExists dirLog
         let dirs = dirInfo.GetDirectories()
@@ -59,7 +59,7 @@ type TestEnvironment private () =
         reportProcessStatistics("Before local cluster is created")
         let sw = Stopwatch()
         sw.Start()
-        DeploymentSettings.LocalClusterTraceLevel <- LogLevel.WildVerbose
+        DeploymentSettings.LocalClusterTraceLevel <- LogLevel.MediumVerbose
         let cl =
             if useAppDomainForDaemonsAndContainers then
                 Cluster(sprintf "local[%i]" clusterSize)

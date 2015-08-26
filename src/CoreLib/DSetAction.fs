@@ -351,7 +351,7 @@ type internal DSetAction() =
                         let bRemapped = curDSet.NotExistPartitions( peeri, notFindPartitions )
                         if bRemapped then 
                             curDSet.Remapping() |> ignore    
-                        Logger.Log( LogLevel.WildVerbose, ( sprintf "RetrieveMetaDataCallback: peer %d, doesn't have partition %A" peeri numMissedPartitions )    )
+                        Logger.Log( LogLevel.MediumVerbose, ( sprintf "RetrieveMetaDataCallback: peer %d, doesn't have partition %A" peeri numMissedPartitions )    )
                     | e ->
                         Logger.Log( LogLevel.WildVerbose, ( sprintf "RetrieveMetaDataCallback: Unexpected Error,DSet errorcode %A from peer %d, command %A" errorCode peeri cmd )    )
                 | ( ControllerVerb.Close, ControllerNoun.DSet ) ->

@@ -1503,7 +1503,7 @@ and [<AllowNullLiteral>]
                 x.TaskList.AddOrUpdate( affinityMask, ThreadPoolWithWaitHandles<'K>.CreateQueue (cts, key, func, affinityMask), 
                     ThreadPoolWithWaitHandles<'K>.AddToQueue (cts, key, func, affinityMask) ) |> ignore
                 Interlocked.Increment( x.NumberOfTasks ) |> ignore
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Enqueue job %s (key:%A) for execution" (infoFunc(key)) key ))
+                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Enqueue job %s (key:%A) for execution" (infoFunc(key)) key ))
                 x.HandleWaitForMoreJob.Set() |> ignore
     static member CreateQueue tuple mask = 
         ConcurrentQueue( Seq.singleton tuple )
@@ -1727,9 +1727,9 @@ and [<AllowNullLiteral>]
         if x.TaskStatus.TryRemove( key, tuple ) then 
             let infoFunc, _, _, _ = !tuple       
             if cts.IsCancellationRequested || (!x.nAllCancelled)<>0 then 
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, cancelled task %s" (infoFunc(key)) ))
+                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, cancelled task %s" (infoFunc(key)) ))
             else
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, done exeucting task %s on thread %d" (infoFunc(key)) threadID))
+                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, done exeucting task %s on thread %d" (infoFunc(key)) threadID))
                 x.CompletedTasks.Item( key ) <- (PerfADateTime.UtcNow())
         else
             Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, done exeucting task of key %A on thread %d, but can't find entry in TaskStatus" key (threadID) ))

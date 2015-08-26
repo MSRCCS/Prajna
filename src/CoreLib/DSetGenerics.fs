@@ -227,14 +227,15 @@ type DSet<'U> () =
                     let meta = BlobMetadata( parti, serial, wLen )
                     let kvList = arr.[parti].GetRange(0, wLen)
                     let _, msOutput = codec.EncodeFunc( meta, kvList.ToArray() ) 
-                    ms.Write( msOutput.GetBuffer(), 0, int msOutput.Length )
+                    ms.Append(msOutput)
+                    msOutput.DecRef()
                     written.[parti] <- written.[parti] + wLen
                     if x.NumReplications<=1 || peers.Length > 1 then 
                         peers |> Array.iter( fun peeri -> 
-                            x.Write( parti, peeri, ms.GetBuffer(), 0, int ms.Length ) )
+                            x.Write( parti, peeri, ms ) )
                     else
                         let peeri = peers.[0]
-                        x.WriteAndReplicate( parti, peeri, ms.GetBuffer(), 0, int ms.Length )
+                        x.WriteAndReplicate( parti, peeri, ms )
                             
                     if wLen >= arr.[parti].Count then 
                         arr.[parti].Clear()
@@ -243,7 +244,8 @@ type DSet<'U> () =
                     if bFlush && arr.[parti].Count>0 then 
                         let newpeers = x.CanWrite( parti )
                         if newpeers.[0] >=0 then 
-                            writeout( parti, newpeers, bFlush )                     
+                            writeout( parti, newpeers, bFlush )
+                    ms.DecRef()
 
             o |> Seq.iteri ( fun i elem -> 
                     let parti = x.PartitionFunc( elem, x.NumPartitions )

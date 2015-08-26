@@ -225,7 +225,7 @@ and [<AllowNullLiteral>]
         if Utils.IsNull x.Hash then 
             use ms = new MemStream() 
             x.Pack( ms )  
-            x.Hash <- HashByteArrayWithLength( ms.GetBufferPosLength()  )
+            // x.Hash <- HashByteArrayWithLength( ms.GetBufferPosLength()  )
             let (ms, pos, len) = ms.GetBufferPosLength()
             x.Hash <- ms.ComputeSHA256(int64 pos, int64 len)
             Logger.LogF( LogLevel.WildVerbose, ( fun _ ->  let fileinfo = System.IO.FileInfo( x.Location ) 

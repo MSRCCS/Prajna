@@ -111,9 +111,9 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
     member val CanWrite = new ManualResetEvent(true) with get
     member val PartitionI = parti with get
     member val Serial = ref 0L with get
-    member val SerializationLimit =  useLimit with get
-    member val private ReadUnblockingLimit =  Math.Min( useLimit, int (DeploymentSettings.DefaultIOQueueReadUnblocking) ) with get
-    member val private WriteUnblockingLimit = Math.Min( useLimit, int (DeploymentSettings.DefaultIOQueueWriteUnblocking) ) with get
+//    member val SerializationLimit =  useLimit with get
+//    member val private ReadUnblockingLimit =  Math.Min( useLimit, int (DeploymentSettings.DefaultIOQueueReadUnblocking) ) with get
+//    member val private WriteUnblockingLimit = Math.Min( useLimit, int (DeploymentSettings.DefaultIOQueueWriteUnblocking) ) with get
     member val SerializationLimit =  DeploymentSettings.DefaultIOMaxQueue with get
     member val private WriteUnblockingLimit = DeploymentSettings.DefaultIOMaxQueue with get
     member val private IOQueue : ConcurrentQueue<BlobMetadata*Object> = null with get, set

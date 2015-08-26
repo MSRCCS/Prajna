@@ -2053,7 +2053,7 @@ and [<Serializable; AllowNullLiteral>]
             x.ParentDSets <- parents.ToArray() |> Array.map ( fun pa -> pa.TargetDSet )
         | _ -> 
             ()
-    member val internal SyncReadChunk: JobInformation -> int ->  ( BlobMetadata*MemStream -> unit ) -> ManualResetEvent * bool = thisDSet.SyncReadChunkImpl with get, set
+    member val internal SyncReadChunk: JobInformation -> int ->  ( BlobMetadata*StreamBase<byte> -> unit ) -> ManualResetEvent * bool = thisDSet.SyncReadChunkImpl with get, set
     member private x.SyncReadChunkImpl jbInfo parti pushChunkFunc = 
         x.SyncEncode jbInfo parti pushChunkFunc  
 

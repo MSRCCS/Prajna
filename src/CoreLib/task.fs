@@ -1461,7 +1461,11 @@ and [<AllowNullLiteral; Serializable>]
                                         null
                                     else 
                                         // Start pos will not be the end of stream, garanteed by state not null 
-                                        new MemStream( buf, pos, length, false, true )
+                                        // let ms = new MemStream( buf, pos, length, false, true )
+                                        let ms = new MemoryStreamB()
+                                        buf.Seek(int64 pos, SeekOrigin.Begin) |> ignore
+                                        ms.WriteFromStream(buf, length)
+                                        ms
                                 let stateFunc() = 
                                     if bCommonStatePerNode || Utils.IsNull state then 
                                         state
@@ -1610,7 +1614,7 @@ and [<AllowNullLiteral; Serializable>]
                 qAdd.AddLoopbackProps(bRequireAuth, guid, rsaParam, pwd)
                 qAdd
         /// Allow exporting to daemon 
-        ContractServers.Default.AddQueue( queue )
+        ContractServerQueues.Default.AddQueue( queue )
         let listener = 
             if jobport > 0 then 
                 JobListener.InitializeListenningPort( jobip, jobport )
@@ -2631,7 +2635,7 @@ and [<AllowNullLiteral>]
                     let proxy = ad2.CreateInstanceFromAndUnwrap( exeAssembly.Location, fullTypename ) 
                     let mbrt = proxy :?> ContainerAppDomainLauncher
                     mbrt.Start( x.Name, x.Version, DeploymentSettings.StatusUseAllDrivesForData, 
-                        x.Ticks, DeploymentSettings.MaxMemoryLimitInMB, DeploymentSettings.ClientIp, DeploymentSettings.ClientPort, x.JobIP, x.JobPort, DeploymentSettings.LogFolder, int (Prajna.Tools.Logger.DefaultLogLevel), x.JobDir, x.JobEnvVars, Cluster.Connects.GetAuthParam() ) 
+                        x.Ticks, DeploymentSettings.MaxMemoryLimitInMB, DeploymentSettings.ClientIP, DeploymentSettings.ClientPort, x.JobIP, x.JobPort, DeploymentSettings.LogFolder, int (Prajna.Tools.Logger.DefaultLogLevel), x.JobDir, x.JobEnvVars, Cluster.Connects.GetAuthParam() ) 
                 else
                     failwith "Can't find ContainerAppDomainLauncher in Assemblies"
             finally
@@ -3497,7 +3501,7 @@ type internal ContainerLauncher() =
         let parse = ArgumentParser(argv2)
 
         let jobip = parse.ParseString( "-jobip", "" )        
-        OneNet.Core.Cluster.Connects.IpAddr <- jobip
+        Prajna.Core.Cluster.Connects.IpAddr <- jobip
         let jobport = parse.ParseInt( "-jobport", -1 )
         let ver = parse.ParseInt64( "-ver", 0L )
         let ip = parse.ParseString( "-loopbackip", "" )

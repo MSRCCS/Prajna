@@ -147,7 +147,7 @@ type internal ClientLauncher() =
         let port = parse.ParseInt( "-port", (DeploymentSettings.ClientPort) )
         DeploymentSettings.ClientIP <- ip
         DeploymentSettings.ClientPort <- port
-        OneNet.Core.Cluster.Connects.IpAddr <- ip
+        Prajna.Core.Cluster.Connects.IpAddr <- ip
         let jobDirectory = Path.Combine(DeploymentSettings.LocalFolder, DeploymentSettings.JobFolder + DeploymentSettings.ClientPort.ToString() )
         JobDependency.CleanJobDir(jobDirectory)
 

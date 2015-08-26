@@ -1553,7 +1553,7 @@ type internal ContractStoreAtProgram() =
                     ContractStoreAtProgram.Current.ParseContractCommand queue.RemoteEndPointSignature cmd.cmd (cmd.ms)
                     null
             )
-            queue.GetOrAddRecvProc("ContractStore", procContractStoreTask) |> ignore
+            queue.AddRecvProc(procContractStoreTask) |> ignore
     /// <summary> 
     /// Import a function, with name, input parameter
     /// </summary> 

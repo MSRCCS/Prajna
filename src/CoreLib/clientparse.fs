@@ -221,7 +221,7 @@ type internal Listener =
             listener =
                 let soc = Listener.SocketForListenWloopback()    
                 if (listenIP.Equals("", StringComparison.Ordinal)) then
-                soc.Bind( IPEndPoint( IPAddress.Any, listenerPort ) )
+                    soc.Bind( IPEndPoint( IPAddress.Any, listenerPort ) )
                 else
                     soc.Bind( IPEndPoint( IPAddress.Parse(listenIP), listenerPort ) )
                 soc.Listen( 30 )

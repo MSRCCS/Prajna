@@ -71,7 +71,7 @@ type internal BlobFactory() =
     static member val InactiveSecondsToEvictBlob = 600L with get, set
     member val Collection = ConcurrentDictionary<_,(_*_*_*_)>(BytesCompare()) with get
     /// Register object with a trigger function that will be executed when the object arrives. 
-    member x.Register( id:byte[], triggerFunc:(MemStream*int64->unit), epSignature:int64 ) = 
+    member x.Register( id:byte[], triggerFunc:(StreamBase<byte>*int64->unit), epSignature:int64 ) = 
         let addFunc _ = 
             ref null, ref (PerfDateTime.UtcNowTicks()), ConcurrentQueue<_>(), ConcurrentDictionary<_,_>()
         let tuple = x.Collection.GetOrAdd( id, addFunc )
@@ -84,7 +84,7 @@ type internal BlobFactory() =
         else
             !refMS
     /// Store object info into the Factory class, apply trigger if there are any function waiting to be executed. 
-    member x.Store( id:byte[], ms: MemStream, epSignature:int64 ) = 
+    member x.Store( id:byte[], ms: StreamBase<byte>, epSignature:int64 ) = 
         let addFunc _ = 
             ref ms, ref (PerfDateTime.UtcNowTicks()), ConcurrentQueue<_>(), ConcurrentDictionary<_,_>()
         let tuple = x.Collection.GetOrAdd( id, addFunc )
@@ -106,7 +106,7 @@ type internal BlobFactory() =
         else
             null
     /// Cache Information, used the existing object in Factory if it is there already
-    member x.ReceiveWriteBlob( id, ms: MemStream, epSignature ) = 
+    member x.ReceiveWriteBlob( id, ms: StreamBase<byte>, epSignature ) = 
         let bExist, tuple = x.Collection.TryGetValue( id )
         if bExist then 
             let refMS, refTicks, epQueue, epDic = tuple 
@@ -198,7 +198,7 @@ and [<AllowNullLiteral>]
 //    member x.ReleaseBuffers() = 
 //        x.Buffers <- Array.zeroCreate<byte[]> 1
     /// MemStream associated with blob
-    member val Stream : MemStream = null with get, set
+    member val Stream : StreamBase<byte> = null with get, set
     member x.IsAllocated with get() = Utils.IsNotNull x.Stream
     member x.Release() = 
         if x.IsAllocated then
@@ -215,10 +215,11 @@ and [<AllowNullLiteral>]
                 x.Stream <- new MemStream( )
         x.Stream
     /// Turn stream to blob
-    member x.StreamToBlob( ms:MemStream ) = 
+    member x.StreamToBlob( ms:StreamBase<byte> ) = 
         if Utils.IsNull x.Hash then 
             let buf, pos, count = ms.GetBufferPosLength()
-            x.Hash <- BytesTools.HashByteArrayWithLength( buf, pos, count )
+            x.Hash <- buf.ComputeSHA256(int64 pos, int64 count)
+//            x.Hash <- BytesTools.HashByteArrayWithLength( buf, pos, count )
 //        if ms.Length<int64 Int32.MaxValue then
 //            x.Buffer <- Array.zeroCreate<byte> (int ms.Length)
 //            Buffer.BlockCopy( ms.GetBuffer(), 0, x.Buffer, 0, int ms.Length )
@@ -268,7 +269,7 @@ type internal BlobAvailability(numBlobs) =
         | BlobStatus.Error -> "Error"
         | _ -> "Illegal"
     /// Unpack to decode availability information
-    member x.Unpack( ms:MemStream ) = 
+    member x.Unpack( ms:StreamBase<byte> ) = 
         // Read availability vector of fixed length
         let readAvailVector = Array.copy x.AvailVector
         ms.ReadBytes( readAvailVector ) |> ignore 

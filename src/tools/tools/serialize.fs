@@ -103,23 +103,23 @@ module internal Serialize =
     // ===================================================
 
     // compiler should hopefully optimize since typeof<'V> resolves at compile-time
-    let Deserialize<'V> (ms : MemoryStream) =
+    let Deserialize<'V> (s : Stream) =
         if (SupportedConvert<'V>()) then
             let buf = Array.zeroCreate<byte> sizeof<'V>
-            ms.Read(buf, 0, sizeof<'V>) |> ignore
+            s.Read(buf, 0, sizeof<'V>) |> ignore
             ConvertTo<'V> buf
         else
             let fmt = BinaryFormatter()
-            fmt.Deserialize(ms) :?> 'V
+            fmt.Deserialize(s) :?> 'V
 
     // could make non-generic (without 'V) by using x.GetType() instead of typeof<'V>
     // but typeof<'V> resolves at compile time and is probably more performant
-    let Serialize<'V> (ms : MemoryStream) (x : 'V) =
+    let Serialize<'V> (s : Stream) (x : 'V) =
         if (SupportedConvert<'V>()) then
-            ms.Write(ConvertFrom x, 0, sizeof<'V>)
+            s.Write(ConvertFrom x, 0, sizeof<'V>)
         else
             let fmt = BinaryFormatter()
-            fmt.Serialize(ms, x)
+            fmt.Serialize(s, x)
 
     // =======================================================
 

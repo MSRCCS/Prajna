@@ -88,10 +88,13 @@ type JobListener() =
     // sometime the EndAccept call doesn't get called for a long time (!!!minutes!!!, even I believe that the packet comes in). 
     // change the code to synchronous listen fixed the issue. The 1st accept still can take 3-5 seconds, but it was not the dreadful minutes. 
     /// Start a listening port on certain port
-    static member InitializeListenningPort( jobport ) = 
+    static member InitializeListenningPort( jobip : string, jobport : int ) = 
         if jobport >=0 then 
-            let soc = JobListener.SocketForListenWloopback()    
-            soc.Bind( IPEndPoint( IPAddress.Any, jobport ) )
+            let soc = JobListener.SocketForListenWloopback()
+            if (jobip.Equals("", StringComparison.Ordinal)) then
+                soc.Bind( IPEndPoint( IPAddress.Any, jobport ) )
+            else
+                soc.Bind( IPEndPoint( IPAddress.Parse(jobip), jobport ) )
             soc.Listen( 30 )
             let x = new JobListener( Listener = soc, JobPort=jobport )
             x.ConnectsClient.Initialize()
@@ -103,7 +106,7 @@ type JobListener() =
 //            ListenerThread.Start( x )
 //            x.ListeningThread <- ListenerThread // Tasks.Task.Run( fun _ -> x.InitializeListenningTask( ) ) 
 
-            x.ListeningThread <- ThreadTracking.StartThreadForFunction( fun _ -> sprintf "Listening thread on port %d" jobport ) (fun _ ->  JobListener.StartListenning x)
+            x.ListeningThread <- ThreadTracking.StartThreadForFunction( fun _ -> sprintf "Listening thread on port %s:%d" jobip jobport ) (fun _ ->  JobListener.StartListenning x)
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "starting listening thread on port %d" jobport ))
             
             x
@@ -128,10 +131,13 @@ type JobListener() =
         with
         | e -> 
             Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "JobListener, accept thread aborted with exception %A" e ))
-    static member internal InitializeListenningPortAsync( jobport ) = 
+    static member internal InitializeListenningPortAsync( jobip : string, jobport : int ) = 
         if jobport >=0 then 
-            let soc = JobListener.SocketForListenWloopback()    
-            soc.Bind( IPEndPoint( IPAddress.Any, jobport ) )
+            let soc = JobListener.SocketForListenWloopback()
+            if (jobip.Equals("", StringComparison.Ordinal)) then
+                soc.Bind( IPEndPoint( IPAddress.Any, jobport ) )
+            else
+                soc.Bind( IPEndPoint( IPAddress.Parse(jobip), jobport ) )
             soc.Listen( 30 )
             let x = JobListener( Listener = soc )
             let ar = x.Listener.BeginAccept( AsyncCallback( JobListener.EndAccept ), x)
@@ -170,9 +176,9 @@ type JobListener() =
                                    (eip : IPEndPoint)
                                    (t1 : DateTime)
                                    (curTime : DateTime)
-                                   (rcvd : Option<ControllerCommand*MemStream>)
+                                   (rcvd : Option<ControllerCommand*StreamBase<byte>>)
                                    (command : ControllerCommand)
-                                   (ms : MemStream) =
+                                   (ms : StreamBase<byte>) =
         match (command.Verb, command.Noun ) with
             | ControllerVerb.Unknown, _ -> 
                 ()
@@ -284,7 +290,7 @@ type JobListener() =
                 let (pendingCmd, time) = queuePeer.PendingCommand
                 match pendingCmd with
                     | Some (pcmd) -> false, pendingCmd, time
-                    | None -> true, Some(cmd.cmd, cmd.MemStream()), curTime
+                    | None -> true, Some(cmd.cmd, cmd.ms), curTime
             queuePeer.PendingCommand <- (None, curTime)
             match rcvd with 
             | Some ( command, ms ) ->
@@ -305,7 +311,7 @@ type JobListener() =
                 x.ProcessPeerJobCommandLoop queuePeer cmd
         )
         let remoteSignature = queuePeer.RemoteEndPointSignature
-        queuePeer.GetOrAddRecvProc( "ProcessPeerJob", procItem ) |> ignore
+        queuePeer.AddRecvProc procItem |> ignore
         queuePeer.Initialize()
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "add command parser for backend server %s." (LocalDNS.GetShowInfo( queuePeer.RemoteEndPoint )) ))
 

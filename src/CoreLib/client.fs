@@ -143,11 +143,16 @@ type internal ClientLauncher() =
         if memLimit <> (DeploymentSettings.MaxMemoryLimitInMB) then 
             DeploymentSettings.MaxMemoryLimitInMB <- memLimit
             Logger.Log( LogLevel.Info, ( sprintf "Set Memory Limit to %d MB..........." (DeploymentSettings.MaxMemoryLimitInMB) ))
+        let ip = parse.ParseString("-ip", "")
         let port = parse.ParseInt( "-port", (DeploymentSettings.ClientPort) )
+        DeploymentSettings.ClientIP <- ip
         DeploymentSettings.ClientPort <- port
+        Prajna.Core.Cluster.Connects.IpAddr <- ip
         let jobDirectory = Path.Combine(DeploymentSettings.LocalFolder, DeploymentSettings.JobFolder + DeploymentSettings.ClientPort.ToString() )
         JobDependency.CleanJobDir(jobDirectory)
 
+        let jobip = parse.ParseString("-jobip", "")
+        DeploymentSettings.JobIP <- jobip
         let jobport = parse.ParseString( "-jobport", "" )
         if Utils.IsNotNull jobport && jobport.Length > 0 then 
             let jobport2 = jobport.Split(("-,".ToCharArray()), StringSplitOptions.RemoveEmptyEntries )

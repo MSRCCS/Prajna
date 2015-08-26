@@ -477,10 +477,10 @@ type BackEndInstance< 'StartParamType
                                         let procItem = (
                                             fun (cmd : NetworkCommand) -> 
                                                 if not x.bTerminate then 
-                                                    x.ParseFrontEndRequest queue cmd.cmd (cmd.MemStream())
+                                                    x.ParseFrontEndRequest queue cmd.cmd (cmd.ms)
                                                 null
                                         )
-                                        queue.GetOrAddRecvProc( "ParseFrontEnd", procItem ) |> ignore
+                                        queue.AddRecvProc( procItem ) |> ignore
                                         queue.Initialize()
 
                     with 
@@ -507,7 +507,8 @@ type BackEndInstance< 'StartParamType
                     let t1 = (PerfADateTime.UtcNowTicks())
                     let msSend = new MemStream( int ms.Length + 128 ) 
                     health.WriteHeader( msSend ) 
-                    msSend.WriteBytesWithOffset( ms.GetBufferPosLength() )
+                    let buf, pos, length = ms.GetBufferPosLength()
+                    msSend.Append(buf, int64 pos, int64 length)
                     health.WriteEndMark( msSend ) 
                     let t2 = (PerfADateTime.UtcNowTicks())
                     queue.ToSend( cmd, msSend )
@@ -817,7 +818,7 @@ type BackEndInstance< 'StartParamType
             health.WriteHeader( msReply )         
             msReply.WriteBytes( reqID.ToByteArray() ) 
             SingleQueryPerformance.Pack( qPerf, msReply )
-            msReply.SerializeObjectWithTypeName( replyObject ) 
+            Strm.SerializeObjectWithTypeName( msReply, replyObject ) 
             health.WriteEndMark( msReply ) 
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "query %s has been served and returned with a reply of %dB (%s)" (reqID.ToString()) (msReply.Length) (qPerf.BackEndInfo()) ))
             queue.ToSend( ControllerCommand( ControllerVerb.Reply, ControllerNoun.QueryReply ), msReply )

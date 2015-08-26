@@ -1630,13 +1630,13 @@ and [<AllowNullLiteral>]
                                         else
                                             // Put the job on wait queue. 
                                             let wrappedInfo() = 
-                                                infoFunc( key )  
+                                                "Requeue " + infoFunc( key )  
                                             Interlocked.Increment( x.NumberOfWaitedTasks ) |> ignore
-                                            Logger.Do(ThreadPoolWithWaitHandles<'K>.TrackTaskTraceLevel, ( fun _ -> 
-                                                let cnt = x.TaskTracking.AddOrUpdate( key, 1, (fun key v -> v + 1 ) ) 
-                                                if cnt <> 1 then 
-                                                    Logger.Log( LogLevel.Warning, ( sprintf "ThreadPoolWithWaitHandles.ExecuteOneJob enqueued %d jobs for task %s at thread %d" cnt (infoFunc(key)) threadID ))
-                                            ))
+//                                            Logger.Do(ThreadPoolWithWaitHandles<'K>.TrackTaskTraceLevel, ( fun _ -> 
+//                                                let cnt = x.TaskTracking.AddOrUpdate( key, 1, (fun key v -> v + 1 ) ) 
+//                                                if cnt <> 1 then 
+//                                                    Logger.Log( LogLevel.Warning, ( sprintf "ThreadPoolWithWaitHandles.ExecuteOneJob enqueued %d jobs for task %s at thread %d" cnt (infoFunc(key)) threadID ))
+//                                            ))
                                             x.AffinityWaitingJobs.AddOrUpdate( affinityMask, 1, fun _ v -> v + 1 ) |> ignore
                                             ThreadPoolWait.WaitForHandle wrappedInfo handle (x.Continue cts key action affinityMask) x.HandleWaitForMoreJob
                                             //let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
@@ -1692,11 +1692,11 @@ and [<AllowNullLiteral>]
         x.Continue cts key action affinityMask ()
     /// The continuetion 
     member x.Continue cts key action affinityMask () = 
-        Logger.Do(ThreadPoolWithWaitHandles<'K>.TrackTaskTraceLevel, ( fun _ -> 
-            let cnt = x.TaskTracking.AddOrUpdate( key, -1, (fun key v -> v - 1 ) ) 
-            if cnt <> 0 then 
-                Logger.Log( LogLevel.Warning, ( sprintf "ThreadPoolWithWaitHandles.ExecuteOneJob at dequeue, had %d jobs for key %A" cnt key ))
-            ))
+//        Logger.Do(ThreadPoolWithWaitHandles<'K>.TrackTaskTraceLevel, ( fun _ -> 
+//            let cnt = x.TaskTracking.AddOrUpdate( key, -1, (fun key v -> v - 1 ) ) 
+//            if cnt <> 0 then 
+//                Logger.Log( LogLevel.Warning, ( sprintf "ThreadPoolWithWaitHandles.ExecuteOneJob at dequeue, had %d jobs for key %A" cnt key ))
+//            ))
         let tuple = ref Unchecked.defaultof<_>
         if x.TaskStatus.TryGetValue( key, tuple ) then 
             let infoFunc, _, waitStatus, _ = !tuple

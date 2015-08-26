@@ -170,55 +170,59 @@ type NetworkPerformance() =
     static member val internal ConstructNetworkPerformance = ( fun () -> NetworkPerformance() ) with get, set
     static member val internal ConvertToNetworkPerformance  = ( fun (perf:NetworkPerformance) -> perf ) with get, set
 
-
-/// commands over the wire have 8-byte header followed by body
-/// A class representing NetworkCommand consisting of ControllerCommand, buffer, offset, count
 type [<AllowNullLiteral>] NetworkCommand() =
-    /// A new NetworkCommand formed after reading data from network
-    new(_cmd, _buffer, _offset, _count) as x =
+    let bReleased = ref 0
+
+    new (cmd : ControllerCommand, ms : StreamBase<byte>) as x =
         new NetworkCommand()
         then
-            x.cmd <- _cmd
-            x.buffer <- _buffer
-            x.offset <- _offset
-            x.count <- _count
-    /// A new NetworkCommand formed from MemStream
-    /// 1. In case MemStream.Position == MemStream.Length, it is assumed
-    ///    the stream has just been written, offset is set to zero
-    /// 2. In case MemStream.Position <> MemStream.Length, it is assumed
-    ///    we are in middle of read, read continues from current position
-    new(_cmd, _ms : MemStream) as x =
+            x.cmd <- cmd
+            if (Utils.IsNotNull ms) then
+                x.ms <- ms
+                x.ms.AddRef()
+                // if position = length, assume stream just written, seek back for read purposes
+                if (ms.Position = ms.Length) then
+                    x.startPos <- 0L
+                else if (ms.Position <> 0L) then
+                    failwith "Use constructor with start position"
+            else
+                x.ms <- new MemStream(0)
+
+    new (cmd : ControllerCommand, ms : StreamBase<byte>, startPos : int64) as x =
         new NetworkCommand()
         then
-            x.cmd <- _cmd
-            if (Utils.IsNotNull _ms) then
-                x.buffer <- _ms.GetBuffer()
-                if (_ms.Position = _ms.Length) then
-                    // freshly written stream
-                    x.offset <- 0
-                    x.count <- int _ms.Length
-                else
-                    // stream read
-                    x.offset <- int _ms.Position
-                    x.count <- int (_ms.Length - _ms.Position)
+            x.cmd <- cmd
+            x.ms <- ms
+            x.ms.AddRef()
+            x.startPos <- startPos
+
+    member val startPos = 0L with get, set
     /// The controller command
     member val cmd = Unchecked.defaultof<ControllerCommand> with get, set
-    /// The buffer
-    member val buffer : byte[] = null with get, set
-    /// The buffer offset
-    member val offset : int = 0 with get, set
-    /// The buffer length (remaining)
-    member val count : int = 0 with get, set
-    member val internal buildHeader : bool = true with get, set
-    /// Get a MemStream object from the NetworkCommand
-    member x.MemStream() =
-        new MemStream(x.buffer, x.offset, x.count, false, true)
+    /// The memory stream
+    member val ms : StreamBase<byte> = null with get, set
     /// Get the length of the command on the wire
+    member val internal buildHeader : bool = true with get, set
     member x.CmdLen() =
-        if (x.buildHeader) then
-            8 + x.count
+        if (Utils.IsNull x.ms) then
+            if (x.buildHeader) then
+                8L
+            else
+                0L
         else
-            x.count
+            if (x.buildHeader) then
+                8L + x.ms.Length - x.startPos
+            else
+                x.ms.Length - x.startPos
+
+    /// release the underlying memstream
+    member x.Release() =
+        if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
+            if (Utils.IsNotNull x.ms) then
+                x.ms.DecRef()
+
+    override x.Finalize() =
+        x.Release()
 
 /// An extension to GenericConn to process NetworkCommand
 /// GenericConn is an internal object which contains Send/Recv Components to process SocketAsyncEventArgs objects
@@ -256,7 +260,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     let xgBuf = GenericBuf(xgc, 2048) // generic buffer reader/writer allows max buffersize of 2048
     let headerRecv = Array.zeroCreate<byte>(8)
     let headerSend = Array.zeroCreate<byte>(8)
-    let mutable body : byte[] = null
+    let mutable body : StreamBase<byte> = null
     let mutable rcvdSpeed = DeploymentSettings.DefaultRcvdSpeed
     let mutable sendSpeed = Config.CurrentNetworkSpeed 
     let unProcessedBytes = ref 0L // unncessary as queue maintains size
@@ -280,11 +284,17 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     let mutable bLocalVerified = false
     let mutable bRemoteVerified = false
 
+
+
     // command thread pool for send commands - used for assembling into SocketAsyncEventArgs
+    let mutable sendLenRem = 0L
+    let mutable streamReader : StreamReader<byte> = null
     let dequeueSend (dequeueAction : NetworkCommand ref->bool*ManualResetEvent)
                     (cmd : NetworkCommand ref) : bool*ManualResetEvent =
         let (success, event) = dequeueAction(cmd)
         if (success) then
+            streamReader <- new StreamReader<byte>((!cmd).ms, (!cmd).startPos)
+            sendLenRem <- (!cmd).CmdLen()
             //if ((!cmd).cmd.Verb = ControllerVerb.Link) then
             //    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Dequeue cmd %A" (!cmd).cmd )
             if (!cmd).buildHeader then
@@ -293,22 +303,30 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 xgc.CurBufSend <- headerSend
                 xgc.CurBufSendOffset <- 0
                 xgc.CurBufSendRem <- headerSend.Length
-                totalBytesSent <- totalBytesSent + 8L + int64 (!cmd).count
             else
                 x.UpdateHeader(!cmd)
-                Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Send cmd to %s len: %d ack:L %d" xgc.ConnKey (BitConverter.ToInt32((!cmd).buffer, 0)) (BitConverter.ToUInt16((!cmd).buffer, 6))))
+                //Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Send cmd to %s len: %d ack:L %d" xgc.ConnKey (BitConverter.ToInt32((!cmd).buffer, 0)) (BitConverter.ToUInt16((!cmd).buffer, 6))))
                 curStateSend <- SendingMode.SendCommand
-                xgc.CurBufSend <- (!cmd).buffer
-                xgc.CurBufSendOffset <- 0
-                xgc.CurBufSendRem <- (!cmd).count
-                totalBytesSent <- totalBytesSent + int64 (!cmd).count
+                let (buf, pos, cnt) = streamReader.GetMoreBuffer()
+                xgc.CurBufSend <- buf
+                xgc.CurBufSendOffset <- pos
+                xgc.CurBufSendRem <- cnt
+            sendLenRem <-  sendLenRem - int64 xgc.CurBufSendRem
+            totalBytesSent <- totalBytesSent + (!cmd).CmdLen()
         (success, event)
     let processSend (cmd : NetworkCommand) =
-        xgc.ProcessSendGenericConn xgc.CompSend.Q.EnqueueWaitTime x.ProcessSendCommand
+        xgc.ProcessSendGenericConn x.EQSendSA x.ProcessSendCommand
+        //xgc.ProcessSendGenericConn xgc.CompSend.Q.EnqueueWaitTime x.ProcessSendCommand
         //xgc.ProcessSendGenericConn xgc.CompSend.Q.EnqueueWait x.ProcessSendCommand
 
     // for generic conn recv
     let mutable curRecvCmd : NetworkCommand = null
+
+    // the queues
+    let mutable sendCmdQ : FixedSizeQ<NetworkCommand> = null
+    let mutable sendSAQ : FixedLenQ<RBufPart<byte>> = null
+    let mutable recvSAQ : FixedSizeQ<RBufPart<byte>> = null
+    let mutable recvCmdQ : FixedLenQ<NetworkCommand> = null
 
     // Constructors (4 of them)
     // default stuff
@@ -322,11 +340,15 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             x.MyExchangeRSA <- onet.MyExchangeRSA
             // receiver q is fixed size to limit # of unprocessed commands (not taken out by ToReceive)
             let xcRecv : Component<NetworkCommand> = x.CompRecv
-            xcRecv.Q <- FixedLenQ(50, 50)
-            //xcRecv.Q <- FixedLenQ(50, 5000)
-            //xcRecv.Q <- GrowQ()
+            xcRecv.Q <- FixedLenQ(100, 100)
+            x.RecvCmdQ <- xcRecv.Q :?> FixedLenQ<NetworkCommand>
             let xcSend : Component<NetworkCommand> = x.CompSend
             xcSend.Q <- FixedSizeQ(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
+            x.SendCmdQ <- xcSend.Q :?> FixedSizeQ<NetworkCommand>
+            let cmdQ : FixedSizeQ<NetworkCommand> = x.SendCmdQ
+            x.SendCmdQ.MaxLen <- 100
+            x.SendCmdQ.DesiredLen <- 100
+
     /// 1. Constructor used when accepting a new connection
     new ( soc : Socket, onet : NetworkConnections ) as x = 
         new NetworkCommandQueue(onet)
@@ -347,9 +369,14 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             x.MachineName <- machineName
             x.Port <- port
             x.ConnectionStatusSet <- ConnectionStatus.ResolveDNS
-            let success = LocalDNS.BeginDNSResolve(x.MachineName, NetworkCommandQueue.EndResolveDNS, (x, port))
-            if (not success) then
-                x.MarkFail()
+            let mutable ipAddr : IPAddress = null
+            let isIp = IPAddress.TryParse(machineName, &ipAddr) 
+            if (isIp) then
+                NetworkCommandQueue.EndResolveDNS(ipAddr, true, (x, port))
+            else
+                let success = LocalDNS.BeginDNSResolve(x.MachineName, NetworkCommandQueue.EndResolveDNS, (x, port))
+                if (not success) then
+                    x.MarkFail()
     /// 3. Constructor when connecting to machine with address/port (w/o DNS resolve)
     new ( addr: IPAddress, port : int, onet : NetworkConnections ) as x = 
         new NetworkCommandQueue(onet)
@@ -374,6 +401,8 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         x.MachineName <- "Loopback"
         x.Port <- port
         let socket = new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
+        if not (x.ONet.IpAddr.Equals("")) then
+            socket.Bind(new IPEndPoint(IPAddress.Parse(x.ONet.IpAddr), 0))
         // set loopback option
         try 
             let OptionInValue = BitConverter.GetBytes(1)
@@ -392,6 +421,16 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             reraise()
 //             null
 
+    member x.AddLoopbackProps(requireAuth : bool, myguid : Guid, rsaParam : byte[]*byte[], pwd : string) =
+        x.RequireAuth <- requireAuth
+        x.MyGuid <- myguid
+        if (requireAuth) then
+            x.MyAuthRSA <- Crypt.RSAFromPrivateKey(fst rsaParam, pwd)
+            x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(snd rsaParam, pwd)
+            let connList : ConcurrentDictionary<Guid, byte[]*byte[]> = x.ONet.AllowedConnections
+            connList.[myguid] <- (x.MyAuthRSA |> Crypt.RSAToPublicKey, x.MyExchangeRSA |> Crypt.RSAToPublicKey)
+        x.MachineName <- "Loopback"
+
     static member private EndResolveDNS (addr : IPAddress, success : bool, o : obj) =
         let (x, port) = o :?> NetworkCommandQueue*int
         if (not success) then
@@ -400,7 +439,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             x.BeginConnect(addr, port)
 
     // ======================================
-    member private x.Conn with get() = xgc
+    member x.Conn with get() = xgc
     member val private MachineName = "" with get, set
     member val private Port = 0 with get, set
     member val private ONet : NetworkConnections = null with get, set
@@ -419,6 +458,9 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     member internal x.CompRecv with get() = xCRecv
     /// Used for network performance
     member val internal NetworkPerf = NetworkPerformance.ConstructNetworkPerformance() with get, set
+
+    member private x.RecvCmdQ with get() = recvCmdQ and set(v) = recvCmdQ <- v
+    member private x.SendCmdQ with get() = sendCmdQ and set(v) = sendCmdQ <- v
 
     /// Tells if NetworkCommandQueue has failed
     member x.HasFailed with get() = (x.NumFailed > 0)
@@ -484,7 +526,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             if Utils.IsNull recvQ0 then 
                 0L
             else
-                let recvQ = recvQ0 :?> FixedSizeQ<SocketAsyncEventArgs>
+                let recvQ = recvQ0 :?> FixedSizeQ<RBufPart<byte>>
                 recvQ.CurrentSize
 
     member val private CommandRcvd = 0L with get, set
@@ -500,6 +542,9 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     member val Stopwatch = new Stopwatch() with get
     /// The maximum size of sending token bucket
     member x.MaxTokenSize with get() = xgc.MaxTokenSize and set(v) = xgc.MaxTokenSize <- v
+
+    member val LastSendTicks = DateTime.MinValue with get,set
+
     /// Monitor the connection
     member x.MonitorRcvd() =
         if (x.CommandRcvd % 1000L = 0L) then
@@ -549,7 +594,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// Last time pending command was monitored
     member val LastMonitorPendingCommand = (PerfDateTime.UtcNow()) with get, set
     /// The pending command which has not yet been processed
-    member val PendingCommand : (Option<ControllerCommand*MemStream>*DateTime) = (None, (PerfDateTime.UtcNow())) with get, set
+    member val PendingCommand : (Option<ControllerCommand*StreamBase<byte>>*DateTime) = (None, (PerfDateTime.UtcNow())) with get, set
     member val private PendingCommandTimerEvent = new ManualResetEvent(false)
     //member val PendingCommandTimer = new Timer(x.SetPendingCommandEventO, null, Timeout.Infinite, Timeout.Infinite)
     member val private PendingCommandTimerKey = PoolTimer.GetTimerKey()
@@ -569,41 +614,83 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             | None ->
                 null
 
-    member val private Index = Interlocked.Increment(count) with get
+    member val private Index = Interlocked.Increment(count) with get     
+
+// old code
+//        // modifiy packet enqueueing (enqueue of SocketAsyncEventArgs)
+//        let recvQ = (xgc.CompRecv.Q :?> FixedSizeQ<RBufPart<byte>>)
+//        let recvEnqueue (rb : RBufPart<byte>) =
+//            // modifiy packet enqueueing (enqueue of SocketAsyncEventArgs)
+//            let e = (rb.Buf :?> RefCntBufSA).SA
+//            let isFull(q : FixedSizeQ<_>, size)() = (((q.CurrentSize + size) > q.MaxSize && (q.CurrentSize > 0L)) || q.Count > q.MaxLen) && not xCRecv.Q.IsEmpty
+//            let eq (size : int64) (t) =
+//                recvQ.Q.Enqueue(t)
+//                Interlocked.Add(recvQ.CurrentSizeRef, size) |> ignore
+//                Interlocked.Add(x.ONet.TotalSARecvSize, size) |> ignore
+//                recvQ.Full.Set() |> ignore
+//            let size = int64 e.BytesTransferred
+//            recvQ.EnqueueWaitTimeCond rb (int64 e.BytesTransferred) isFull
+//        xgc.RecvQEnqueue <- recvEnqueue
+//        //xgc.RecvQEnqueue <- 
+//        // modify packet enquing non-empty condition
+//        let isDesiredFull() =
+//            ((!x.ONet.TotalSARecvSize > int64 x.ONet.MaxMemory && (recvQ.CurrentSize > 0L)) || recvQ.Count > recvQ.DesiredLen) && not xCRecv.Q.IsEmpty
+//        //let isDesiredFull() =
+//        //    ((recvQ.CurrentSize > recvQ.DesiredSize) || recvQ.Count > recvQ.DesiredLen) && not xCRecv.Q.IsEmpty
+//        recvQ.IsFullDesiredCond <- isDesiredFull
 
     member private x.StartConnection() =
         connectionStatus <- ConnectionStatus.Verified
         eVerified.Set() |> ignore
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Magic Num is Verified from socket %s, status:%A" (LocalDNS.GetShowInfo(x.Socket.RemoteEndPoint)) x.ConnectionStatus))
+
+        recvSAQ <- xgc.CompRecv.Q :?> FixedSizeQ<RBufPart<byte>>
+        sendSAQ <- xgc.CompSend.Q :?> FixedLenQ<RBufPart<byte>>
+
         // initialize processing current command
         curStateRecv <- ReceivingMode.ReceivingCommand
         xgc.CurBufRecv <- headerRecv
         xgc.CurBufRecvOffset <- 0
         xgc.CurBufRecvRem <- headerRecv.Length
-        // initialize receiver processing
-        xgc.CompRecv.Proc <- xgc.ProcessRecvGenericConn x.ProcessRecvCommand
-        // modifiy packet enqueueing
-        let recvEnqueue (e : SocketAsyncEventArgs) =
-            let recvQ = (xgc.CompRecv.Q :?> FixedSizeQ<SocketAsyncEventArgs>) 
-            //let isFull(q : FixedSizeQ<_>, size)() = (q.CurrentSize + size) > q.MaxSize && (q.CurrentSize > 0L) && not xCRecv.Q.IsEmpty
-            let isFull(q : FixedSizeQ<_>, size)() = (((q.CurrentSize + size) > q.MaxSize && (q.CurrentSize > 0L)) || q.Count > q.MaxLen) && not xCRecv.Q.IsEmpty
-            recvQ.EnqueueWaitTimeCond e (int64 e.BytesTransferred) isFull
-        let recvQ = (xgc.CompRecv.Q :?> FixedSizeQ<SocketAsyncEventArgs>)
-        let isDesiredFull() =
-            ((recvQ.CurrentSize > recvQ.DesiredSize) || recvQ.Count > recvQ.DesiredLen) && not xCRecv.Q.IsEmpty
-        recvQ.IsFullDesiredCond <- isDesiredFull
-        xgc.RecvQEnqueue <- recvEnqueue
-        xgc.CompRecv.ConnectTo x.ONet.bufProcPool true xCRecv None None
-        // overwrite the dequeue action
-        xgc.CompRecv.Dequeue <- xgc.RecvDequeueGenericConn xgc.CompRecv.Dequeue
-        xgc.StartReceive()
-        // add to thread pool for processing outgoing commands
-        curStateSend <- SendingMode.SendHeader
-        xCSend.Proc <- processSend
+        xgc.CurBufRecvMs <- null
+
+        // make connections
         xCSend.ConnectTo x.ONet.CmdProcPoolSend false xgc.CompSend None None
-        xgc.AfterSendCallback <- (fun e -> (xCSend.Q :?> FixedSizeQ<NetworkCommand>).DequeueSize(int64 e.Count))
-        // overwrite the dequeue action
-        xCSend.Dequeue <- dequeueSend xCSend.Dequeue
+        // xgc.CompSend already connected      
+        xgc.CompRecv.ConnectTo x.ONet.bufProcPool true xCRecv None None
+        //xCRecv.ConnectTo null (Some(fun _ -> bNoMoreRecv <- true)) None
+        xCRecv.ConnectTo x.ONet.CmdProcPoolRecv false null None None
+
+        // initialize processing - can overwrite following prior to start:
+        // 1. Enqueue logic (not part of component)
+        // 2. .Dequeue - part of component
+        // 3. .Proc - part of component
+        // 4. .ReleaseItem - part of component
+        // 5. AfterSendCallback - not part of component, but do not use (put in release instead)
+        // Cmd Send ====
+        // 1. Enqueue, utilize correct function in ToSend
+        xCSend.Dequeue <- x.DQSendCmd
+        xCSend.Proc <- processSend
+        xCSend.ReleaseItem <- x.SendCmdRelease
+        // SA Recv ====
+        xgc.RecvQEnqueue <- x.EQRecvSASizeWait
+        xgc.CompRecv.Dequeue <- xgc.RecvDequeueGenericConn xgc.CompRecv.Dequeue
+        xgc.CompRecv.Proc <- xgc.ProcessRecvGenericConnMs x.ProcessRecvCommand
+        xgc.CompRecv.ReleaseItem <- x.RecvSARelease
+        // SA Send ====
+        // Enqueue, change in in xCSend.Processing (see above) as argument to ProcessSendGenericConn in processSend
+        // xgc.CompSend.Dequeue - already set
+        // xgc.CompSend.Proc - already set in genericnetwork
+        xgc.CompSend.ReleaseItem <- x.SendSARelease
+        // Cmd Recv ===
+        // Enqueue, change in EnqueueCmd
+        // xCRecv.Dequeue - use standard DequeueWaitTime
+        // xCRecv.Proc - set below using InitMultipleProcess
+        xCRecv.ReleaseItem <- x.RecvCmdRelease
+
+        // start base network (generic network)
+        xgc.StartNetwork()
+        // start NetworkCommand sender
         xCSend.StartProcess x.ONet.CmdProcPoolSend xgc.CTS ("CmdSend:"+xgc.ConnKey) (fun k -> "CommandSendPool:" + k)
         // perform callback - future enumerations will automatically invoke
         x.OnConnect.Trigger()
@@ -611,14 +698,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         ThreadPoolWaitHandles.safeWaitOne( eInitialized ) |> ignore
         // start current processing recv pool - provided its needed (at least one processor must be registered)
         if (xCRecv.Processors.Count > 0) then
-            //xCRecv.ConnectTo null (Some(fun _ -> bNoMoreRecv <- true)) None
-            xCRecv.ConnectTo x.ONet.CmdProcPoolRecv false null None None
-            let dequeueCmd (cmd : NetworkCommand ref) =
-                let (success, event) = xCRecv.Q.DequeueWaitTime(cmd)
-                if (xCRecv.Q.IsEmpty) then
-                    xgc.CompRecv.Q.Empty.Set() |> ignore
-                (success, event)
-            xCRecv.Dequeue <- dequeueCmd
+            // start NetworkCommand receiver processing
             xCRecv.InitMultipleProcess()
             xCRecv.StartProcess x.ONet.CmdProcPoolRecv xgc.CTS ("CmdRecv:"+xgc.ConnKey) (fun k -> "CommandRecvPool:" + k)
 
@@ -658,18 +738,13 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     member x.AddRecvProc (processItem : NetworkCommand->ManualResetEvent) =
         xCRecv.AddProc(processItem)
 
-    /// Add receiver processing - multiple processeros may be added
-    /// <param name="processItem">The function to process NetworkCommand objects from queue</param>
-    member x.GetOrAddRecvProc (name, processItem : NetworkCommand->ManualResetEvent) =
-        xCRecv.GetOrAddProc(name, processItem)
-
-
     member private x.SetRecvAES(buf : byte[]) =
         x.AESRecv <- new RijndaelManaged()
         let ms = new MemStream(buf)
         x.AESRecv.BlockSize <- ms.ReadInt32()
         x.AESRecv.KeySize <- ms.ReadInt32()
         x.AESRecv.Key <- ms.ReadBytesWLen()
+        ms.DecRef()
 
     member private x.Verification(o : obj, buf : byte[], bufOffset : int, bufSize : int) =
         let cmd : VerificationCmd = EnumOfValue(buf.[bufOffset])
@@ -689,7 +764,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 Logger.LogF( LogLevel.Info, (fun _ -> "Receive Pwd Encrypted information"))
                 let decryptBuf = Crypt.DecryptWithParams(recvBuf, x.ONet.Password)
                 x.SetRecvAES(decryptBuf)
-                let ms = new MemStream()
+                use ms = new MemStream()
                 ms.WriteBytes(x.MyGuid.ToByteArray())
                 ms.WriteBytesWLen(Crypt.RSAToPublicKey x.MyAuthRSA)
                 ms.WriteBytesWLen(Crypt.RSAToPublicKey x.MyExchangeRSA)
@@ -697,6 +772,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 let bufToSend = Array.concat([[|byte VerificationCmd.AESVerificationUsingPwd|]; HashByteArray(decryptBuf); cryptBuf])
                 x.AsyncSendBufWSizeTryCatch(bufToSend, 0, bufToSend.Length)
                 bLocalVerified <- true
+                ms.DecRef()
             | VerificationCmd.AESVerificationUsingRSA ->
                 let (key, signBuf) = o :?> byte[]*byte[]
                 let rsa = Crypt.RSAFromKey(key)
@@ -721,6 +797,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                     Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connection verification from %s succeeds using password - adding %s to allowed connection list" x.EPInfo (guid.ToString("N"))))
                     if not (fst (x.ONet.CheckForAllowedConnection(guid))) then
                         x.ONet.AddToAllowedConnection(guid, publicKey, exchangePublicKey)
+                    ms.DecRef()
             | _ ->
                 // unknown command or failure, terminate
                 x.MarkFail()
@@ -765,6 +842,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                         let bufToSend = Array.concat([[|byte VerificationCmd.AESKeyUsingRSA|]; signBuf])
                         x.AsyncSendBufWSizeTryCatch(bufToSend, 0, bufToSend.Length)
                         x.AsyncRecvBufWSizeTryCatch(x.Verification, (fst key, signBuf), 0)
+                        ms.DecRef()
                     else
                         // create buffer with information
                         if (3*(sizeof<int>)+x.AESSend.Key.Length > 1024) then
@@ -777,6 +855,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                         let bufToSend = Array.concat([[|byte VerificationCmd.AESKeyUsingPwd|]; Crypt.EncryptWithParams(buf2, x.ONet.Password)])
                         x.AsyncSendBufWSizeTryCatch(bufToSend, 0, bufToSend.Length)
                         x.AsyncRecvBufWSizeTryCatch(x.Verification, HashByteArray(buf2), 0)
+                        ms.DecRef()
                 else
                     bRemoteVerified <- true
                     if (not bLocalVerified) then
@@ -803,7 +882,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         localEndPoint <- soc.LocalEndPoint
         remoteEndPointSignature <- LocalDNS.IPEndPointToInt64(soc.RemoteEndPoint :?> IPEndPoint)
         epInfo <- LocalDNS.GetShowInfo(soc.RemoteEndPoint)
-        xgc.SetTokenUse(16384L*8L, (int64 DeploymentSettings.SendTokenBucketSize)*8L, usedMSS, Math.Min(x.SendSpeed, x.RcvdSpeed))
+        //xgc.SetTokenUse(16384L*8L, (int64 DeploymentSettings.SendTokenBucketSize)*8L, usedMSS, Math.Min(x.SendSpeed, x.RcvdSpeed))
         xgc.InitConnectionAndStart(soc, x.ONet) x.Start
 
     /// Begin connection to IP address
@@ -815,8 +894,11 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             remoteEndPoint <- IPEndPoint( addr, port )
             remoteEndPointSignature <- LocalDNS.IPEndPointToInt64( x.RemoteEndPoint :?> IPEndPoint ) 
             let soc = new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
+            if not (x.ONet.IpAddr.Equals("")) then
+                Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Local bind to %A" x.ONet.IpAddr)
+                soc.Bind(new IPEndPoint(IPAddress.Parse(x.ONet.IpAddr), 0))
             connectionStatus <- ConnectionStatus.BeginConnect
-            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "BeginConnect to host %s with address %A" (x.MachineName) (addr.ToString()) ))
+            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "BeginConnect to host %s with address %A" (x.MachineName) (addr.ToString()) ))
             let ar = soc.BeginConnect( addr, port, AsyncCallback(NetworkCommandQueue.EndConnect), (x, soc) )
             ()
         with 
@@ -834,6 +916,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             with
             | e ->
                 x.MarkFail()
+                Logger.Log( LogLevel.Error, (sprintf "NetworkCommandQueue.BEndConnect failed with exception %A" e ))
 
     /// Initialize the NetworkCommandQueue - Only call after AddRecvProc are all done
     member x.Initialize() =
@@ -848,6 +931,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     abstract Close : unit -> unit
     default x.Close() =
         if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
+            Logger.LogStackTrace(LogLevel.MildVerbose)
             Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo))
             xCSend.SelfClose()
             // manually terminate everything - this will do following
@@ -898,8 +982,6 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 ackSize <- ackSize + !commandSize
                 i <- i + 1
         Interlocked.Add(unProcessedBytes, -(int64 ackSize)) |> ignore
-        //let sendQ = xCSend.Q :?> FixedSizeQ<NetworkCommand>
-        //sendQ.DequeueSize(int64 ackSize)
         if (i <> diff || diff < 0 || !unProcessedBytes < 0L) then
             let iProc = i
             Logger.LogF( LogLevel.Error, (fun _ -> sprintf "ACK information incorrect NewACK: %d UnprocessedACK: %d UnprocessedBytes: %d iLastRecvdSeqNo: %d iLastSeq(from header): %d " diff iProc x.UnProcessedCmdInBytes iLastRecvdSeqNo iLastSeq))
@@ -933,25 +1015,27 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             // decrypt the body
             let (decryptBuf, bufLen) = Crypt.Decrypt(x.AESRecv, body)
             let command = new ControllerCommand(enum<ControllerVerb>(int decryptBuf.[4]), enum<ControllerNoun>(int decryptBuf.[5]))
-            curRecvCmd <- new NetworkCommand(command, decryptBuf, 8, bufLen-8)
+            body.DecRef()
+            // form a memory stream using this buffer01
+            let ms = new MemStream(decryptBuf, 8, bufLen-8)
+            curRecvCmd <- new NetworkCommand(command, ms)
         else
-            curRecvCmd <- new NetworkCommand(command, body, 0, body.Length)
+            if (Utils.IsNotNull body) then
+                body.Seek(0L, SeekOrigin.Begin) |> ignore
+            curRecvCmd <- new NetworkCommand(command, body)
             //x.TraceCurRecvCommand(fun _ -> sprintf "Built bodyLen:%d eRem: %d" body.Length xgc.ERecvRem)
-//        rcvdCommandSerial <- rcvdCommandSerial + 1L
-//        totalBytesRcvd <- totalBytesRcvd + (int64 (8 + body.Length))
-//        x.CommandRcvd <- x.CommandRcvd + 1L
         curStateRecv <- ReceivingMode.EnqueuingCommand
         
     member private x.EnqueueCmd() =
-        //let (success, event) = xCRecv.Q.EnqueueWait(curRecvCmd)
-        let (success, event) = xCRecv.Q.EnqueueWaitTime(curRecvCmd)
+        //let (success, event) = xCRecv.Q.EnqueueWaitTime(curRecvCmd)
+        let (success, event) = x.EQRecvCmdWait(curRecvCmd)
         if (success) then
             let iLastSeq = int (BitConverter.ToUInt16(headerRecv, 6))
-            Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Receive command from %s of len: %d ack: %d prev: %d" x.EPInfo (body.Length+4) iLastSeq iLastRecvdSeqNo))
+            //Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Receive command from %s of len: %d ack: %d prev: %d" x.EPInfo (body.Length+4) iLastSeq iLastRecvdSeqNo))
             let diff = int (Operators.uint16(iLastSeq - iLastRecvdSeqNo)) // unchecked for overflow
             x.UpdateFlowControl(diff, iLastSeq)
             rcvdCommandSerial <- rcvdCommandSerial + 1L
-            totalBytesRcvd <- totalBytesRcvd + (int64 (8 + body.Length))
+            totalBytesRcvd <- totalBytesRcvd + curRecvCmd.CmdLen()
             x.CommandRcvd <- x.CommandRcvd + 1L
 
             //x.TraceCurRecvCommand(fun _ -> sprintf "Enqueue")
@@ -959,10 +1043,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             xgc.CurBufRecv <- headerRecv
             xgc.CurBufRecvOffset <- 0
             xgc.CurBufRecvRem <- headerRecv.Length
-            // remove from fixed size q
-            let recvQ = (xgc.CompRecv.Q :?> FixedSizeQ<SocketAsyncEventArgs>)
-            //recvQ.DequeueSize(int64(curRecvCmd.CmdLen()))
-            recvQ.DequeueSizeFullDesiredCond(int64(curRecvCmd.CmdLen()))
+            xgc.CurBufRecvMs <- null
             curRecvCmd <- null
         //else
         //    x.TraceCurRecvCommand(fun _ -> sprintf "Wait To Enqueue")
@@ -972,16 +1053,19 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         match curStateRecv with
             | ReceivingMode.ReceivingCommand ->
                 let totalLen = BitConverter.ToInt32(headerRecv, 0)
-                let bodyLen = totalLen-4
                 // allow zero length array creation so memstream is not null
-                body <- Array.zeroCreate<byte>(bodyLen)
+                let bodyLen = totalLen - 4
                 if (bodyLen <> 0) then
+                    //body <- new MemStream(bodyLen)
+                    //body <- new MemoryStreamB(bodyLen)
+                    body <- new MemoryStreamB()
                     curStateRecv <- ReceivingMode.ReceivingBody
-                    xgc.CurBufRecv <- body
-                    xgc.CurBufRecvOffset <- 0
+                    xgc.CurBufRecv <- null
+                    xgc.CurBufRecvMs <- body
                     xgc.CurBufRecvRem <- bodyLen
                     null
                 else
+                    body <- null
                     x.BuildCommand()
                     x.EnqueueCmd()
             | ReceivingMode.ReceivingBody ->
@@ -1001,29 +1085,183 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         Buffer.BlockCopy(rcvdSerialBuf, 0, buf, 6, 2)
 
     member private x.BuildHeader(cmd : NetworkCommand, buf : byte[]) =
-        x.BuildHeader(cmd.cmd, cmd.count + 4, buf)
+        x.BuildHeader(cmd.cmd, int(cmd.CmdLen())-4, buf)
+
+    member private x.BuildHeader(command : ControllerCommand, cmdLen : int, ms : MemStream) =
+        ms.WriteInt32(cmdLen)
+        ms.WriteByte(byte(command.Verb))
+        ms.WriteByte(byte(command.Noun))
+        Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Send command to %s len: %d ack: %d" x.EPInfo cmdLen x.RcvdCommandSerial))
+        ms.WriteUInt16(Operators.uint16(x.RcvdCommandSerial))
 
     member private x.UpdateHeader(cmd : NetworkCommand) =
-        let rcvdSerialBuf = BitConverter.GetBytes(Operators.uint16(x.RcvdCommandSerial))
-        Buffer.BlockCopy(rcvdSerialBuf, 0, cmd.buffer, 6, 2)
+        let pos = cmd.ms.Position
+        cmd.ms.Seek(6L, SeekOrigin.Begin) |> ignore
+        cmd.ms.WriteUInt16(Operators.uint16(x.RcvdCommandSerial))
+        cmd.ms.Seek(pos, SeekOrigin.Begin) |> ignore
 
     member private x.ProcessSendCmd(cmd : NetworkCommand)() =
         match curStateSend with
             | SendingMode.SendHeader ->
                 curStateSend <- SendingMode.SendCommand
-                xgc.CurBufSend <- cmd.buffer
-                xgc.CurBufSendOffset <- cmd.offset
-                xgc.CurBufSendRem <- cmd.count
-                (false, false)
             | SendingMode.SendCommand ->
-                (true, 0=xCSend.Q.Count)
+                ()
+        let (buf, pos, cnt) = streamReader.GetMoreBuffer()
+        xgc.CurBufSend <- buf
+        xgc.CurBufSendOffset <- pos
+        xgc.CurBufSendRem <- cnt
+        sendLenRem <- sendLenRem - int64 xgc.CurBufSendRem
+        if (Utils.IsNull buf) then
+            if (sendLenRem <> 0L) then
+                failwith "Send Len not correct"
+            streamReader.Release()
+            (true, 0=xCSend.Q.Count)
+        else
+            (false, false)
 
     member private x.ProcessSendCommand = x.ProcessSendCmd (!xCSend.Item)
 
-    member private x.EnqueueSend(cmd : NetworkCommand) =
-        let cmdRef = ref cmd
-        dequeueSend (fun _ -> (true, null)) cmdRef |> ignore
-        xgc.ProcessSendGenericConn xgc.CompSend.Q.EnqueueSync (x.ProcessSendCmd (cmd)) |> ignore
+    // Queue functions -------
+    // Cmd Send ==============
+    member inline private x.SendCmdFullMax (size : int64) () =
+        ((!x.ONet.TotalSASendSize + !x.ONet.TotalCmdSendSize + size) > int64 x.ONet.MaxMemory ||
+           sendCmdQ.CurrentSize > sendCmdQ.MaxSize ||
+           sendCmdQ.Count > sendCmdQ.MaxLen) 
+        && (sendCmdQ.CurrentSize > 0L) 
+
+    member inline private x.SendCmdFullDesired() =
+        ((!x.ONet.TotalSASendSize + !x.ONet.TotalCmdSendSize) > int64 x.ONet.MaxMemory ||
+          sendCmdQ.CurrentSize > sendCmdQ.DesiredSize ||
+          sendCmdQ.Count > sendCmdQ.DesiredLen)
+        && (sendCmdQ.CurrentSize > 0L) 
+
+    member inline private x.EQSendCmdAction (size : int64) (cmd : NetworkCommand) =
+        sendCmdQ.Q.Enqueue(cmd)
+        Interlocked.Add(sendCmdQ.CurrentSizeRef, size) |> ignore
+        Interlocked.Add(x.ONet.TotalCmdSendSize, size) |> ignore
+        sendCmdQ.Full.Set() |> ignore
+
+    member inline private x.EQSendCmdSyncSize (cmd : NetworkCommand) =
+        let size = cmd.CmdLen()               
+        BaseQ<_>.EnqueueSyncNoInline(x.EQSendCmdAction size, cmd, x.SendCmdFullMax size, sendCmdQ.Empty)
+
+    member inline private x.SendCmdFullMax1 (size : int64) () =
+        false
+
+    member inline private x.EQSendCmdSyncSizeNonBlock (cmd : NetworkCommand) =
+        let size = cmd.CmdLen()               
+        BaseQ<_>.EnqueueSyncNoInline(x.EQSendCmdAction size, cmd, x.SendCmdFullMax1 size, sendCmdQ.Empty)
+
+    // dequeue does not set any events, just simple dequeue
+    member private x.DQSendCmd (cmd : NetworkCommand ref) =
+        let (success, event) = BaseQ<_>.DequeueNoInline((fun r -> sendCmdQ.Q.TryDequeue(r)), cmd, (fun() -> sendCmdQ.IsEmpty), sendCmdQ.Full, sendCmdQ.WaitTimeDequeueMs)
+        if (success) then
+            streamReader <- new StreamReader<byte>((!cmd).ms, (!cmd).startPos)
+            sendLenRem <- (!cmd).CmdLen()
+            if (!cmd).buildHeader then
+                x.BuildHeader(!cmd, headerSend)
+                curStateSend <- SendingMode.SendHeader
+                xgc.CurBufSend <- headerSend
+                xgc.CurBufSendOffset <- 0
+                xgc.CurBufSendRem <- headerSend.Length
+            else
+                x.UpdateHeader(!cmd)
+                //Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Send cmd to %s len: %d ack:L %d" xgc.ConnKey (BitConverter.ToInt32((!cmd).buffer, 0)) (BitConverter.ToUInt16((!cmd).buffer, 6))))
+                curStateSend <- SendingMode.SendCommand
+                let (buf, pos, cnt) = streamReader.GetMoreBuffer()
+                xgc.CurBufSend <- buf
+                xgc.CurBufSendOffset <- pos
+                xgc.CurBufSendRem <- cnt
+            sendLenRem <-  sendLenRem - int64 xgc.CurBufSendRem
+            totalBytesSent <- totalBytesSent + (!cmd).CmdLen()
+
+        (success, event)
+
+    member private x.SendCmdRelease(cmd : NetworkCommand ref) =
+        let size = (!cmd).CmdLen()
+        (!cmd).Release()
+        Interlocked.Add(sendCmdQ.CurrentSizeRef, -size) |> ignore
+        Interlocked.Add(x.ONet.TotalCmdSendSize, -size) |> ignore
+        Ev.SetOnNotCondNoInline(x.SendCmdFullDesired, sendCmdQ.Empty)
+
+    // SA Send =====================
+    member inline private x.SendSAFullMax() =
+        sendSAQ.Q.Count + 1 > sendSAQ.MaxLen
+
+    member inline private x.EQSendSAAction (e : SocketAsyncEventArgs) (rb : RBufPart<byte>) =
+        sendSAQ.Q.Enqueue(rb)
+        Interlocked.Add(x.ONet.TotalSASendSize, int64 e.Count) |> ignore
+        sendSAQ.Full.Set() |> ignore
+
+    member private x.EQSendSA (rb : RBufPart<byte>) =
+        let e = (rb.Buf :?> RefCntBufSA).SA
+        BaseQ<_>.EnqueueNoInline(x.EQSendSAAction e, rb, x.SendSAFullMax, sendSAQ.Empty, sendSAQ.WaitTimeEnqueueMs)
+
+    // use standard DQ functions for fixed len q - standard dequeue will set sendSAQ.Empty upon empty
+
+    member private x.SendSARelease(rb : RBufPart<byte> ref) =
+        Interlocked.Add(x.ONet.TotalSASendSize, int64 (-(!rb).Count)) |> ignore
+        Ev.SetOnNotCondNoInline(x.SendCmdFullDesired, sendCmdQ.Empty)
+
+    // SA Recv ==========================
+    member inline private x.RecvSAFullMax (size : int64) () =
+        ((!x.ONet.TotalSARecvSize + !x.ONet.TotalCmdRecvSize + size) > int64 x.ONet.MaxMemory ||
+         recvSAQ.CurrentSize > recvSAQ.MaxSize ||
+         recvSAQ.Count > recvSAQ.MaxLen)
+        && recvSAQ.CurrentSize > 0L
+        && not recvCmdQ.Q.IsEmpty
+
+    member inline private x.RecvSAFullDesired () =
+        ((!x.ONet.TotalSARecvSize + !x.ONet.TotalCmdRecvSize) > int64 x.ONet.MaxMemory ||
+         recvSAQ.CurrentSize > recvSAQ.DesiredSize ||
+         recvSAQ.Count > recvSAQ.DesiredLen)
+        && recvSAQ.CurrentSize > 0L
+        && not recvCmdQ.Q.IsEmpty
+
+    member inline private x.EQRecvSAAction (e : SocketAsyncEventArgs) (size : int64) (rb : RBufPart<byte>) =
+        recvSAQ.Q.Enqueue(rb)
+        Interlocked.Add(recvSAQ.CurrentSizeRef, size) |> ignore
+        Interlocked.Add(x.ONet.TotalSARecvSize, size) |> ignore
+        //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "ID:%d Add:%d" rb.Buf.Id size)
+        recvSAQ.Full.Set() |> ignore
+
+    member private x.EQRecvSASizeWait (rb : RBufPart<byte>) =
+        let e = (rb.Buf :?> RefCntBufSA).SA
+        let size = int64 e.BytesTransferred
+        BaseQ.EnqueueNoInline(x.EQRecvSAAction e size, rb, x.RecvSAFullMax size, recvSAQ.Empty, recvSAQ.WaitTimeEnqueueMs)
+
+    // use standard dequeue for fixed size q (using RecvDequeueGenericConn) - won't set any events, use release to set
+
+    member private x.RecvSARelease(rb : RBufPart<byte> ref) =
+        let e = ((!rb).Buf :?> RefCntBufSA).SA
+        let size = int64 e.BytesTransferred
+        Interlocked.Add(recvSAQ.CurrentSizeRef, -size) |> ignore
+        Interlocked.Add(x.ONet.TotalSARecvSize, -size) |> ignore
+        Ev.SetOnNotCondNoInline(x.RecvSAFullDesired, recvSAQ.Empty)
+        //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "ID:%d Release:%d" (!rb).Buf.Id size)
+        (!rb).Release() // also released in ProcessRecvGenericConn, but double release should be okay
+
+    // Cmd Recv ===============================
+    member inline private x.RecvCmdFullMax() =
+        recvCmdQ.Q.Count + 1 > recvCmdQ.MaxLen
+
+    member inline private x.EQRecvCmdAction (cmd : NetworkCommand) =
+        recvCmdQ.Q.Enqueue(cmd)
+        Interlocked.Add(x.ONet.TotalCmdRecvSize, cmd.CmdLen()) |> ignore
+        recvCmdQ.Full.Set() |> ignore
+
+    member private x.EQRecvCmdWait (cmd : NetworkCommand) =
+        BaseQ.EnqueueNoInline(x.EQRecvCmdAction, cmd, x.RecvCmdFullMax, recvCmdQ.Empty, recvCmdQ.WaitTimeEnqueueMs)
+
+    // use standard dequeue for fixed len q - sets recvCmdQ.Empty event when below desired length
+
+    member private x.RecvCmdRelease (cmd : NetworkCommand ref) =
+        Interlocked.Add(x.ONet.TotalCmdRecvSize, -(!cmd).CmdLen()) |> ignore
+        Ev.SetOnNotCondNoInline(x.RecvSAFullDesired, recvSAQ.Empty)
+        (!cmd).Release()
+        (!cmd).ms.DecRef() // also release underlying memstream here
+
+    // ===========================
 
     /// Add command to sender queue using encryption - decryption takes place automatically
     /// enqueue takes place synchronously, blocks caller
@@ -1034,69 +1272,60 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     member x.ToSendEncrypt (command, arr:byte[], offset:int, arrCount:int) =
         if (connectionStatus < ConnectionStatus.Verified) then
             eVerified.Wait() |> ignore
-        let sendBuf = Array.zeroCreate<byte>(arrCount + 8)
-        x.BuildHeader(command, arrCount + 4, sendBuf)
-        if (not (Object.ReferenceEquals(arr, null))) then
-            Buffer.BlockCopy(arr, offset, sendBuf, 8, arrCount)
-        let encryptMs = Crypt.Encrypt(x.AESSend, sendBuf)
+        let ms = new MemStream(arrCount + 8)
+        x.BuildHeader(command, arrCount + 4, ms)
+        ms.Write(arr, offset, arrCount)
+        let encryptMs = Crypt.Encrypt(x.AESSend, ms.GetBuffer())
+        ms.DecRef()
         let cmd = new NetworkCommand(ControllerCommand(ControllerVerb.Decrypt, ControllerNoun.Message), encryptMs)
-        x.CommandSizeQ.Enqueue(cmd.CmdLen())
+        x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
         Interlocked.Add(unProcessedBytes, int64 (cmd.CmdLen())) |> ignore
         let sendQ = xCSend.Q :?> FixedSizeQ<NetworkCommand>
-        sendQ.EnqueueSyncSize cmd (int64 (cmd.CmdLen())) |> ignore
+        //sendQ.EnqueueSyncSize cmd (int64 (cmd.CmdLen())) |> ignore
+        x.EQSendCmdSyncSize cmd |> ignore
+
+    // ===========================================
 
     /// Add command to sender queue - enqueue takes place synchronously, blocks caller
     /// <param name="command">The ControllerCommand to send</param>
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional - Unused parameter</param>
-    member x.ToSend (command, sendStream:MemStream, ?bExpediateSend) =
+    member x.ToSend (command, sendStream:StreamBase<byte>, ?bExpediateSend) =
         let cmd = new NetworkCommand(command, sendStream)
-        x.CommandSizeQ.Enqueue(cmd.CmdLen())
+        x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
         Interlocked.Add(unProcessedBytes, int64 (cmd.CmdLen())) |> ignore
         let sendQ = xCSend.Q :?> FixedSizeQ<NetworkCommand>
-        sendQ.EnqueueSyncSize cmd (int64 (cmd.CmdLen())) |> ignore
-        //xCSend.Q.EnqueueSync(cmd) |> ignore
-        //x.EnqueueSend(cmd) // direct process and put on SocketAsyncEventArgs SendQ
+        //sendQ.EnqueueSyncSize cmd (int64 (cmd.CmdLen())) |> ignore
+        x.EQSendCmdSyncSize cmd |> ignore
+        x.LastSendTicks <- (PerfDateTime.UtcNow())
+
+    member x.ToSendNonBlock (command, sendStream:StreamBase<byte>, ?bExpediateSend) =
+        let cmd = new NetworkCommand(command, sendStream)
+        x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
+        Interlocked.Add(unProcessedBytes, int64 (cmd.CmdLen())) |> ignore
+        let sendQ = xCSend.Q :?> FixedSizeQ<NetworkCommand>
+        //sendQ.EnqueueSyncSize cmd (int64 (cmd.CmdLen())) |> ignore
+        x.EQSendCmdSyncSizeNonBlock cmd |> ignore
+        x.LastSendTicks <- (PerfDateTime.UtcNow())
+        
+
 
     /// Add command to sender queue - enqueue takes place synchronously, blocks caller
     /// <param name="command">The ControllerCommand to send</param>
-    /// <param name="arr">The associated buffer to send</param>
-    /// <param name="offset">The offset into the buffer to send</param>
-    /// <param name="arrCount">The length of content in buffer to send (starting at offset)</param>
-    /// <param name="bExpediateSend">Unused parameter - not implemented</param>
-    /// <returns>The buffer with the header</returns>
-    member x.ToSendAndHoldBuffer(command:ControllerCommand, arr:byte[], offset:int, arrCount:int, bExpediate) : byte[] = 
-        let sendBuf = Array.zeroCreate<byte>(arrCount + 8)
-        x.BuildHeader(command, arrCount + 4, sendBuf)
-        if (Utils.IsNotNull arr) then
-            Buffer.BlockCopy(arr, offset, sendBuf, 8, arrCount)
-        let cmd = new NetworkCommand(command, sendBuf, 0, sendBuf.Length)
-        cmd.buildHeader <- false
-        x.CommandSizeQ.Enqueue(cmd.CmdLen())
+    /// <param name="sendStream">The associated MemStream to send</param>
+    /// <param name="startPos">Start sending from this position</param>
+    /// <param name="bExpediateSend">Optional - Unused parameter</param>
+    member x.ToSendFromPos (command, sendStream:StreamBase<byte>, startPos:int64, ?bExpediateSend) =
+        let cmd = new NetworkCommand(command, sendStream, startPos)
+        x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
         Interlocked.Add(unProcessedBytes, int64 (cmd.CmdLen())) |> ignore
         let sendQ = xCSend.Q :?> FixedSizeQ<NetworkCommand>
-        sendQ.EnqueueSyncSize cmd (int64 (cmd.CmdLen())) |> ignore
-        sendBuf
+        x.EQSendCmdSyncSize cmd |> ignore
 
     /// Tells if we are we allowed to send
     member x.CanSend
         with get() =
             (not xCSend.Closed) && (not x.Shutdown)
-
-// Unused now as all processing through AddRecvProc
-//    member x.ToReceive( ?bIsPeeking ) = 
-//        if (Utils.IsNull xCRecv.Q) then
-//            None
-//        else
-//            let mutable cmd : NetworkCommand ref = ref null
-//            while (xCRecv.Q.Count > 0 && Utils.IsNull !cmd) do
-//                xCRecv.Q.DequeueWait(cmd) |> ignore
-//            if (Utils.IsNotNull !cmd) then
-//                Some((!cmd).cmd, (!cmd).MemStream())
-//            else
-//                if (xCRecv.Closed && xCRecv.Q.IsEmpty) then
-//                    bNoMoreRecv <- true
-//                None
 
     /// Wrap the Memstream to forward to 1 endPoint during the communication. 
     /// <param name="endPoint">The endpoint to forward to</param>
@@ -1110,8 +1339,10 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         forwardHeader.WriteIPEndPoint( endPoint )
         forwardHeader.WriteByte( byte command.Verb )
         forwardHeader.WriteByte( byte command.Noun )
-        let mergedStream = sendStream.InsertBefore( forwardHeader )
+        sendStream.InsertBefore( forwardHeader ) |> ignore
+        let mergedStream = forwardHeader
         x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), mergedStream, bExpediate )
+        mergedStream.DecRef()
 
     /// Wrap the Memstream to forward to multiple endPoints during the communication. 
     /// <param name="endPoints">The endpoints to forward to</param>
@@ -1126,8 +1357,10 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             forwardHeader.WriteIPEndPoint( endPoints.[i] )
         forwardHeader.WriteByte( byte command.Verb )
         forwardHeader.WriteByte( byte command.Noun )
-        let mergedStream = sendStream.InsertBefore( forwardHeader )
+        sendStream.InsertBefore( forwardHeader ) |> ignore
+        let mergedStream = forwardHeader
         x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), mergedStream, bExpediate )
+        mergedStream.DecRef()
 
 // can add following to timer routine:
 // - garbage collect, monitor, keep alive (all timer based, but all timers currently removed)
@@ -1139,22 +1372,6 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     //let monitorTimer = new Timer((fun o -> x.MonitorChannels(x.GetAllChannels())), null, Timeout.Infinite, Timeout.Infinite)
     let channelsCollection = ConcurrentDictionary<int64, NetworkCommandQueue>() 
     do
-        // for internal queues of SocketAsyncEventArgs in genericnetwork.fs
-        // since flow control takes into account NetworkCommand->SocketAsyncEventArgs and reverse conversion
-        // no need to control queue size here since unProcessedBytes is representative of bytes:
-        // 1. waiting to be converted from NetworkCommand->SocketAsyncEventArgs
-        // 2. on network
-        // 3. waiting to be converted from SocketAsyncEventArgs->NetworkCommand
-        //x.fnQRecv <- (fun() -> new GrowQ<SocketAsyncEventArgs>() :> BaseQ<SocketAsyncEventArgs>)
-        x.fnQRecv <- (fun() -> 
-            let q = new FixedSizeQ<SocketAsyncEventArgs>(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
-            //q.MaxLen <- 5000
-            q.MaxLen <- 50
-            q.DesiredLen <- 50
-            q :> BaseQ<SocketAsyncEventArgs>
-        )
-        //x.fnQSend <- Some(fun() -> new GrowQ<SocketAsyncEventArgs>() :> BaseQ<SocketAsyncEventArgs>)
-        x.fnQSend <- Some(fun() -> new FixedLenQ<SocketAsyncEventArgs>(50, 50) :> BaseQ<SocketAsyncEventArgs>)
         CleanUp.Current.Register( 1000, x, x.Close, fun _ -> "NetworkConnections" ) |> ignore 
     static let staticConnects = new NetworkConnections()
     static do staticConnects.Initialize()
@@ -1177,6 +1394,8 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     member val internal MyGuid : Guid = new Guid() with get, set
     member val internal MyAuthRSA : RSACryptoServiceProvider = null with get, set
     member val internal MyExchangeRSA : RSACryptoServiceProvider = null with get, set
+
+    member val internal IpAddr = "" with get, set
 
     /// Get the authentication parameters
     /// <returns>
@@ -1234,11 +1453,13 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(exchangePrivateKey, x.KeyFilePassword)
             ms.WriteBytesWLen(exchangePrivateKey)
             File.WriteAllBytes(mykeyfile, ms.GetValidBuffer())
+            ms.DecRef()
         else
             let ms = new MemStream(File.ReadAllBytes(mykeyfile))
             x.MyGuid <- new Guid(ms.ReadBytes(sizeof<Guid>))
             x.MyAuthRSA <- Crypt.RSAFromPrivateKey(ms.ReadBytesWLen(), x.KeyFilePassword)
             x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(ms.ReadBytesWLen(), x.KeyFilePassword)
+            ms.DecRef()
         // add self to allowed list
         x.AllowedConnections.[x.MyGuid] <- (Crypt.RSAToPublicKey(x.MyAuthRSA), Crypt.RSAToPublicKey(x.MyExchangeRSA))
 
@@ -1272,7 +1493,9 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                     ms.WriteBytes(guid.ToByteArray())
                     ms.WriteBytes(File.ReadAllBytes(f))
                 with e -> ()
-        ms.GetValidBuffer()
+        let outBuf = ms.GetValidBuffer()
+        ms.DecRef()
+        outBuf
 
     /// Initialize authentication / security information from key information obtained in buffer
     /// <param name="keyInfo>
@@ -1311,6 +1534,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                 bContinue <- false
             if (ms.Position >= ms.Length) then
                 bContinue <- false
+        ms.DecRef()
 
     /// Add to allowed connection list by adding to file and concurrent dictionary
     member internal x.AddToAllowedConnection(guid : Guid, publicKey : byte[], exchangePublicKey : byte[]) =
@@ -1321,6 +1545,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             ms.WriteBytesWLen(publicKey)
             ms.WriteBytesWLen(exchangePublicKey)
             File.WriteAllBytes(thiskeyfile, ms.GetValidBuffer())
+            ms.DecRef()
         // add to allowed connections
         x.AllowedConnections.[guid] <- (publicKey, exchangePublicKey)
 
@@ -1333,6 +1558,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             if (File.Exists(thiskeyfile)) then
                 let ms = new MemStream(File.ReadAllBytes(thiskeyfile))
                 x.AllowedConnections.[guid] <- (ms.ReadBytesWLen(), ms.ReadBytesWLen())
+                ms.DecRef()
                 (true, x.AllowedConnections.[guid])
             else
                 (false, (null, null))
@@ -1375,6 +1601,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
 //                                    )) 
 
     member val private Initialized = ref 0 with get
+    member val internal MaxMemory = 0UL with get, set
     /// Initialize the object
     member x.Initialize( ) = 
         if (Interlocked.CompareExchange(x.Initialized, 1, 0) = 0) then
@@ -1385,7 +1612,9 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             if (DeploymentSettings.MaxNetworkStackMemoryPercentage > 0.0) then
                 maxMemory <- Math.Min(maxMemory, uint64(DeploymentSettings.MaxNetworkStackMemoryPercentage*float DetailedConfig.GetMemorySpace))
             maxMemory <- maxMemory >>> 1 // half for send, recv
+            x.MaxMemory <- maxMemory
             let mutable bufSize = 256000
+            //let mutable bufSize = 64000
             let mutable maxNumStackBufs = maxMemory / uint64 bufSize
             if (maxNumStackBufs < 50UL) then
                 bufSize <- int(maxMemory / 50UL)
@@ -1393,8 +1622,26 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             if (bufSize < 64000) then
                 failwith "Not sufficient memory"
             //x.InitStack(5, 256000, 10)
-            x.InitStack(Math.Min(64, int maxNumStackBufs), bufSize, int maxNumStackBufs)
+            x.InitStack(Math.Min(1024*8, int maxNumStackBufs), bufSize, int maxNumStackBufs)
             x.StartMonitor() 
+            // for internal queues of SocketAsyncEventArgs in genericnetwork.fs
+            // since flow control takes into account NetworkCommand->SocketAsyncEventArgs and reverse conversion
+            // no need to control queue size here since unProcessedBytes is representative of bytes:
+            // 1. waiting to be converted from NetworkCommand->SocketAsyncEventArgs
+            // 2. on network
+            // 3. waiting to be converted from SocketAsyncEventArgs->NetworkCommand
+            x.fnQRecv <- (fun() -> 
+                let q = new FixedSizeQ<RBufPart<byte>>(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
+                q.MaxLen <- 100
+                q.DesiredLen <- 100
+                q :> BaseQ<RBufPart<byte>>
+            )
+            x.fnQSend <- Some(fun() -> new FixedLenQ<RBufPart<byte>>(100, 100) :> BaseQ<RBufPart<byte>>)
+
+    member val TotalSARecvSize = ref 0L with get
+    member val TotalSASendSize = ref 0L with get
+    member val TotalCmdRecvSize = ref 0L with get
+    member val TotalCmdSendSize = ref 0L with get
 
     /// Get the current channel collection
     member x.ChannelsCollection with get() = channelsCollection
@@ -1444,7 +1691,12 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     /// <param name="port">The port to connect to</param>
     /// <returns>The NetworkCommandQueue created from the socket</returns>
     member x.AddConnect( machineName, port ) = 
-        let addr = LocalDNS.GetAnyIPAddress( machineName, true )
+        let addr = 
+            try
+                IPAddress.Parse(machineName)
+            with e ->
+                LocalDNS.GetAnyIPAddress( machineName, true )
+        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Connecting to %s using addr %A" machineName addr)
         if Utils.IsNull addr then 
             null 
         else
@@ -1457,7 +1709,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     member x.AddConnect( addr:IPAddress, port ) = 
         let newSignature = LocalDNS.IPv4AddrToInt64( addr, port )
         let addedChannel = channelsCollection.GetOrAdd( newSignature, fun _ -> new NetworkCommandQueue(addr, port, x) )
-        Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "add to channel outgoing socket to %s" (LocalDNS.GetShowInfo( IPEndPoint(addr, port)) ) ))
+        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "add to channel outgoing socket to %s" (LocalDNS.GetShowInfo( IPEndPoint(addr, port)) ) ))
         addedChannel
 
     /// Add a loopback connection to specified port, with optional security parameters specified
@@ -1506,7 +1758,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                                                 let gcinfo = GCPolicy.GetGCStatistics()
                                                 yield sprintf "Number of active channels ........... %d .... Memory %d MB ... %s" numChannels (currentProcess.WorkingSet64>>>20) gcinfo
                                                 }) 
-                                                (Seq.map ( fun (ch:NetworkCommandQueue) -> (sprintf "Channel :%A, sending queue:%d, receiving queue:%d, sending cmd queue: %d receiving command queue: %d sending queue size:%d recv queue size: %d UnprocessedCmD:%d bytes Status:%A" (LocalDNS.GetShowInfo(ch.RemoteEndPoint)) (ch.SendQueueLength) (ch.ReceivingQueueLength) (ch.SendCommandQueueLength) (ch.ReceivingCommandQueueLength) (ch.SendQueueSize) (ch.RecvQueueSize) (ch.UnProcessedCmdInBytes) ch.ConnectionStatus )) showLists)
+                                                (Seq.map ( fun (ch:NetworkCommandQueue) -> (sprintf "Channel :%A, Last ToSent Ticks: %A, Last Socket Sent Ticks: %A, sendcount %d, finishsendcout %d, sending queue:%d, receiving queue:%d, sending cmd queue: %d receiving command queue: %d sending queue size:%d recv queue size: %d UnprocessedCmD:%d bytes Status:%A" (LocalDNS.GetShowInfo(ch.RemoteEndPoint)) ch.LastSendTicks ch.Conn.LastSendTicks ch.Conn.SendCounter ch.Conn.FinishSendCounter (ch.SendQueueLength) (ch.ReceivingQueueLength) (ch.SendCommandQueueLength) (ch.ReceivingCommandQueueLength) (ch.SendQueueSize) (ch.RecvQueueSize) (ch.UnProcessedCmdInBytes) ch.ConnectionStatus )) showLists)
                                 |> String.concat( Environment.NewLine )
                                 )) 
 

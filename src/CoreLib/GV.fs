@@ -261,7 +261,7 @@ and /// Information of Within Job cluster information.
     member x.VersionString with get() = StringTools.VersionToString( x.Version ) 
     member val bValidMetadata = false with get, set
     member val internal NodesInfo = if numNodes=0 then null else Array.zeroCreate<NodeWithInJobInfo> numNodes with get, set    
-    member x.Pack( ms:MemStream ) =
+    member x.Pack( ms:StreamBase<byte> ) =
         ms.WriteString( x.Name ) 
         ms.WriteInt64( x.Version.Ticks )
         ms.WriteVInt32( x.NodesInfo.Length ) 
@@ -271,7 +271,7 @@ and /// Information of Within Job cluster information.
                 ms.WriteVInt32( int NodeWithInJobType.NonExist )
             else
                 nodeInfo.Pack( ms ) 
-    static member Unpack( ms:MemStream ) =
+    static member Unpack( ms:StreamBase<byte> ) =
         let x = ClusterJobInfo( null, DateTime.MinValue, 0 ) 
         x.Name <- ms.ReadString() 
         x.Version <- DateTime( ms.ReadInt64() ) 
@@ -335,11 +335,13 @@ and /// Information of Within Job cluster information.
                         match ndInfo.NodeType with 
                         | NodeWithInJobType.TCPOnly -> 
                             Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Attempt to connect to %s:%d as peer %d" x.LinkedCluster.Nodes.[peeri].MachineName ndInfo.ListeningPort peeri ))
-                            Cluster.Connects.AddConnect( x.LinkedCluster.Nodes.[peeri].MachineName, ndInfo.ListeningPort )
+                            //Cluster.Connects.AddConnect( x.LinkedCluster.Nodes.[peeri].MachineName, ndInfo.ListeningPort )
+                            //for azure cluster
+                            Cluster.Connects.AddConnect(  IPAddress(x.LinkedCluster.Nodes.[peeri].InternalIPAddress.[0]), ndInfo.ListeningPort )
                         | _ -> 
                             Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer, in cluster %s:%s, unknown node type %A for peer %d to connect to" 
                                             x.LinkedCluster.Name x.LinkedCluster.VersionString ndInfo.NodeType peeri )
-                    queue.GetOrAddRecvProc ("ClusterParseHost", Cluster.ParseHostCommand queue peeri) |> ignore
+                    queue.AddRecvProc (Cluster.ParseHostCommand queue peeri) |> ignore
                     queue.OnConnect.Add( fun _ -> let ms = new MemStream(1024)
                                                   ms.WriteString( x.LinkedCluster.Name )
                                                   ms.WriteInt64( x.LinkedCluster.Version.Ticks )
@@ -560,7 +562,7 @@ and /// Dependency of PrajnaObject to construct link between DSet
         else
             (sprintf "%s (%s)" x.Target.Name (x.ParamType.ToString()))
 
-    static member Pack( depDObjectArray:DependentDObject[], ms:MemStream ) =
+    static member Pack( depDObjectArray:DependentDObject[], ms:StreamBase<byte> ) =
         let len = depDObjectArray.Length
         ms.WriteVInt32( len )
         if len > 0 then 
@@ -572,7 +574,7 @@ and /// Dependency of PrajnaObject to construct link between DSet
                     // Maybe OK (execution graph which has dangling edges. 
                     Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Caution (maybe OK) Encode dependency %A %s:%s before it has been precoded" dep.ParamType dep.Target.Name dep.Target.VersionString ))
                     ()
-    static member Unpack( ms: MemStream ) = 
+    static member Unpack( ms: StreamBase<byte> ) = 
         let len = ms.ReadVInt32() 
         if len > 0 then 
             let depDObjectArray = Array.zeroCreate<_> len
@@ -787,7 +789,7 @@ and [<AllowNullLiteral>]
             x.Mapping <- dobj.Mapping
             x.NumReplications <- dobj.NumReplications
 
-    member internal x.PackBase( ms: MemStream ) = 
+    member internal x.PackBase( ms: StreamBase<byte> ) = 
         /// Only take input of HasPassword flag, other flag is igonored. 
         let ticks = x.Cluster.Version.Ticks
         ms.WriteString( x.Cluster.Name )
@@ -820,7 +822,7 @@ and [<AllowNullLiteral>]
         dobj.UnpackHead( readStream )
         readStream.Seek( orgpos, SeekOrigin.Begin ) |> ignore
         dobj.Name, dobj.Version.Ticks
-    member internal x.UnpackHead( readStream:MemStream ) = 
+    member internal x.UnpackHead( readStream:StreamBase<byte> ) = 
         let clname = readStream.ReadString()
         let clVerNumber = readStream.ReadInt64()
 //        let verCluster = DateTime( ticks )
@@ -844,7 +846,7 @@ and [<AllowNullLiteral>]
         x.SendingQueueLimit <- sendingQueueLimit
         x.MaxDownStreamAsyncTasks <- maxAsncQueue
         x.MaxCollectionTaskTimeout <- maxCollectionTaskTimeout
-    member internal x.UnpackBase( readStream:MemStream ) = 
+    member internal x.UnpackBase( readStream:StreamBase<byte> ) = 
         x.UnpackHead( readStream )
         let numPartitions = readStream.ReadVInt32()
         x.NumPartitions <- Math.Abs( numPartitions )
@@ -869,7 +871,7 @@ and [<AllowNullLiteral>]
             /// Undetermined mapping, the mapping should be resolved when x.GetMapping() is called. 
             x.Mapping <- null
             x.bEncodeMapping <- false
-    member internal x.PeekBase( readStream:MemStream ) = 
+    member internal x.PeekBase( readStream:StreamBase<byte> ) = 
         let pos = readStream.Position
         x.UnpackBase( readStream ) 
         readStream.Seek( pos, SeekOrigin.Begin )  |> ignore  
@@ -1189,7 +1191,7 @@ type internal GVSerialize<'K>( ) =
     inherit GVSerialize( 
         let wrapperFunc (ms:MemStream) (O1:Object) =
             let state1 = O1 :?> 'K
-            ms.SerializeFrom( state1 )
+            Strm.SerializeFrom( ms, state1 )
             ms
         wrapperFunc )
 

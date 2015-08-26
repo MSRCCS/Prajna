@@ -174,8 +174,10 @@ type DeploymentSettings() =
     static member internal  ClusterLstName( name, cur ) = name  + ".lst"
     /// remove inactive DSet Peer after 600 seconds 
     static member val internal DSetPeerTimeout = 600 with get, set
+    static member val internal ClientIP = "" with get, set
     static member val internal ClientPort = 1082 with get, set
     /// Port range for JobPort
+    static member val internal JobIP = "" with get, set
     static member val internal JobPortMin = 1100 with get, set
     static member val internal JobPortMax = 1150 with get, set
     //500ms: 10GB*0.5/8
@@ -213,10 +215,10 @@ type DeploymentSettings() =
     /// ReSerialization For Cache
     static member val internal DefaultCacheSerializationLimit = 1 with get, set
     /// ReSerialization For Cache
-    static member val internal DefaultIOMaxQueue = 10 with get, set
+    static member val internal DefaultIOMaxQueue = 100 with get, set
     /// ReSerialization For Cache
-    static member val internal DefaultIOQueueReadUnblocking = 5 with get, set
-    static member val internal DefaultIOQueueWriteUnblocking = 5 with get, set
+    static member val internal DefaultIOQueueReadUnblocking = 1 with get, set
+    static member val internal DefaultIOQueueWriteUnblocking = 50 with get, set
     /// Track seen partitions
     static member val internal TrackSeenKeyValue = false with get, set
     /// Save Initial Metadata?
@@ -252,7 +254,7 @@ type DeploymentSettings() =
     /// Maximum combined buffer devoted to sending queue (in bytes) 
     static member val MaxSendingQueueLimit = 1024 * 1024 * 50 with get, set
     /// Maximum network stack memory (total across all connections), 0 means unbounded (in bytes)
-    static member val MaxNetworkStackMemory = 1024 * 1024 * 1024
+    static member val MaxNetworkStackMemory = 1024 * 1024 * 1024 * 4
     /// Maximum network stack memory (total across all connections) as percentage of total (as percent)
     static member val MaxNetworkStackMemoryPercentage = 0.1
     /// Number of threads for network processing
@@ -345,7 +347,7 @@ type DeploymentSettings() =
     /// Monitor Interval for StandardError 
     static member val internal StandardOutputMonitorIntervalInMs = 1000 with get, set
     /// Monitor Interval for Network Status
-    static member val internal NetworkActivityMonitorIntervalInMs = 60000L with get, set
+    static member val internal NetworkActivityMonitorIntervalInMs = 120000L with get, set
 
     /// Warning on long blocking send socket (in milliseconds)
     static member val internal WarningLongBlockingSendSocketInMilliseconds = 100. with get, set

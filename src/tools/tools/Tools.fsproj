@@ -30,7 +30,7 @@
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="utils.fs" />
     <Compile Include="interops.fs" />
-    <Compile Include="mem.fs" />
+    <Compile Include="Math.fs" />
     <Compile Include="StringTools.fs" />
     <Compile Include="bytes.fs" />
     <Compile Include="file.fs" />
@@ -38,12 +38,13 @@
     <Compile Include="LoggerFSharp.fs" />
     <Compile Include="LoggerCSharp.fs" />
     <Compile Include="process.fs" />
+    <Compile Include="serialize.fs" />
+    <Compile Include="resizequeue.fs" />
+    <Compile Include="bufferliststream.fs" />
+    <Compile Include="mem.fs" />
     <Compile Include="ArgumentParser.fs" />
-    <Compile Include="Math.fs" />
     <Compile Include="ReflectionTools.fs" />
     <Compile Include="HttpBuilder.fs" />
-    <Compile Include="resizequeue.fs" />
-    <Compile Include="serialize.fs" />
     <Compile Include="dns.fs" />
     <Compile Include="basenetwork.fs" />
     <Compile Include="genericnetwork.fs" />

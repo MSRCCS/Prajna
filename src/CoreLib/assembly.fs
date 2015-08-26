@@ -226,6 +226,8 @@ and [<AllowNullLiteral>]
             use ms = new MemStream() 
             x.Pack( ms )  
             x.Hash <- HashByteArrayWithLength( ms.GetBufferPosLength()  )
+            let (ms, pos, len) = ms.GetBufferPosLength()
+            x.Hash <- ms.ComputeSHA256(int64 pos, int64 len)
             Logger.LogF( LogLevel.WildVerbose, ( fun _ ->  let fileinfo = System.IO.FileInfo( x.Location ) 
                                                            sprintf "Pack assembly %s with file %s (%A:%dB) Hash=%s"
                                                                    x.Name x.Location
@@ -233,7 +235,7 @@ and [<AllowNullLiteral>]
                                                                    (BytesToHex( x.Hash ))
                                                                    ))
     /// Pack assembly to stream 
-    member x.Pack( ms:MemStream ) = 
+    member x.Pack( ms:StreamBase<byte> ) = 
 //        ms.WriteVInt32( int x.TypeOf )            
 //        ms.WriteString( x.Name )
 //        ms.WriteString( x.FullName )
@@ -309,7 +311,7 @@ and [<AllowNullLiteral>]
         | _ ->
             null
     /// Unpack assembly from stream 
-    member x.Unpack( ms:MemStream ) = 
+    member x.Unpack( ms:StreamBase<byte> ) = 
         let typeOf = x.TypeOf &&& AssemblyKind.MaskForFileType
         match typeOf with 
         | AssemblyKind.File ->

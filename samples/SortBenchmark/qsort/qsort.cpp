@@ -187,7 +187,7 @@ void getBinSize(char * buf, int len, int dim, int binNum, int * boundary, int * 
 
 
 extern "C" __declspec(dllexport)
-void stdsort(void* buf, int len, int dim, void * obuf)
+void stdsort(void* buf, int len, int dim)
 {
 	//char ** pointer = new char *[len];
 

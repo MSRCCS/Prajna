@@ -166,7 +166,7 @@ and [<AllowNullLiteral>]
         x.Dependency <- PassFrom ( DependentDStream( ds ) )
         ds.DependencyDownstream <- PassTo( DependentDStream( x ) ) 
     /// Serialization of DStream metadata to Memory Stream. 
-    member internal x.Pack( ms: MemStream, ?flagPack ) = 
+    member internal x.Pack( ms: StreamBase<byte>, ?flagPack ) = 
         let mutable flag = defaultArg flagPack DStreamMetadataStorageFlag.None
         // Only take input of HasPassword flag, other flag is igonored. 
         x.PackBase( ms ) 
@@ -197,7 +197,7 @@ and [<AllowNullLiteral>]
     member private x.PrecodeDependentObjsImpl() =
         let _, dobjs = x.UpStreamDependentObjs()
         dobjs 
-    member internal x.DecodeUpStreamDependency( ms:MemStream ) = 
+    member internal x.DecodeUpStreamDependency( ms:StreamBase<byte> ) = 
         let dependencyCode = ms.ReadVInt32()
         let depDObjectArray = DependentDObject.Unpack( ms )
         match dependencyCode with 
@@ -217,7 +217,7 @@ and [<AllowNullLiteral>]
             let msg = sprintf "Fail in DSet.DecodeUpStreamDependency, unsupported dependency code %d " dependencyCode
             Logger.Log( LogLevel.Error, msg )
             failwith msg
-    member internal x.EncodeDownStreamDependency( ms : MemStream ) =
+    member internal x.EncodeDownStreamDependency( ms : StreamBase<byte> ) =
         let dependencyCode, depObjects = x.DownStreamDependentObjs()
         let depDSetArray = depObjects |> Seq.toArray
         ms.WriteVInt32( dependencyCode )
@@ -235,7 +235,7 @@ and [<AllowNullLiteral>]
                 3, Seq.singleton( childStream :> DependentDObject )
             | MulticastToNetwork childStream -> 
                 4, Seq.singleton( childStream :> DependentDObject )
-    member internal x.DecodeDownStreamDepedency( ms:MemStream ) = 
+    member internal x.DecodeDownStreamDepedency( ms:StreamBase<byte> ) = 
         let dependencyCode = ms.ReadVInt32()
         let depDObjectArray = DependentDObject.Unpack( ms )
         match dependencyCode with 
@@ -292,15 +292,16 @@ and [<AllowNullLiteral>]
         sprintf "%s %s" DStream.DownStreamInfo.[code_downstream] 
             ( objs_downstream |> Seq.map ( fun o -> o.Target.Name ) |> String.concat "," )
     /// Deserialization of DStream 
-    static member internal Unpack( readStream: MemStream, bUnpackFunc ) = 
+    static member internal Unpack( readStream: StreamBase<byte>, bUnpackFunc ) = 
         let curStream = DStream()
-        let buf = readStream.GetBuffer()
+        //let buf = readStream.GetBuffer()
         let startpos = readStream.Position
         curStream.UnpackBase( readStream ) 
         curStream.DecodeUpStreamDependency( readStream ) 
         let endpos = readStream.Position
         // Recover hash
-        curStream.Hash <- HashByteArrayWithLength( buf, int startpos, int (endpos-startpos) )
+        curStream.Hash <- readStream.ComputeSHA256(startpos, endpos-startpos)
+        //curStream.Hash <- HashByteArrayWithLength( buf, int startpos, int (endpos-startpos) )
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Decode DStream %s:%s, Hash = %s" curStream.Name curStream.VersionString (BytesToHex(curStream.Hash)) ))
         curStream.DecodeDownStreamDepedency( readStream ) 
         curStream.bValidMetadata <- true
@@ -380,11 +381,11 @@ and [<AllowNullLiteral>]
     /// Get the buffer of write object 
     member internal x.GetWriteBufferAndPos  (writeObj:Object) = 
         match writeObj with 
-        | :? MemStream as ms -> 
+        | :? StreamBase<byte> as ms -> 
             if ms.Position=ms.Length then
-                ms.GetBuffer(), 0, int ms.Length
+                ms, 0, int ms.Length
             else
-                ms.GetBuffer(), int ms.Position, int (ms.Length-ms.Position)
+                ms, int ms.Position, int (ms.Length-ms.Position)
         | _ -> 
             let msg = sprintf "DStream.SyncWriteChunk has received an unsupported object with type %A" writeObj
             Logger.Log( LogLevel.Error, msg )
@@ -410,7 +411,7 @@ and [<AllowNullLiteral>]
         tdes.Key <- trucHash
         tdes
     /// If password is not null, apply encryption 
-    member internal x.EncryptBuffer parti (password:string) (bufRcvd:byte[]) curBufPos (bufRcvdLen:int) = 
+    member internal x.EncryptBuffer parti (password:string) (msRcvd:StreamBase<byte>) curBufPos (bufRcvdLen:int) = 
         if Utils.IsNotNull password && password.Length>0 then 
             // Encryption content when save to disk
             let tdes = x.GetTDesAlg parti
@@ -418,21 +419,22 @@ and [<AllowNullLiteral>]
             let msCrypt = new MemStream( bufRcvdLen )
             let cStream = new CryptoStream( msCrypt, tdes.CreateEncryptor(tdes.Key,tdes.IV), CryptoStreamMode.Write)
             let sWriter = new BinaryWriter( cStream ) 
-            sWriter.Write( bufRcvd, curBufPos, (bufRcvdLen - curBufPos) )
+            sWriter.Write( msRcvd.GetBuffer(), curBufPos, (bufRcvdLen - curBufPos) )
             sWriter.Close()
             cStream.Close()
-            ( msCrypt.GetBuffer(), 0, int msCrypt.Length )
+            msRcvd.DecRef()
+            ( msCrypt :> StreamBase<byte>, 0, int msCrypt.Length )
         else
-            ( bufRcvd, curBufPos, bufRcvdLen )    
+            ( msRcvd, curBufPos, bufRcvdLen )    
     // Need to be multithread safe, as it may be called by more than one thread. 
     member internal x.SyncWriteChunk (jbInfo:JobInformation) parti meta writeObj = 
         let lock = x.SyncWriteLocks.GetOrAdd( parti, fun _ -> SpinLockSlim(true))
         try
             lock.Enter()
             if Utils.IsNotNull writeObj then 
-                let bufRcvd, curBufPos, bufRcvdLen = x.GetWriteBufferAndPos( writeObj )
+                let msRcvd, curBufPos, bufRcvdLen = x.GetWriteBufferAndPos( writeObj )
                 let streamPartWrite = x.PartitionStreamForWrite( parti ) 
-                let writeBuf, writepos, writecount = x.EncryptBuffer parti x.Password bufRcvd curBufPos bufRcvdLen
+                let writeMs, writepos, writecount = x.EncryptBuffer parti x.Password msRcvd curBufPos bufRcvdLen
 
                 // Each blob is a certain # of key/value pairs (serialized), and written to stream with the following format:
                 //  4B length information. ( Position: there is no hash, negative: there is hash )
@@ -443,14 +445,16 @@ and [<AllowNullLiteral>]
                 let resHash = 
                     if x.ConfirmDelivery then 
                         let hash = x.GetHashProvider( parti) 
-                        hash.ComputeHash( writeBuf, writepos, writecount )
+                        writeMs.ComputeHash(hash, int64 writepos, int64 writecount)
+                        //hash.ComputeHash( writeBuf, writepos, writecount )
                     else
                         null
                 // JINL, WriteDSet Note, Notice the writeout logic, in which how additional hash are coded. 
                 let writeLen = if x.ConfirmDelivery then writecount + resHash.Length else writecount
                 let outputLen = if  x.ConfirmDelivery then -writeLen else writeLen
                 streamPartWrite.Write( BitConverter.GetBytes( outputLen ), 0, 4 )
-                streamPartWrite.Write( writeBuf, writepos, writecount )
+                //streamPartWrite.Write( writeBuf, writepos, writecount )
+                writeMs.ReadToStream(streamPartWrite, int64 writepos, int64 writecount)
                 if x.ConfirmDelivery then 
                     streamPartWrite.Write( resHash, 0, resHash.Length )
                 Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Write out to stream %s:%s parti %d a blob of %dB %s" x.Name x.VersionString parti outputLen (meta.ToString()) ))
@@ -527,7 +531,7 @@ and [<AllowNullLiteral>]
     /// Return: 
     ///     false: blocking, need to resend the command at a later time
     ///     true: command processed. 
-    member internal x.ProcessJobCommand( queuePeer:NetworkCommandQueue, cmd:ControllerCommand, ms:MemStream ) = 
+    member internal x.ProcessJobCommand( queuePeer:NetworkCommandQueue, cmd:ControllerCommand, ms:StreamBase<byte> ) = 
         let peeri = x.Cluster.SearchForEndPoint( queuePeer )
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ProcessJobCommand, Map %A to peer %d" queuePeer.RemoteEndPoint peeri ))
         try
@@ -539,11 +543,16 @@ and [<AllowNullLiteral>]
                 let meta = BlobMetadata.Unpack( ms )
                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd %A command %A from peer %d with %dB" (meta.ToString()) cmd peeri (ms.Length-ms.Position) ))
                 let bRet = x.SyncReceiveFromPeer meta ms peeri 
-                if bRet then 
+//                let ev = new ManualResetEvent(false)
+//                ev.Reset() |> ignore
+//                ev.WaitOne() |> ignore
+                if bRet && (DateTime.UtcNow - queuePeer.LastSendTicks).TotalMilliseconds > 5000. then 
+//                if bRet then 
                     let msEcho = new MemStream( 128 )
                     msEcho.WriteString( x.Name )
                     msEcho.WriteInt64( x.Version.Ticks )
-                    queuePeer.ToSend( ControllerCommand( ControllerVerb.Echo, ControllerNoun.DStream ), msEcho )
+                    queuePeer.ToSendNonBlock( ControllerCommand( ControllerVerb.Echo, ControllerNoun.DStream ), msEcho )
+                    msEcho.DecRef()
                 bRet 
             | ( ControllerVerb.SyncClosePartition, ControllerNoun.DStream ) ->
                 let meta = BlobMetadata.Unpack( ms )
@@ -553,7 +562,8 @@ and [<AllowNullLiteral>]
                     let msEcho = new MemStream( 128 )
                     msEcho.WriteString( x.Name )
                     msEcho.WriteInt64( x.Version.Ticks )
-                    queuePeer.ToSend( ControllerCommand( ControllerVerb.ConfirmClosePartition, ControllerNoun.DStream ), msEcho )
+                    queuePeer.ToSendNonBlock( ControllerCommand( ControllerVerb.ConfirmClosePartition, ControllerNoun.DStream ), msEcho )
+                    msEcho.DecRef()
                 bRet 
             | ( ControllerVerb.SyncClose, ControllerNoun.DStream ) ->
                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd command %A from peer %d" cmd peeri ))
@@ -731,22 +741,26 @@ and [<AllowNullLiteral>]
         meta.Pack( metaStream ) 
         if Utils.IsNotNull streamObject then 
             match streamObject with 
-            | :? MemStream as ms -> 
-                let msSend = ms.InsertBefore( metaStream )
+            | :? StreamBase<byte> as ms -> 
+                ms.InsertBefore( metaStream ) |> ignore
+                let msSend = metaStream
                 ControllerCommand( ControllerVerb.Write, ControllerNoun.DStream), msSend 
             | _ -> 
                 Logger.Fail( sprintf "DStream.AsyncPackageToSend, object pushed is of unknonw type %A, %A" (streamObject.GetType()) streamObject )
         else
             ControllerCommand( ControllerVerb.ClosePartition, ControllerNoun.DStream), metaStream 
     member internal x.SyncPackageToSend (meta:BlobMetadata) (streamObject:Object) = 
-        let metaStream = new MemStream( 128 ) 
+        //let metaStream = new MemStream( 128 ) 
+        let metaStream = new MemoryStreamB()
         metaStream.WriteString( x.Name )
         metaStream.WriteInt64( x.Version.Ticks ) 
         meta.Pack( metaStream ) 
         if Utils.IsNotNull streamObject then 
             match streamObject with 
-            | :? MemStream as ms -> 
-                let msSend = ms.InsertBefore( metaStream )
+            | :? StreamBase<byte> as ms -> 
+                ms.InsertBefore( metaStream ) |> ignore
+                let msSend = metaStream
+                ms.DecRef() // done with this now, metaStream contains 
                 ControllerCommand( ControllerVerb.SyncWrite, ControllerNoun.DStream), msSend 
             | _ -> 
                 Logger.Fail( sprintf "DStream.SyncPackageToSend, object pushed is of unknonw type %A, %A" (streamObject.GetType()) streamObject )
@@ -824,7 +838,7 @@ and [<AllowNullLiteral>]
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Peer CanFlush status %A, peers that rcvd SyncClose %A" bShowAllPeerClosed peerCloseStatus ))
             bAllPeerClosed          
                 // A match statement is used as there is some stream which do not flush parti when a final object is encountered. 
-    member internal x.SyncReceiveFromPeer (meta:BlobMetadata) (ms:MemStream) peeri =
+    member internal x.SyncReceiveFromPeer (meta:BlobMetadata) (ms:StreamBase<byte>) peeri =
         if not (Utils.IsNull ms) then 
             if x.bRcvdPeerCloseCalled.[peeri] then 
                 Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "SyncRcvd %A from peer %d but (SyncClose, DStream) has already been received" (meta.ToString()) peeri ))
@@ -875,20 +889,24 @@ and [<AllowNullLiteral>]
                 let cmd, ms = x.SyncPackageToSend meta streamObject
 
                 while not (!bSend) && peerQueue.CanSend do 
-                    if Interlocked.CompareExchange (peerQueue.flowcontrol_lock,1,0) = 0 then
-                        //#tag: disable flowcontrol
-                        // JinL: 06/19/2015, leave flow control to the network layer. 
-                        let bCansend = peerQueue.CanSend && 
-                                         ( 
-                                            (int64(x.SendingQueueLimit) > peerQueue.UnProcessedCmdInBytes + ms.Length)  ||
-                                            ( peerQueue.UnProcessedCmdInBytes = 0L && (int64(x.SendingQueueLimit) < ms.Length  )  ) // to send huge command
-                                         ) 
-                        //let bCansend = peerQueue.CanSend 
+//                    if Interlocked.CompareExchange (peerQueue.flowcontrol_lock,1,0) = 0 then
+////                        #tag: disable flowcontrol
+////                         JinL: 06/19/2015, leave flow control to the network layer. 
+//                        let bCansend = peerQueue.CanSend && 
+//                                         ( 
+//                                            (int64(x.SendingQueueLimit) > peerQueue.UnProcessedCmdInBytes + ms.Length)  ||
+//                                            ( peerQueue.UnProcessedCmdInBytes = 0L && (int64(x.SendingQueueLimit) < ms.Length  )  ) // to send huge command
+//                                         ) 
+                        let bCansend = peerQueue.CanSend 
 
                         x.MonitorSendPeerStatus peeri peerQueue bCansend
                         if ( bCansend || (peerQueue.CanSend && bForceSend) ) then 
-                            
+//                            Logger.LogF(LogLevel.MildVerbose, (fun _ -> 
+//                                let qq = peerQueue.CompSend.Q :?> OneNet.Tools.Queue.FixedSizeQ<NetworkCommand>
+//                                sprintf "QSize current: %d max: %d" qq.CurrentSize qq.MaxSize
+//                            ))
                             peerQueue.ToSend( cmd, ms )
+                            ms.DecRef()
                             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Send %A command %A to peer %d with %dB" (meta.ToString()) cmd peeri ms.Length ))
                             bSend := true
                         else
@@ -901,13 +919,11 @@ and [<AllowNullLiteral>]
                             let blockedTime = ( (PerfADateTime.UtcNow()).Subtract(!peerQueue.flowcontrol_lastack) ).TotalMilliseconds
                             if blockedTime >= 1000. && peerQueue.CanSend &&  peerQueue.RcvdCommandSerial <> !peerQueue.flowcontrol_lastRcvdCommandSerial then
                                 Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Send cmd to peer %s has been blocked for %f ms, send an unknown cmd to prevent deadlock, lastRcvdCommandSerial: %d, peerQueue.RcvdCommandSerial: %d" (LocalDNS.GetShowInfo(peerQueue.RemoteEndPoint)) blockedTime !peerQueue.flowcontrol_lastRcvdCommandSerial peerQueue.RcvdCommandSerial))
-                                peerQueue.ToSend( new ControllerCommand(ControllerVerb.Unknown,ControllerNoun.Unknown), new MemStream(2) )
+                                peerQueue.ToSend( new ControllerCommand(ControllerVerb.Unknown,ControllerNoun.Unknown), new MemoryStreamB() )
                                 //bForceSend <- true
                                 peerQueue.flowcontrol_lastack := (PerfADateTime.UtcNow())
                                 peerQueue.flowcontrol_lastRcvdCommandSerial := peerQueue.RcvdCommandSerial
                         peerQueue.flowcontrol_lock := 0
-                                   
-
             else
                 Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Send %A to peer %d will be discarded as no valid outgoing peer is present ........ " (meta.ToString()) peeri ))
                 // Is this the first time that the peer shuts down? 
@@ -949,7 +965,7 @@ and [<AllowNullLiteral>]
                 if peeri = x.CurPeerIndex then 
                     // Write to local. 
                     // We expect that the object is converted to memstream beforehand. 
-                    let ms = if Utils.IsNull o then null else o :?> MemStream
+                    let ms = if Utils.IsNull o then null else o :?> StreamBase<byte>
                     x.SyncPreWrite jbInfo parti meta ms
                     if Utils.IsNull o then 
                         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DStream SinkStream %s:%s, reach end of SyncExecuteDownstream for parti %d with null object" x.Name x.VersionString parti ))
@@ -966,7 +982,7 @@ and [<AllowNullLiteral>]
             let peeri = curmapping.[parti]
             if peeri = childStream.CurPeerIndex then 
                 // Write to local. 
-                let ms = o :?> MemStream
+                let ms = o :?> StreamBase<byte>
                 // Start execution engine
                 childStream.SyncReceiveFromPeer meta ms peeri |> ignore
                 if Utils.IsNull o then 
@@ -985,7 +1001,7 @@ and [<AllowNullLiteral>]
             for peeri in peers do 
                 if peeri = childStream.CurPeerIndex then 
                     // Write to local. 
-                    let ms = o :?> MemStream
+                    let ms = o :?> StreamBase<byte>
                     // Start execution engine
                     childStream.SyncReceiveFromPeer meta ms peeri |> ignore
                     if Utils.IsNull o then 
@@ -1034,7 +1050,7 @@ and [<AllowNullLiteral>]
 //            | SinkStream -> 
 //                true
     /// Process feedback of the outgoing command. 
-    member internal x.ProcessCallback( cmd:ControllerCommand, peeri:int, ms:MemStream ) =
+    member internal x.ProcessCallback( cmd:ControllerCommand, peeri:int, ms:StreamBase<byte> ) =
         try
             let queue = x.Cluster.Queue( peeri )
             match ( cmd.Verb, cmd.Noun ) with 

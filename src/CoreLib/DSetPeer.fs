@@ -102,7 +102,7 @@ and [<AllowNullLiteral>]
     // Partition
     // Serial 
     // numElems. 
-    let mutable peerReplicationItems = List<MemStream*int*List<int>*int64 ref*int*int64*int>()
+    let mutable peerReplicationItems = List<StreamBase<byte>*int*List<int>*int64 ref*int*int64*int>()
     let mutable maxEndReplicationWait = Int64.MaxValue
     // JinL: this class is used when PrajnaNode actively replicate content, 
     // This path is not in current use. 
@@ -227,7 +227,7 @@ and [<AllowNullLiteral>]
     /// A copy of input stream ms is made so that if the deserialization is unsuccessful with some missing argument, the missing argument be requested from communication partner. 
     /// After that, the ms stream can be attempted to be unpacked again. 
     /// Rewritten to use the DSet.Unpack
-    static member Unpack( readStream: MemStream, bIncludeSavePassword, hostQueue ) = 
+    static member Unpack( readStream: StreamBase<byte>, bIncludeSavePassword, hostQueue ) = 
         let sendStream = new MemStream( 1024 )
         try 
             // Source DSet ( used by DSetPeer ), always do not instantiate function. 
@@ -412,7 +412,7 @@ and [<AllowNullLiteral>]
             let file = x.StorageProvider.Choose( x.ConstructDSetPath(), x.MetaDataName() )
             x.SaveToMetaData( file, DSetMetadataStorageFlag.None )
         
-    member x.WriteDSet( ms: MemStream, queue:NetworkCommandQueue, bReplicateWrite ) =
+    member x.WriteDSet( ms: StreamBase<byte>, queue:NetworkCommandQueue, bReplicateWrite ) =
         let msSend = new MemStream( 1024 )
         let retCmd = ControllerCommand( ControllerVerb.EchoReturn, ControllerNoun.DSet )
         msSend.WriteString( x.Name )
@@ -426,7 +426,7 @@ and [<AllowNullLiteral>]
             if x.ReadyStoreStreamArray() then 
                 x.WriteDSetMetadata()
             // Get a copy of the message, before it is parsed. If we need to forward the message, we have the pointer. 
-            let bufRcvd = ms.GetBuffer()
+            //let bufRcvd = ms.GetBuffer()
             let bufPos = int ms.Position
             let bufRcvdLen = int ms.Length
             // Recover the parti <partition> written out at DSet.Store
@@ -484,7 +484,7 @@ and [<AllowNullLiteral>]
                     //  4B length information. ( Position: there is no hash, negative: there is hash )
                     //  Stream to write
                     //  optional: hash of the written stream (if x.CurDSet.ConfirmDelivery is true )
-                    let writeBuf, writepos, writecount = 
+                    let writeMs, writepos, writecount = 
                         if Utils.IsNotNull x.Password && x.Password.Length>0 then 
                             // Encryption content when save to disk
                             let tdes = x.GetTDesAlg parti
@@ -499,23 +499,25 @@ and [<AllowNullLiteral>]
                             let msCrypt = new MemStream( bufRcvdLen )
                             let cStream = new CryptoStream( msCrypt, tdes.CreateEncryptor(tdes.Key,tdes.IV), CryptoStreamMode.Write)
                             let sWriter = new BinaryWriter( cStream ) 
-                            sWriter.Write( bufRcvd, curBufPos, (bufRcvdLen - curBufPos) )
+                            sWriter.Write( ms.GetBuffer(), curBufPos, (bufRcvdLen - curBufPos) )
                             sWriter.Close()
                             cStream.Close()
-                            ( msCrypt.GetBuffer(), 0, int msCrypt.Length )
+                            ( msCrypt :> StreamBase<byte>, 0, int msCrypt.Length )
                         else
-                            ( bufRcvd, curBufPos, bufRcvdLen - curBufPos )
+                            ( ms, curBufPos, bufRcvdLen - curBufPos )
                     // Calculate hash of the message, if ConfirmDelivery = true
                     let resHash = 
                         if x.ConfirmDelivery then 
-                            x.GetHashProvider( parti ).ComputeHash( writeBuf, writepos, writecount )
+                            //x.GetHashProvider( parti ).ComputeHash( writeBuf, writepos, writecount )
+                            writeMs.ComputeHash(x.GetHashProvider(parti), int64 writepos, int64 writecount)
                         else
                             null
                     // JINL, WriteDSet Note, Notice the writeout logic, in which how additional hash are coded. 
                     let writeLen = if x.ConfirmDelivery then writecount + resHash.Length else writecount
                     let outputLen = if  x.ConfirmDelivery then -writeLen else writeLen
                     streamPartWrite.Write( BitConverter.GetBytes( outputLen ), 0, 4 )
-                    streamPartWrite.Write( writeBuf, writepos, writecount )
+                    //streamPartWrite.Write( writeBuf, writepos, writecount )
+                    writeMs.ReadToStream(streamPartWrite, int64 writepos, int64 writecount)
                     // Written confirmation
                     Logger.Log( LogLevel.MediumVerbose, ( sprintf "Write DSet partition %d, serial %d:%d (rep:%A)" parti serial numElems bReplicateWrite))
                     if x.ConfirmDelivery then 
@@ -607,7 +609,7 @@ and [<AllowNullLiteral>]
             x.CloseStorageProvider()
         bActivePartitions
     /// EndPartition: mark the end of partition i. 
-    member x.EndPartition( ms: MemStream, queue:NetworkCommandQueue, parti, callback ) =
+    member x.EndPartition( ms: StreamBase<byte>, queue:NetworkCommandQueue, parti, callback ) =
 //        Logger.LogF( LogLevel.WildVerbose,  fun _ -> sprintf "Receiving End, Partition on partition %d to peer %s" parti (LocalDNS.GetShowInfo( queue.RemoteEndPoint) ) )
         let msSend = new MemStream( 1024 )
         let retCmd = ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet )
@@ -639,7 +641,7 @@ and [<AllowNullLiteral>]
     /// bReplicate = true,  ReplicateClose, DSet is called (from other peer)
     ///            = false, Close, DSet is called (from host) 
     /// no need to further call to ReplicateClose. 
-    member x.CloseDSet( ms: MemStream, queue:NetworkCommandQueue, bReplicate, callback ) =
+    member x.CloseDSet( ms: StreamBase<byte>, queue:NetworkCommandQueue, bReplicate, callback ) =
         let msSend = new MemStream( 1024 )
         let retCmd = ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet )
         msSend.WriteString( x.Name )
@@ -750,13 +752,15 @@ and [<AllowNullLiteral>]
             Logger.LogF( LogLevel.ExtremeVerbose, extremeTrack )
         ()
     // Replicating ms Stream, with start position bufPos to the replicating peers. 
-    member x.ReplicateDSet( ms: MemStream, bufPos  ) = 
-        let bufRcvd = ms.GetBuffer()
-        let bufRcvdLen = int ms.Length
-        let curPos = int ms.Position
+    member x.ReplicateDSet( ms: StreamBase<byte>, bufPos  ) = 
+        //let bufRcvd = ms.GetBuffer()
+        //let bufRcvdLen = int ms.Length
+        //let curPos = int ms.Position
         // Parsing should start at the current position
         // replication need to restart from bufPos. 
-        let peekStream = new MemStream( bufRcvd, curPos, bufRcvdLen-curPos, false, true )
+        //let peekStream = new MemStream( bufRcvd, curPos, bufRcvdLen-curPos, false, true )
+        let peekStream = new MemStream()
+        peekStream.AppendNoCopy(ms, ms.Position, ms.Length-ms.Position)
         let parti = peekStream.ReadVInt32()
         let serial = peekStream.ReadInt64()
         let numElems = peekStream.ReadVInt32()
@@ -817,8 +821,8 @@ and [<AllowNullLiteral>]
                                     msg
                                 Logger.LogF( LogLevel.ExtremeVerbose, extremeTrack)
 
-                            peerQueue.ToSendAndHoldBuffer( ControllerCommand( ControllerVerb.ReplicateWrite, ControllerNoun.DSet ), 
-                                 streamToReplicate.GetBuffer(), streamPos, (int streamToReplicate.Length)-streamPos, false ) |> ignore
+                            peerQueue.ToSendFromPos( ControllerCommand( ControllerVerb.ReplicateWrite, ControllerNoun.DSet ), 
+                                 streamToReplicate, int64 streamPos )
                             peerLastActiveTime.[peeri] <- x.Clock.ElapsedTicks  
                             let msg = sprintf "Replicate partition %d, serial %d:%d to peer %d" parti serial numElems peeri
                             let msInfo = new MemStream(1024)
@@ -1025,7 +1029,7 @@ and [<AllowNullLiteral>]
             let msg = ( sprintf "Logic error, DSetPeer.EndReplicateWait receives a call with object that is not DSet peer but %A" o )    
             Logger.Log( LogLevel.Error, msg )
             failwith msg
-    member x.ReplicateDSetCallback( cmd:ControllerCommand, peeri, msRcvd:MemStream ) = 
+    member x.ReplicateDSetCallback( cmd:ControllerCommand, peeri, msRcvd:StreamBase<byte> ) = 
         try
             let q = x.Cluster.Queue( peeri )
             match ( cmd.Verb, cmd.Noun ) with 
@@ -1313,7 +1317,7 @@ and [<AllowNullLiteral>]
 
     /// Read one chunk in async work format. 
     /// Return: Async<byte[]>, if return null, then the operation reads the end of stream of partition parti. 
-    member private x.SyncReadChunkImpl jbInfo parti ( pushChunkFunc: (BlobMetadata*MemStream)->unit ) = 
+    member private x.SyncReadChunkImpl jbInfo parti ( pushChunkFunc: (BlobMetadata*StreamBase<byte>)->unit ) = 
             try 
               let nSomeError = ref 0
               if x.EmptyPartition( parti ) || jbInfo.CancellationToken.IsCancellationRequested then 

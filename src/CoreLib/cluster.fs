@@ -199,11 +199,11 @@ type internal NodeWithInJobInfo() =
                 Array.Copy( x.IPAddresses, newAddr, lenExisting ) 
             newAddr.[lenExisting] <- addr
             x.IPAddresses <- newAddr
-    static member internal DefaultContructFunc (nodeType:NodeWithInJobType, ms:MemStream ) : NodeWithInJobInfo  = 
+    static member internal DefaultContructFunc (nodeType:NodeWithInJobType, ms:StreamBase<byte> ) : NodeWithInJobInfo  = 
         null
     /// For other Node type, please extend this Construction Function
     static member val internal ConstructFunc = NodeWithInJobInfo.DefaultContructFunc with get, set
-    member x.Pack( ms:MemStream ) = 
+    member x.Pack( ms:StreamBase<byte> ) = 
         ms.WriteVInt32( int x.NodeType ) 
         match x.NodeType with 
         | NodeWithInJobType.TCPOnly -> 
@@ -214,7 +214,7 @@ type internal NodeWithInJobInfo() =
                 ms.WriteBytesWLen( x.IPAddresses.[i] )
         | _ ->
             Logger.Fail( sprintf "NodeWithInJobInfo.Pack, unsupported NodeType %A" x.NodeType ) 
-    static member Unpack( ms:MemStream ) = 
+    static member Unpack( ms:StreamBase<byte> ) = 
         let nodeType = enum<_> ( ms.ReadVInt32() )  
         match nodeType with 
         |  NodeWithInJobType.NonExist -> 
@@ -267,7 +267,7 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
         x.RecvProc <- recvProc
         x.DisconnectProc <- disconnectProc
         x.ConnectionToDaemon <- NetworkConnections.Current.AddConnect( machineName, port )
-        x.ConnectionToDaemon.GetOrAddRecvProc ( "DaemonConnect", x.RecvProc x.ConnectionToDaemon ) |> ignore
+        x.ConnectionToDaemon.AddRecvProc ( x.RecvProc x.ConnectionToDaemon ) |> ignore
         /// Timestamp refresh. 
         x.ConnectionToDaemon.OnConnect.Add( fun _ -> Logger.LogF(LogLevel.MildVerbose, ( fun _ -> let soc = x.ConnectionToDaemon.Socket
                                                                                                   sprintf "node %s:%d connected, local end point %A ..." 
@@ -281,7 +281,7 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
     member x.DaemonReconnect() = 
         /// Second time to connect 
         let newAttemptQueue = NetworkConnections.Current.AddConnect( machineName, port )
-        newAttemptQueue.GetOrAddRecvProc ( "DaemonConnect", x.RecvProc x.ConnectionToDaemon ) |> ignore
+        newAttemptQueue.AddRecvProc ( x.RecvProc x.ConnectionToDaemon ) |> ignore
         /// Timestamp refresh. 
         newAttemptQueue.OnConnect.Add( fun _ -> Logger.LogF(LogLevel.MildVerbose, ( fun _ -> sprintf "node %s:%d reconnected ..." 
                                                                                                         machineName port ))
@@ -322,12 +322,13 @@ type internal NodeConnectionFactory() =
 
 /// Manage Listening port for the job
 [<AllowNullLiteral>]
-type internal JobListeningPortManagement( minPort, maxPort ) = 
+type internal JobListeningPortManagement( jobip : string, minPort : int, maxPort :int ) = 
     static member val Current = null with get, set
-    static member Initialize( minPort, maxPort ) =
-        JobListeningPortManagement.Current <- new JobListeningPortManagement( minPort, maxPort )
+    static member Initialize( jobip, minPort, maxPort ) =
+        JobListeningPortManagement.Current <- new JobListeningPortManagement( jobip, minPort, maxPort )
         JobListeningPortManagement.Current  
     //  manage the job listening port 
+    member val JobListeningIP = jobip with get
     member val JobListeningPortMin = minPort with get
     member val JobListeningPortMax = maxPort with get
     member val JobListeningPortArray = Array.init<_> (maxPort-minPort+1) ( fun _ -> ref 0 ) with get
@@ -349,10 +350,13 @@ type internal JobListeningPortManagement( minPort, maxPort ) =
                             let usePort = i + x.JobListeningPortMin
                             try 
                                 use soc = new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
-                                soc.Bind( IPEndPoint( IPAddress.Any, usePort ) )
+                                if (x.JobListeningIP.Equals("", StringComparison.Ordinal)) then
+                                    soc.Bind( IPEndPoint( IPAddress.Any, usePort ) )
+                                else
+                                    soc.Bind(IPEndPoint(IPAddress.Parse(x.JobListeningIP), usePort))
                                 soc.Close()
                                 nPort := usePort 
-                                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Successful in reserving job port %d" usePort ))
+                                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Successful in reserving job port %d" usePort ))
                             with 
                             | e -> 
                                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Try binding to port %d failed" usePort ))
@@ -648,7 +652,7 @@ type internal NetworkCommandCallback =
     ///     Controller Command [V, N]
     ///     Peeri
     ///     Payload
-    abstract Callback : ControllerCommand * int * MemStream * string * int64 * Cluster -> bool   
+    abstract Callback : ControllerCommand * int * StreamBase<byte> * string * int64 * Cluster -> bool   
 //    abstract CallbackEx : ControllerCommand * int * MemStream * string * int64 * Object -> unit
 //    default x.CallbackEx( cmd, peeri, ms, name, verNumber, cl ) = 
 //        x.Callback( cmd, peeri, ms, name, verNumber )
@@ -1196,7 +1200,7 @@ and
                 lock ( x.Nodes.[peeri].MachineName ) ( fun _ -> 
                     x.Queues.[peeri] <- Cluster.Connects.AddConnect( x.Nodes.[peeri].MachineName, x.Nodes.[peeri].MachinePort )
                     queue := x.Queues.[peeri]
-                    (!queue).GetOrAddRecvProc ("ClusterParseHost", Cluster.ParseHostCommand (!queue) peeri) |> ignore
+                    (!queue).AddRecvProc (Cluster.ParseHostCommand (!queue) peeri) |> ignore
                     if ((!x.QueuesInitialized)=1) then
                         (!queue).Initialize() // otherwise no processing until all queues added
                 )
@@ -1312,7 +1316,7 @@ and
                 | Some (pcmd) ->
                     pendingCmd, pendingCmdTime
                 | None -> 
-                    Some(command.cmd, command.MemStream()), timeNow
+                    Some(command.cmd, command.ms), timeNow
             q.PendingCommand <- (None, timeNow)
 
             match cmdOpt with 
@@ -1393,7 +1397,7 @@ and
                         | ( ControllerVerb.Echo2, ControllerNoun.Job ) ->
                             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Echo2, Job from client"))
                         | _ -> 
-                            Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "(OK, parsed by other parser) Receive cmd %A from peer %d with payload %A, but there is no parsing logic!" cmd i (ms.GetBuffer()) ))
+                            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Receive cmd %A from peer %d with payload %A, but there is no parsing logic!" cmd i (ms.GetBuffer()) ))
                     if not bNotBlocked then 
                     // JinL: 06/24/2014
                     // Blocking, the command cannot be further processed (e.g., too many read pending, will need to block further read of the receiving queue 
@@ -1414,6 +1418,7 @@ and
                     Logger.Log( LogLevel.Info, msg )
                     let msError = new MemStream( 1024 )
                     msError.WriteString( msg )
+                    ms.DecRef()
             | None -> 
                 ()
 

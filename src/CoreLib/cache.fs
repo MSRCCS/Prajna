@@ -69,15 +69,11 @@ type BlobMetadata internal ( pti:int, serialValue:int64, numElems:int, blobLen:i
     member x.PartSerialNumElems with get() = ( x.Parti, x.Serial, x.NumElems )
     override meta.ToString() = 
         sprintf "partition:%d serial:%d numElems:%d Len:%d" meta.Parti meta.Serial meta.NumElems meta.BlobLength
-    member x.Pack( ms:MemStream ) = 
+    member x.Pack( ms:StreamBase<byte>) = 
         ms.WriteVInt32( x.Parti ) 
         ms.WriteInt64( x.Serial ) 
         ms.WriteVInt32( x.NumElems ) 
-    member x.ToMemStream() = 
-        use msWrite = new MemStream( metadataSize )
-        x.Pack( msWrite ) 
-        msWrite
-    static member Unpack( ms:MemStream ) = 
+    static member Unpack( ms:StreamBase<byte> ) = 
         let parti = ms.ReadVInt32() 
         let serial = ms.ReadInt64() 
         let numElems = ms.ReadVInt32()
@@ -118,6 +114,8 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
     member val SerializationLimit =  useLimit with get
     member val private ReadUnblockingLimit =  Math.Min( useLimit, int (DeploymentSettings.DefaultIOQueueReadUnblocking) ) with get
     member val private WriteUnblockingLimit = Math.Min( useLimit, int (DeploymentSettings.DefaultIOQueueWriteUnblocking) ) with get
+    member val SerializationLimit =  DeploymentSettings.DefaultIOMaxQueue with get
+    member val private WriteUnblockingLimit = DeploymentSettings.DefaultIOMaxQueue with get
     member val private IOQueue : ConcurrentQueue<BlobMetadata*Object> = null with get, set
     member val private IOQueueLength = ref 0 with get
     member val private bEndReached = false with get, set
@@ -158,11 +156,14 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
         // the last item enqueued. 
         x.ReadyIOQueue()
         if (!x.IOQueueLength) >= x.SerializationLimit then 
-            x.CanWrite.Reset() |> ignore 
+            
             while (!x.IOQueueLength) >= x.SerializationLimit do
-                Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Partition %d, reaches queue length %d, to block\n" x.PartitionI (!x.IOQueueLength) ))
-                x.CanRead.Set() |> ignore           
-                ThreadPoolWaitHandles.safeWaitOne( x.CanWrite ) |> ignore
+                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Partition %d, reaches queue length %d, to block\n" x.PartitionI (!x.IOQueueLength) ))
+                x.CanRead.Set() |> ignore
+                if x.CanWrite.WaitOne(0) then
+                    x.CanWrite.Reset() |> ignore 
+                else 
+                    ThreadPoolWaitHandles.safeWaitOne( x.CanWrite ) |> ignore
         x.IOQueue.Enqueue( meta, objarray )
         let cnt = Interlocked.Increment( x.IOQueueLength ) 
         Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Partition %d, add to queue (len:%d) ...  %s\n" x.PartitionI cnt (meta.ToString()) ))
@@ -171,7 +172,7 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
             x.SetLastMeta( meta )
             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Partition %d end reached %s\n" x.PartitionI (meta.ToString()) ))
             x.CanRead.Set() |> ignore
-        elif cnt >= x.WriteUnblockingLimit then 
+        elif cnt >= 2 then 
             x.CanRead.Set() |> ignore
     member x.RetrieveQueue( ) = 
         // Note: it's designed to work with a single reader, does not assume multiple concurrent readers
@@ -241,8 +242,8 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
         if bSuccess then 
             let cnt = Interlocked.Decrement( x.IOQueueLength )
             if cnt < x.WriteUnblockingLimit then 
-                if not (x.CanWrite.WaitOne(0)) then 
-                    x.CanWrite.Set() |> ignore
+            //if not (x.CanWrite.WaitOne(0)) then 
+                x.CanWrite.Set() |> ignore
             let retMeta, obj = !retVal
             let serial = !x.Serial
             x.Serial := serial + int64 retMeta.NumElems

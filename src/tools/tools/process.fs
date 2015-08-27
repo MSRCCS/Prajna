@@ -2172,16 +2172,16 @@ type internal StreamMonitor( ) =
                         Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "StreamMonitor.Close exception %A" e ))
 
 /// <summary> 
-/// ExecuteUponOnce holds a collection of delegate, each of the delegate will be garanteed to be called once when Trigger() is called. 
+/// ExecuteUponOnce holds a collection of delegate, each of the delegate will be garanteed to be called once after Trigger() is called. 
 /// </summary>
 type internal ExecuteUponOnce() =
     let nExecuted = ref 0
     member val private PendingWorks = ConcurrentQueue<UnitAction>() with get
-    /// Register a Action delegate. All registered delegates will be garanteed to be called once when Trigger() is called. 
+    /// Register a Action delegate. All registered delegates will be garanteed to be called once after Trigger() is called. 
     member x.Add(del : UnitAction) =
         x.PendingWorks.Enqueue(del)
-        if (!nExecuted)=1 then
-            x.Trigger() 
+        if Volatile.Read(nExecuted)=1 then
+            x.DoWork()
     /// Execute the registered delegates (the registration can happen before or after trigger is called). 
     member x.Trigger() = 
         // 1000000 compares int, 6ms

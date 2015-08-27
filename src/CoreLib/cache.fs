@@ -170,7 +170,7 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
         if Utils.IsNull objarray then 
             x.bEndReached <- true
             x.SetLastMeta( meta )
-            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Partition %d end reached %s\n" x.PartitionI (meta.ToString()) ))
+            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Partition %d end reached %s\n" x.PartitionI (meta.ToString()) ))
             x.CanRead.Set() |> ignore
         elif cnt >= 2 then 
             x.CanRead.Set() |> ignore
@@ -253,7 +253,7 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
         elif x.bEndReached then 
             let meta = x.LastMetadata()
             let retMeta = BlobMetadata( meta, (!x.Serial), meta.NumElems )
-            Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Partition %d, reached end %s\n" x.PartitionI (retMeta.ToString()) ))
+            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Partition %d, reached end %s\n" x.PartitionI (retMeta.ToString()) ))
             CacheDataRetrieved ( retMeta, null )
         else
             // Always unblock read when write. 
@@ -261,7 +261,7 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
             // recheck - in case other thread has added
             if (not x.IOQueue.IsEmpty) || x.bEndReached then
                 x.CanRead.Set() |> ignore
-            Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Partition %d, blocked for read .... \n" x.PartitionI ))
+            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Partition %d, blocked for read .... \n" x.PartitionI ))
             x.CanWrite.Set() |> ignore
             CacheBlocked x.CanRead
     override x.Unblock() = 

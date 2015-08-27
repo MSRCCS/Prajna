@@ -27,4 +27,7 @@
 # Use LF in the working directory by default. Override with core.autocrlf=true.
 *.cs eol=lf
 *.fs eol=lf
+*.fsx eol=lf
+*.sh eol=lf
+*.cmd eol=lf
 

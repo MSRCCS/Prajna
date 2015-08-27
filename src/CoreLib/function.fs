@@ -137,7 +137,7 @@ type internal MetaFunction() =
             let node2 = cluster.NumNodes * Math.Min ( 100, cluster.NumNodes )
             // This partition information will be propagated. 
             x.numPartitionsInternal := Math.Max( node2, nTotalCores )
-            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Use %d partitions ........... " x.NumPartitions ))
+            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Use %d partitions ........... " x.NumPartitions ))
     static member MetaString( meta:BlobMetadata ) = 
         sprintf "partition:%d serial:%d numElems:%d" meta.Parti meta.Serial meta.NumElems 
     member val PartitionMetadata = ConcurrentDictionary<_,_>() with get
@@ -735,7 +735,7 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
         let executionWaitHandle = x.ExecutionWaitHandle
         let depositEndReached = x.DepositEndReached
         if Utils.IsNull o then            
-            Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "DepositForMix: partition %i, o = null" meta.Partition)
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "DepositForMix: partition %i, o = null" meta.Partition)
             let depositAllEndReached = x.DepositAllEndReached
             if Utils.IsNull x.DepositBuffer then 
                 // Reset has been called, do nothing. 
@@ -801,7 +801,7 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
             if x.CanExecute numElemsCanExecute meta.Partition then 
                 let handle = executionWaitHandle.GetOrAdd( meta.Partition, fun _ -> new ManualResetEvent(false))
                 handle.Set() |> ignore // Unblock execution
-                Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "DepositForMix: Set handle for partition %i" meta.Partition)
+                Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "DepositForMix: Set handle for partition %i" meta.Partition)
     member internal x.NumElemsToExecute parti =
         let depositNumElems = x.DepositNumElems
         let depositEndReached = x.DepositEndReached
@@ -989,9 +989,9 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
                             // This avoids the deadlock
                             let handle = executionWaitHandle.GetOrAdd( parti, fun _ -> new ManualResetEvent(false) )
                             // block on execution
-                            Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i" parti)
+                            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i" parti)
                             ThreadPoolWaitHandles.safeWaitOne( handle, shouldReset = true ) |> ignore
-                            Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i returned" parti)
+                            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i returned" parti)
                     Seq.empty
                 else
                     Seq.empty

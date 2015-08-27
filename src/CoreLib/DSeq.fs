@@ -850,7 +850,7 @@ and [<AllowNullLiteral>]
         | _ ->
             x.SyncIterateDownstream jbInfo meta.Parti meta ms peeri
             if Utils.IsNull ms then 
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd %A, received the final object from peer %d" (meta.ToString()) peeri ))
+                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd %A, received the final object from peer %d" (meta.ToString()) peeri ))
             true
     /// Flush task 
     member internal x.SyncFlushPartitionTask (parti:int) peeri = 

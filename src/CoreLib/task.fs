@@ -265,6 +265,8 @@ and [<AllowNullLiteral>]
         member x.StartChildProcess (startInfo:ProcessStartInfo) =
             if DeploymentSettings.RunningOnMono then
                 // On Mono, start the child as a process
+                startInfo.Arguments <- " " + startInfo.FileName + " " + startInfo.Arguments
+                startInfo.FileName <- "mono"
                 Process.Start( startInfo )
             else
                 // On windows, start the child process with a job object
@@ -952,7 +954,7 @@ and [<AllowNullLiteral; Serializable>]
     member x.DSetReadAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
         let readFunc (jbInfo:JobInformation) ( meta, ms:StreamBase<byte> ) = 
             if Utils.IsNotNull ms then 
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
+                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
                 let msWire = new MemStream( int ms.Length + 1024 )
                 msWire.WriteString( dset.Name )
                 msWire.WriteInt64( dset.Version.Ticks )
@@ -1025,7 +1027,7 @@ and [<AllowNullLiteral; Serializable>]
                 if bNullObject then 
                     jbInfo.FoldState.Item( meta.Partition ) <- meta.Serial
             let t1 = PerfADateTime.UtcNow()
-            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Start readToNetworkFunci partition %d" parti))
+            Logger.LogF( LogLevel.MediumVerbose, (fun _ -> sprintf "Start readToNetworkFunci partition %d" parti))
             let ret = dset.SyncIterateProtected jbInfo parti (wrappedFunc jbInfo parti )
             Logger.LogF( LogLevel.MildVerbose, (fun _ -> 
                let t2 = PerfADateTime.UtcNow()
@@ -2598,7 +2600,7 @@ and [<AllowNullLiteral>]
     internal ContainerAppDomainInfo() =
     member val Name = "" with get, set
     member val Version = 0L with get, set  
-    member val Ticks = DateTime.MinValue.Ticks with get, set
+    member val Ticks = DateTime.MinValue.Ticks with get, set          
     member val JobIP = "" with get, set
     member val JobPort = -1 with get, set          
     member val JobDir = "" with get, set  

@@ -1255,7 +1255,7 @@ and [<Serializable; AllowNullLiteral>]
 
     /// End partition parti peeri
     member internal x.EndParition parti peeri = 
-        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Sending Close, Partition of partition %d to peer %d" parti peeri ))
+        Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Sending Close, Partition of partition %d to peer %d" parti peeri ))
         let cmd = ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition )
         let msSend = new MemStream( 1024 )
         msSend.WriteString( x.Name ) 
@@ -1654,7 +1654,7 @@ and [<Serializable; AllowNullLiteral>]
             x.MappingStreamLength <- Array.zeroCreate<_> x.NumPartitions 
         for partReport in activePartitions do 
             let parti, numElems, writeLength = partReport
-            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Report, DSet %s:%s from peer %d, partition %d, numElems: %d, Length %d" x.Name x.VersionString peeri parti numElems writeLength ))
+            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Report, DSet %s:%s from peer %d, partition %d, numElems: %d, Length %d" x.Name x.VersionString peeri parti numElems writeLength ))
             let partimapping = x.Mapping.[parti]
             let mutable nMappingFound = partimapping.Length
             for j = 0 to partimapping.Length - 1 do 
@@ -1786,9 +1786,9 @@ and [<Serializable; AllowNullLiteral>]
                 let numElems = msRcvd.ReadVInt32()
                 let peerIdx = msRcvd.ReadVInt32()
                 if peeri = peerIdx then 
-                    Logger.Log( LogLevel.WildVerbose, ( sprintf "%A dup confirm partition %d serial %d:%d by peer %d" cmd parti serial numElems peerIdx ))
+                    Logger.Log( LogLevel.MediumVerbose, ( sprintf "%A dup confirm partition %d serial %d:%d by peer %d" cmd parti serial numElems peerIdx ))
                 else
-                    Logger.Log( LogLevel.WildVerbose, ( sprintf "%A dup confirm partition %d serial %d:%d by peer %d relayed by peer %d" cmd parti serial numElems peerIdx peeri ))
+                    Logger.Log( LogLevel.MediumVerbose, ( sprintf "%A dup confirm partition %d serial %d:%d by peer %d relayed by peer %d" cmd parti serial numElems peerIdx peeri ))
             | ( ControllerVerb.EchoReturn, ControllerNoun.DSet ) 
             | ( ControllerVerb.Echo2Return, ControllerNoun.DSet ) ->
                 let parti = msRcvd.ReadVInt32()
@@ -1818,7 +1818,7 @@ and [<Serializable; AllowNullLiteral>]
                                 partitionProgress.[parti] <- partitionProgress.[parti] + int64 confirmed
                                 if ( partitionProgress.[parti] - partitionCheckmark.[parti] > x.ProgressMonitor ) then 
                                     partitionCheckmark.[parti] <- partitionCheckmark.[parti] + x.ProgressMonitor   
-                                    Logger.Log( LogLevel.MildVerbose, ( sprintf "Partition %d: confirmed writing of %d MB" parti (partitionProgress.[parti]>>>20) ))
+                                    Logger.Log( LogLevel.MediumVerbose, ( sprintf "Partition %d: confirmed writing of %d MB" parti (partitionProgress.[parti]>>>20) ))
                     let resHash = msRcvd.ReadBytesToEnd() 
                     let refValue = ref Unchecked.defaultof<_>
                     if resHash.Length>0 && deliveryQueue.TryGetValue( resHash, refValue ) then 
@@ -2385,7 +2385,7 @@ and [<Serializable; AllowNullLiteral>]
                 let seqs = x.FunctionObj.MapFunc( !meta, Object(), MapToKind.OBJECT )
                 let lastmeta = ref (BlobMetadata( parti, 0L, 0 ))
                 for newMeta, newObj in seqs do 
-                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSet.Init %s:%s for partition %d, Serial %d, %d Elems" x.Name x.VersionString newMeta.Parti newMeta.Serial newMeta.NumElems ) )
+                    Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "DSet.Init %s:%s for partition %d, Serial %d, %d Elems" x.Name x.VersionString newMeta.Parti newMeta.Serial newMeta.NumElems ) )
                     func( newMeta, newObj ) 
                     lastmeta := newMeta
                     bEndReached := (Utils.IsNull newObj)

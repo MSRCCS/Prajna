@@ -64,21 +64,25 @@ type DebugMode =
 /// A set of default parameter that controls Prajna execution behavior
 type DeploymentSettings() = 
     // system drive   
-    static let systemDrive = if Runtime.RunningOnMono then "/" else Path.GetPathRoot(Environment.SystemDirectory)
+    // Mono: use user's home directory for now, more investigations needed
+    static let systemDrive = if Runtime.RunningOnMono then Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) else Path.GetPathRoot(Environment.SystemDirectory)
     // the drives that are excluded for data storage
     static let excludedDrivesForDataStorage = 
-        let drivesInfo = DriveInfo.GetDrives() |> Array.filter ( fun dInfo -> dInfo.IsReady && dInfo.DriveType = DriveType.Fixed )
-        if Utils.IsNull drivesInfo || Array.isEmpty drivesInfo then
-            failwith("There is no driver")
+        if Runtime.RunningOnMono then
+            Array.empty
         else
-            if not (drivesInfo |> Array.exists(fun f -> f.Name = systemDrive)) then
-                failwith(sprintf "System drive '%s' does not exist!" systemDrive)
-            if drivesInfo.Length = 1 then
-                // If there is only one drive, do not exclude any drive
-                Array.empty
-            else 
-                // exclude system drive for data storage
-                [| KeyValuePair(systemDrive, true) |]
+            let drivesInfo = DriveInfo.GetDrives() |> Array.filter ( fun dInfo -> dInfo.IsReady && dInfo.DriveType = DriveType.Fixed )
+            if Utils.IsNull drivesInfo || Array.isEmpty drivesInfo then
+                failwith("There is no driver")
+            else
+                if not (drivesInfo |> Array.exists(fun f -> f.Name = systemDrive)) then
+                    failwith(sprintf "System drive '%s' does not exist!" systemDrive)
+                if drivesInfo.Length = 1 then
+                    // If there is only one drive, do not exclude any drive
+                    Array.empty
+                else 
+                    // exclude system drive for data storage
+                    [| KeyValuePair(systemDrive, true) |]
 
     /// Running on Mono
     static member val internal RunningOnMono = Runtime.RunningOnMono

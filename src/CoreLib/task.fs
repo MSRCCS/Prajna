@@ -265,6 +265,8 @@ and [<AllowNullLiteral>]
         member x.StartChildProcess (startInfo:ProcessStartInfo) =
             if DeploymentSettings.RunningOnMono then
                 // On Mono, start the child as a process
+                startInfo.Arguments <- " " + startInfo.FileName + " " + startInfo.Arguments
+                startInfo.FileName <- "mono"
                 Process.Start( startInfo )
             else
                 // On windows, start the child process with a job object

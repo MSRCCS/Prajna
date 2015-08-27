@@ -336,9 +336,9 @@ and /// Information of Within Job cluster information.
                         match ndInfo.NodeType with 
                         | NodeWithInJobType.TCPOnly -> 
                             Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Attempt to connect to %s:%d as peer %d" x.LinkedCluster.Nodes.[peeri].MachineName ndInfo.ListeningPort peeri ))
-                            //Cluster.Connects.AddConnect( x.LinkedCluster.Nodes.[peeri].MachineName, ndInfo.ListeningPort )
+                            Cluster.Connects.AddConnect( x.LinkedCluster.Nodes.[peeri].MachineName, ndInfo.ListeningPort )
                             //for azure cluster
-                            Cluster.Connects.AddConnect(  IPAddress(x.LinkedCluster.Nodes.[peeri].InternalIPAddress.[0]), ndInfo.ListeningPort )
+                            //Cluster.Connects.AddConnect(  IPAddress(x.LinkedCluster.Nodes.[peeri].InternalIPAddress.[0]), ndInfo.ListeningPort )
                         | _ -> 
                             Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer, in cluster %s:%s, unknown node type %A for peer %d to connect to" 
                                             x.LinkedCluster.Name x.LinkedCluster.VersionString ndInfo.NodeType peeri )

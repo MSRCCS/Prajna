@@ -700,6 +700,20 @@ type DSet<'U> () =
         x.Function <- Function.SourceN<'U>( num, sourceNSeqFunc ) 
         x
 
+    /// <summary>
+    /// Create a distributed dataset on the distributed cluster, with each element created by a functional delegate.
+    /// </summary> 
+    member x.InitN2(num, initFunc, partitionSizeFunc) =
+        x.NumParallelExecution <- num
+        x.NumPartitions <- x.Cluster.NumNodes * x.NumParallelExecution
+        x.NumReplications <- 1
+        x.Dependency <- Source
+        x.Function <- Function.Init<'U>( initFunc, partitionSizeFunc ) 
+        // Trigger of setting the serialization limit parameter within functions. 
+        // Automatic set serialization limit
+        // x.SerializationLimit <- x.SerializationLimit
+        x
+
     /// <summary> 
     /// Generate a distributed dataset through customerized seq functional delegates running on each of the machine. 
     /// Each node runs num local instance of the functional delegates, each of which forms one partition of the dataset.

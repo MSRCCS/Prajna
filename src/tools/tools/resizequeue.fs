@@ -44,13 +44,15 @@ module internal Ev =
 
     let inline ResetUntilCond (cond : unit->bool, ev : ManualResetEvent) =
         while (cond()) do
+            ev.Reset() |> ignore            
             // recheck condition after reset in case another thread has set it
             if (cond()) then
+                ev.WaitOne() |> ignore
                 //if ev.WaitOne(0) then
                 //    ev.Reset() |> ignore
                 //else
                 //    ev.WaitOne() |> ignore
-                ()
+                //()
             else
                 ev.Set() |> ignore
 

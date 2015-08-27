@@ -197,6 +197,12 @@ let main orgargs =
         let res = sha512Hash.ComputeHash( bytearray )
         BitConverter.ToInt64( res, 0 )
 
+    let allArray = Array.init<byte[]> 256 (fun i ->
+        let arr = Array.zeroCreate<byte>(nDim)
+        arr.[0] <- byte i
+        arr
+    )
+
     // network test
     let repartitionTest() =
         let t1 = (DateTime.UtcNow)
@@ -207,27 +213,34 @@ let main orgargs =
                                 PeerRcvdSpeedLimit = rcvdSpeedLimit )
         let finalPartitions = 256
         if nParallel > 0 then 
-            startDSet.NumParallelExecution <- nParallel    
-        if nump > 0 then 
+            startDSet.NumParallelExecution <- nParallel
+            startDSet.NumPartitions <- startDSet.Cluster.NumNodes*startDSet.NumParallelExecution
+        if nump > 0 then
             startDSet.NumPartitions <- nump
-        //let numPartitions = startDSet.NumPartitions
-        let numPartitions = startDSet.Cluster.NumNodes
+            startDSet.NumParallelExecution <- nump / startDSet.Cluster.NumNodes
+        let numPartitions = startDSet.NumPartitions
         let partitionSizeFunc( parti ) = 
             let ba = int (num / int64 numPartitions) 
             if parti < int ( num % int64 numPartitions ) then ba + 1 else ba
         let initVectorFunc (parti, serial) =
-            let key = Array.zeroCreate<byte> nDim
-            key.[0] <- byte(serial)
-            key
+            allArray.[serial % 256]
+//            let key = Array.zeroCreate<byte> nDim
+//            key.[0] <- byte(serial)
+//            key
         let partitionFunc (kv:byte[]) = 
             int kv.[0]
-        let dkvGen = startDSet |> DSet.init initVectorFunc partitionSizeFunc 
+        let dkvGen = startDSet.InitN2(startDSet.NumParallelExecution, initVectorFunc, partitionSizeFunc)
+        //let dkvGen = startDSet |> DSet.init initVectorFunc partitionSizeFunc 
         //let dkvGenRAM = dkvGen |> DSet.cacheInRAM
         let repartParam = DParam ( PreGroupByReserialization = 0, NumPartitions = finalPartitions )
         let dkvRepart = dkvGen.RepartitionP(repartParam, partitionFunc)
         let t3 = DateTime.UtcNow
         //let verifyCount = dkvGen |> DSet.fold (fun cnt x -> cnt + 1) (fun a b -> a + b) 0
+        let foldFunc = (fun cnt x ->
+            cnt + 1
+        )
         let verifyCount = dkvRepart |> DSet.fold (fun cnt x -> cnt + 1) (fun a b -> a + b) 0
+        //let verifyCount = dkvRepart |> DSet.fold foldFunc foldFunc 0
         let t2 = DateTime.UtcNow
         let elapse = t2.Subtract(t3)
         let throughput = (float num * float nDim / 1000000. / elapse.TotalSeconds)
@@ -308,6 +321,8 @@ let main orgargs =
                 let partitionSortFunc (kv:byte[]) = 
                     int kv.[0]
                 let dkvGen0 = startDSet |> DSet.init initSortFunc partitionSizeSortFunc 
+                // overwrite num partitions
+                dkvGen0.NumPartitions <- startDSet.NumPartitions
                 let sortParam = DParam ( PreGroupByReserialization = 1000000, NumPartitions = PartitionsAfterSort )
                 let dkvSorted = dkvGen0 |> DSet.binSortP sortParam partitionSortFunc InteropWithMsvcrt.BytesComparer
                 let verify = dkvSorted |> DSet.fold (VerifySort.Fold nDim) (VerifySort.Aggregate) null

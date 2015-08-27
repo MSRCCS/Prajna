@@ -15,6 +15,8 @@ open Fake.ReleaseNotesHelper
 open System
 open System.IO
 open System.Xml.Linq
+open System.Collections.Concurrent
+open System.Collections.Generic
 #if MONO
 #else
 #load "packages/SourceLink.Fake/tools/Fake.fsx"
@@ -366,11 +368,26 @@ Target "RunReleaseTests" (fun _ -> runTests "Releasex64")
 Target "SourceLink" (fun _ ->
     let baseUrl = (sprintf "%s/%s/{0}/" gitRaw project) + "%var2%"
 
+    let dic = ConcurrentDictionary<_,List<_>>(StringComparer.OrdinalIgnoreCase)
+    !! "**/**/*.pdb"
+    |> Seq.iter ( fun pdb -> let shortName = Path.GetFileName( pdb )
+                             let entry = dic.GetOrAdd( shortName, fun _ -> List<_>() )
+                             entry.Add( pdb )
+                        )
+
     !! "src/**/*.??proj"
     |> Seq.iter (fun projFile -> 
         let proj = VsProj.LoadRelease projFile 
         SourceLink.Index proj.CompilesNotLinked proj.OutputFilePdb __SOURCE_DIRECTORY__ baseUrl 
+        let pdbShortName = Path.GetFileName( proj.OutputFilePdb )
+        let bExist, entry = dic.TryGetValue( pdbShortName )
+        if bExist then 
+            for file1 in entry do 
+                if String.Compare( Path.GetFullPath(proj.OutputFilePdb), Path.GetFullPath(file1), true )<>0 then 
+                    trace ( sprintf "To copy file %s to %s " proj.OutputFilePdb file1 )
+                    File.Copy( proj.OutputFilePdb, file1, true )
     )
+    CopyBinariesFun("Releasex64")
 )
 #endif
 
@@ -574,7 +591,8 @@ Target "R" DoNothing // Incremental build of Release
 "Release" 
 #if MONO
 #else
-  =?> ("SourceLink", Pdbstr.tryFind().IsSome )
+  // =?> ("SourceLink", Pdbstr.tryFind().IsSome )
+  ==> "SourceLink"
 #endif
   ==> "NuGet"
   ==> "BuildPackage"

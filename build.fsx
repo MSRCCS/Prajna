@@ -378,14 +378,17 @@ Target "SourceLink" (fun _ ->
     !! "src/**/*.??proj"
     |> Seq.iter (fun projFile -> 
         let proj = VsProj.LoadRelease projFile 
-        SourceLink.Index proj.CompilesNotLinked proj.OutputFilePdb __SOURCE_DIRECTORY__ baseUrl 
-        let pdbShortName = Path.GetFileName( proj.OutputFilePdb )
-        let bExist, entry = dic.TryGetValue( pdbShortName )
-        if bExist then 
-            for file1 in entry do 
-                if String.Compare( Path.GetFullPath(proj.OutputFilePdb), Path.GetFullPath(file1), true )<>0 then 
-                    trace ( sprintf "To copy file %s to %s " proj.OutputFilePdb file1 )
-                    File.Copy( proj.OutputFilePdb, file1, true )
+        try
+            SourceLink.Index proj.CompilesNotLinked proj.OutputFilePdb __SOURCE_DIRECTORY__ baseUrl 
+            let pdbShortName = Path.GetFileName( proj.OutputFilePdb )
+            let bExist, entry = dic.TryGetValue( pdbShortName )
+            if bExist then 
+                for file1 in entry do 
+                    if String.Compare( Path.GetFullPath(proj.OutputFilePdb), Path.GetFullPath(file1), true )<>0 then 
+                        // trace ( sprintf "To copy file %s to %s " proj.OutputFilePdb file1 )
+                        File.Copy( proj.OutputFilePdb, file1, true )
+        with 
+        | ex -> traceImportant (sprintf "Fail to sourceLink file '%s': %s" proj.OutputFilePdb ex.Message)
     )
     CopyBinariesFun("Releasex64")
 )

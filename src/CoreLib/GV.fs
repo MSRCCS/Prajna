@@ -312,12 +312,13 @@ and /// Information of Within Job cluster information.
                 while idx < nodes.Length && not bFound do
                     let machineName = Dns.GetHostEntry(nodes.[idx].MachineName)
                     // Match both machine name and listening port
-                    if System.Text.RegularExpressions.Regex.Match(machineName.HostName, "^"+curMachineName+"""(\.|$)""", RegexOptions.IgnoreCase).Success then
+                    if System.Text.RegularExpressions.Regex.Match(machineName.HostName, "^"+curMachineName+"""(\.|$)""", RegexOptions.IgnoreCase).Success || String.Compare(machineName.HostName, "localhost", StringComparison.InvariantCultureIgnoreCase) = 0 then
                         if not (Utils.IsNull x.NodesInfo.[idx]) 
                             && (ClusterJobInfo.JobListenningPortCollection.ContainsKey(x.NodesInfo.[idx].ListeningPort)) then 
                             bFound <- true
                     if (not bFound) then
                         idx <- idx + 1
+
             if idx >= nodes.Length then 
                 x.CurPeerIndex <- -1
             else

@@ -1011,6 +1011,16 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// Register a processor for the component - same as RegisterProc, but default name is created and returned
     /// <param name="processItem">A function which does processing, returns event if cannot complete</param>
     /// <returns>The internal name of the processor - can use for unregistering</returns>
+    member x.GetOrAddProc(name: string, processItem : 'T->ManualResetEvent) =
+        x.CheckAndInitMultipleProcess() 
+        processors.GetOrAdd( name, fun _ -> if Interlocked.Increment( count ) <> 0 then 
+                                                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Registering processor %d" (!count+1)))
+                                            (processItem, false)
+                                            ) |> ignore
+
+    /// Register a processor for the component - same as RegisterProc, but default name is created and returned
+    /// <param name="processItem">A function which does processing, returns event if cannot complete</param>
+    /// <returns>The internal name of the processor - can use for unregistering</returns>
     member x.AddProc(processItem : 'T->ManualResetEvent) =
         if (!count <> -1) then
             Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Registering processor %d" (!count+1)))

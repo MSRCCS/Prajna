@@ -153,16 +153,16 @@ type NetworkPerformance() =
         Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "to send packet, diff = %d" 
                                                                    diff ))
     /// Validate header for RTT estimation 
-    member internal x.ReadHeader( ms: MemStream ) = 
+    member internal x.ReadHeader( ms: StreamBase<byte> ) = 
         let tickDIffsInReceive = ms.ReadInt64( ) 
         let sendTicks = ms.ReadInt64()
         x.PacketReport( tickDIffsInReceive, sendTicks )
     /// Write end marker 
-    member internal x.WriteEndMark( ms: MemStream ) = 
+    member internal x.WriteEndMark( ms: StreamBase<byte> ) = 
         ms.WriteBytes( NetworkPerformance.BlobIntegrityGuid.ToByteArray() )
         x.SendPacket()
     /// Validate end marker
-    member internal x.ReadEndMark( ms: MemStream) = 
+    member internal x.ReadEndMark( ms: StreamBase<byte>) = 
         let data = Array.zeroCreate<_> 16
         ms.ReadBytes( data ) |> ignore
         let guid = Guid( data )
@@ -737,6 +737,11 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// <param name="processItem">The function to process NetworkCommand objects from queue</param>
     member x.AddRecvProc (processItem : NetworkCommand->ManualResetEvent) =
         xCRecv.AddProc(processItem)
+
+    /// Add receiver processing - multiple processeros may be added
+    /// <param name="processItem">The function to process NetworkCommand objects from queue</param>
+    member x.GetOrAddRecvProc (name, processItem : NetworkCommand->ManualResetEvent) =
+        xCRecv.GetOrAddProc(name, processItem)
 
     member private x.SetRecvAES(buf : byte[]) =
         x.AESRecv <- new RijndaelManaged()

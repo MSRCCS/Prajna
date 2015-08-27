@@ -61,16 +61,41 @@ let solutionFile  = "Prajna.sln"
 // Pattern specifying assemblies to be tested using NUnit
 let testAssemblies = "tests/**/bin/{0}/*Tests*.dll"
 
+// --------------------------------------------------------------------------------------
+// Git helpers
+// --------------------------------------------------------------------------------------
+
+// Try to find out the owner from the remote URL that "origin" points to, if fails, return None
+let getGitOwnerFromOrigin () = 
+    try
+        let b, result, _ = Fake.Git.CommandHelper.runGitCommand (Directory.GetCurrentDirectory()) "remote show -n origin"
+        if b then
+            let urlMsg = result |> Seq.find (fun m -> m.Contains("Fetch URL"))
+            let uri = System.Uri(urlMsg.Substring(urlMsg.IndexOf("http")))
+            if uri.Segments.Length <> 3 || uri.Segments.[2] <> project then failwith( sprintf "Unexpected segments: %A" uri.Segments)
+            let owner = uri.Segments.[1].TrimEnd([| '/' |])
+            owner |> Some
+        else
+            None
+    with
+    | e ->  traceImportant(sprintf "Fail to get the owner from origin: %s" e.Message)
+            None
+
 // Git configuration (used for publishing documentation in gh-pages branch)
 // The profile where the project is posted
-let gitOwner = "MSRCCS" 
+let gitDefaultOwner = "MSRCCS" 
+let gitOwner = match getGitOwnerFromOrigin() with
+               | Some o -> o
+               | None -> gitDefaultOwner
 let gitHome = "https://github.com/" + gitOwner
+
+trace ("GitHome: " + gitHome)
 
 // The name of the project on GitHub
 let gitName = "Prajna"
 
 // The url for the raw files hosted
-let gitRaw = environVarOrDefault "gitRaw" "https://raw.github.com/MSRCCS"
+let gitRaw = environVarOrDefault "gitRaw" "https://raw.github.com/" + gitOwner
 
 // --------------------------------------------------------------------------------------
 // END TODO: The rest of the file includes standard build steps
@@ -368,6 +393,7 @@ Target "RunReleaseTests" (fun _ -> runTests "Releasex64")
 Target "SourceLink" (fun _ ->
     let baseUrl = (sprintf "%s/%s/{0}/" gitRaw project) + "%var2%"
 
+    // Collect all the PDBs that have been generated before being source indexed
     let dic = ConcurrentDictionary<_,List<_>>(StringComparer.OrdinalIgnoreCase)
     !! "**/**/*.pdb"
     |> Seq.iter ( fun pdb -> let shortName = Path.GetFileName( pdb )
@@ -380,6 +406,8 @@ Target "SourceLink" (fun _ ->
         let proj = VsProj.LoadRelease projFile 
         try
             SourceLink.Index proj.CompilesNotLinked proj.OutputFilePdb __SOURCE_DIRECTORY__ baseUrl 
+
+            // Replace the same PDB in all directories with the source indexed PDB
             let pdbShortName = Path.GetFileName( proj.OutputFilePdb )
             let bExist, entry = dic.TryGetValue( pdbShortName )
             if bExist then 
@@ -390,6 +418,8 @@ Target "SourceLink" (fun _ ->
         with 
         | ex -> traceImportant (sprintf "Fail to sourceLink file '%s': %s" proj.OutputFilePdb ex.Message)
     )
+
+    // Make sure the bin folder contains source indexed PDB
     CopyBinariesFun("Releasex64")
 )
 #endif

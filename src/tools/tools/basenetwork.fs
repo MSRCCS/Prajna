@@ -166,7 +166,7 @@ type [<AbstractClass>] NetUtils() =
     static member internal RecvOrClose(conn : IConn, fn, e) =
         let (closed, asyncOper) = NetUtils.RecvAsync(conn.Socket, e)
         if (closed) then
-            Logger.LogF(LogLevel.MildVerbose, (fun _ -> sprintf "baseNetwork; close is called %A, BytesTransferred %d, SocketError %A, receive buffer size:%d" (LocalDNS.GetShowInfo(conn.Socket.RemoteEndPoint)) e.BytesTransferred e.SocketError conn.Socket.ReceiveBufferSize ))
+            //Logger.LogF(LogLevel.MildVerbose, (fun _ -> sprintf "baseNetwork; close is called %A, BytesTransferred %d, SocketError %A, receive buffer size:%d" (LocalDNS.GetShowInfo(conn.Socket.RemoteEndPoint)) e.BytesTransferred e.SocketError conn.Socket.ReceiveBufferSize ))
             conn.Close()
         else if (not asyncOper) then
             fn e

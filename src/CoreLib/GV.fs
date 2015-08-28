@@ -1207,9 +1207,13 @@ type internal FoldFunction<'U, 'State >( func ) =
     inherit FoldFunction( 
         let wrapperFunc (stateobj:Object) (meta, elemObject:Object ) = 
             if Utils.IsNotNull elemObject then 
-               let state = stateobj :?> 'State
-               let elemArray = elemObject :?> ('U)[]                              
-               ( elemArray |> Array.fold func state ) :> Object
+               //try 
+                   let state = stateobj :?> 'State
+                   let elemArray = elemObject :?> ('U)[]                              
+                   ( elemArray |> Array.fold func state ) :> Object
+                //with e ->
+                //   Logger.LogF(LogLevel.Error, fun _ -> sprintf "TYPE:%A %A" (stateobj.GetType()) (elemObject.GetType()))
+                //   reraise()
             else
                 stateobj
         wrapperFunc 

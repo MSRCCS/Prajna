@@ -1050,10 +1050,10 @@ and [<AllowNullLiteral; Serializable>]
             beginJob finalJob           
 
 /// Fold, Job (DSet) 
-    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, state ) = 
+    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object, ms : StreamBase<byte> ) = 
         let syncFoldFunci (jbInfo:JobInformation) parti param = 
             let meta, elemObject = param
-            jbInfo.FoldState.Item( parti ) <- foldFunc.FoldFunc (jbInfo.FoldState.GetOrAdd(parti, fun partitioni -> state)) param
+            jbInfo.FoldState.Item( parti ) <- foldFunc.FoldFunc (jbInfo.FoldState.GetOrAdd(parti, fun partitioni -> stateFunc() )) param
             if Utils.IsNull elemObject then 
                 Task.ClosePartition jbInfo dset meta
         let beginJob (jbInfo:JobInformation)  =
@@ -1073,8 +1073,9 @@ and [<AllowNullLiteral; Serializable>]
             let msSend = serializeFunc.SerializeFunc msWire finalState
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All aggregate fold completed for job %s:%s DSet %s:%s, send WriteGV,DSet to client!" x.Name x.VersionString dset.Name dset.VersionString))
             jbInfo.ToSendHost( ControllerCommand( ControllerVerb.WriteGV, ControllerNoun.DSet ), msSend )
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) )
-             beginJob finalJob
+            ms.DecRef()
+
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) ) beginJob finalJob
 
 
     member val JobFinished = new List<WaitHandle>()
@@ -1440,6 +1441,7 @@ and [<AllowNullLiteral; Serializable>]
                                 let foldFunc = ms.Deserialize() :?> FoldFunction // Don't use DeserializeTo, as it may be further derived from FoldFunction
                                 let aggregateFunc = ms.Deserialize() :?> AggregateFunction
                                 let serializeFunc = ms.Deserialize() :?> GVSerialize
+                                //assert(false) // only to trigger debugger
                                 let startpos = ms.Position
                                 let stateTypeName = ms.ReadString() 
                                 let refCount = ref -1  
@@ -1452,21 +1454,18 @@ and [<AllowNullLiteral; Serializable>]
                                 let endpos = ms.Position
                                 let buf, pos, length = 
                                     if bCommonStatePerNode || Utils.IsNull state then 
-                                        null, 0, 0
+                                        null, 0L, 0L
                                     else
-                                        ms.Seek( startpos, SeekOrigin.Begin ) |> ignore 
-                                        let buf, pos, length = ms.GetBufferPosLength( )
-                                        ms.Seek( endpos, SeekOrigin.Begin ) |> ignore
-                                        buf, pos, length                                                                            
-                                let replicateMsStreamFunc()  = 
+                                        ms.AddRef()
+                                        ms, startpos, endpos-startpos                                                                      
+                                let replicateMsStreamFunc()  =
                                     if bCommonStatePerNode || Utils.IsNull state then 
                                         null
                                     else 
                                         // Start pos will not be the end of stream, garanteed by state not null 
-                                        // let ms = new MemStream( buf, pos, length, false, true )
                                         let ms = new MemoryStreamB()
-                                        buf.Seek(int64 pos, SeekOrigin.Begin) |> ignore
-                                        ms.WriteFromStream(buf, length)
+                                        ms.AppendNoCopy(buf, pos, length) // this is a write operation, position moves forward
+                                        ms.Seek(0L, SeekOrigin.Begin) |> ignore
                                         ms
                                 let stateFunc() = 
                                     if bCommonStatePerNode || Utils.IsNull state then 
@@ -1482,7 +1481,7 @@ and [<AllowNullLiteral; Serializable>]
                                             let s = Strm.CustomizableDeserializeToTypeName( msRead, stateTypeName )
                                             msRead.DecRef()
                                             s
-                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc ) )
+                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc, buf ) )
                             | _ ->
                                 ()
 

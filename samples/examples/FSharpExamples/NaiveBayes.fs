@@ -27,9 +27,12 @@ open System.Diagnostics
 open System.IO
 
 open Prajna.Core
+open Prajna.Tools.FSharp
 open Prajna.Api.FSharp
 
 open Prajna.Examples.Common
+
+open Prajna.Tools
 
 /// A Counts object holds word counts for a single class
 /// A counts: Count[] holds counts for class k in in counts.[k]
@@ -49,7 +52,7 @@ type NaiveBayes() =
 
     // A tiny fraction of 20 Newsgroups dataset data (http://archive.ics.uci.edu/ml/datasets/Twenty+Newsgroups)
     // slightly processed to have one example per line and eliminite newlines in example
-    let data = Path.Combine(Utility.GetExecutingDir(), "20news-featurized2-tiny.txt")
+    let data = Path.Combine(Utility.GetExecutingDir(), "20news-featurized2-train.txt")
 
     let split (c: char) (str:string) = str.Split([|c|], StringSplitOptions.RemoveEmptyEntries)
 
@@ -64,7 +67,7 @@ type NaiveBayes() =
     let chooseLine (line: string) =
         match split '\t' line with
         | [|_; label; text|] -> 
-            let splitLine = split ' ' text
+            let splitLine = split ' ' text |> Array.map String.Intern
             Some(HashSet<string>(splitLine), Int32.Parse label)
         | _ -> 
             None
@@ -134,7 +137,7 @@ type NaiveBayes() =
                 data 
                 |> File.ReadLines 
                 |> Seq.toArray
-            let numTrain = 200
+            let numTrain = 8000
             all |> Seq.take numTrain |> Seq.toArray, all |> Seq.skip numTrain |> Seq.toArray
 
         // Both the Seq and DSet versions have the same structure: throw away a few badly formatted
@@ -143,38 +146,87 @@ type NaiveBayes() =
         let seqCounts = 
             trainSet
             |> Seq.choose chooseLine
-            |> Seq.fold (addWords numClasses) null
+            |> Seq.fold (addWords numClasses) null 
         printfn "Seq train took: %A" (sw.Stop(); sw.Elapsed)
+
+        let stream = new MemoryStream()
+        sw.Restart()
+        BinarySerializer().Serialize(stream, seqCounts)
+        let timeSer = sw.Stop(); sw.Elapsed
+        printfn "Serializing took: %A" timeSer
+
+        stream.Position <- 0L
+        sw.Restart()
+        let newCounts = BinarySerializer().Deserialize(stream) :?> Counts[]
+        let timeDeser = sw.Stop(); sw.Elapsed
+        printfn "Deserializing took: %A" timeDeser
+        printfn "Total: %A" (timeSer + timeDeser)
+
+        printfn "----------------------------------"
+
+        printfn "Using standard .NET BinaryFormatter:"
+        let newStream = new MemoryStream()
+        let bf = new System.Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+        sw.Restart()
+        bf.Serialize(newStream, seqCounts)
+        let timeSer2 = sw.Stop(); sw.Elapsed
+//        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Serializing took: %A" timeSer2)
+        printfn "Serializing took: %A" timeSer2
+        newStream.Position <- 0L
+        sw.Restart()
+        let newCounts2 = bf.Deserialize(newStream)
+        let timeDeser2 = sw.Stop(); sw.Elapsed
+        printfn "Deserializing took: %A" timeDeser2
+        printfn "Total: %A" (timeSer2 + timeDeser2)
+
+        printfn ""
+        let serRatio = (timeSer.TotalMilliseconds / timeSer2.TotalMilliseconds)
+        let deserRatio = (timeDeser.TotalMilliseconds / timeDeser2.TotalMilliseconds)
+        let totalRatio = (timeSer + timeDeser).TotalMilliseconds / (timeSer2 + timeDeser2).TotalMilliseconds
+        printfn "Ser Ratio: %f (%fx)" serRatio (1.0 / serRatio)
+        printfn "Deser Ratio: %f (%fx)" deserRatio (1.0 / deserRatio)
+        printfn "Total Ratio: %f (%fx)" totalRatio (1.0 / totalRatio)
+
+        let areEqual = 
+            let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
+            Seq.zip seqCounts newCounts
+            |> Seq.map (fun (seqLabelCounts, newLabelCounts) -> 
+                let seqMap = dictToMap seqLabelCounts
+                let newSeqMap = dictToMap newLabelCounts
+                seqMap = newSeqMap)
+            |> Seq.forall id
+        printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
 
         // ...only difference is that the DSet version needs a second "reducer" function
         // to do sum up intermediate per-partition results.
         // DSet.distributeN will create N partitions per node.
-        let name = "20News-TinyTest-" + Guid.NewGuid().ToString("D")
-        sw.Restart()
-        let dsetCounts = 
-            DSet<string>(Name = name, Cluster = cluster)
-            |> DSet.distributeN 8 trainSet
-            |> DSet.choose chooseLine
-            |> DSet.fold (addWords numClasses) addCounts null
-        printfn "DSet train took: %A" (sw.Stop(); sw.Elapsed)
-
-        sw.Restart()
-        let mapReduceCounts = naiveBayesMapReduce name cluster trainSet
-        printfn "MapReduce train took: %A" (sw.Stop(); sw.Elapsed)
-
-        // All versions should yield the exact same result.
-        // As can be seen above, even though the algorithm *can* be expressed as map-reduce,
-        // it is simpler and more natural as a fold.
-        let areEqual = 
-            let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
-            Seq.zip3 seqCounts dsetCounts mapReduceCounts
-            |> Seq.map (fun (seqLabelCounts, dsetLabelCounts, mapReduceLabelCounts) -> 
-                let seqMap = dictToMap seqLabelCounts
-                let dsetMap = dictToMap dsetLabelCounts
-                let mrMap = dictToMap mapReduceLabelCounts
-                seqMap = dsetMap && dsetMap = mrMap)
-            |> Seq.forall id
-        printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
+//        let name = "20News-TinyTest-" + Guid.NewGuid().ToString("D")
+//        sw.Restart()
+//        let dsetCounts = 
+//            DSet<string>(Name = name, Cluster = cluster)
+//            |> DSet.distributeN 8 trainSet
+//            |> DSet.choose chooseLine
+//            |> DSet.fold (addWords numClasses) addCounts null
+//        printfn "DSet train took: %A" (sw.Stop(); sw.Elapsed)
+//
+////        sw.Restart()
+//        let mapReduceCounts = seqCounts // naiveBayesMapReduce name cluster trainSet
+////        printfn "MapReduce train took: %A" (sw.Stop(); sw.Elapsed)
+//
+//
+//        // All versions should yield the exact same result.
+//        // As can be seen above, even though the algorithm *can* be expressed as map-reduce,
+//        // it is simpler and more natural as a fold.
+//        let areEqual = 
+//            let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
+//            Seq.zip3 seqCounts dsetCounts mapReduceCounts
+//            |> Seq.map (fun (seqLabelCounts, dsetLabelCounts, mapReduceLabelCounts) -> 
+//                let seqMap = dictToMap seqLabelCounts
+//                let dsetMap = dictToMap dsetLabelCounts
+//                let mrMap = dictToMap mapReduceLabelCounts
+//                seqMap = dsetMap && dsetMap = mrMap)
+//            |> Seq.forall id
+//        printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
 
         // Call this to test prediction accuracy on large dataset, but not during unit test
         let evaluate() =

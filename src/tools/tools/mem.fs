@@ -242,9 +242,9 @@ type internal CustomizedMemoryManager() =
 
 
 /// Programmer will implementation CustomizedSerializerAction of Action<Object*Stream> to customarily serialize an object 
-type CustomizedSerializerAction = Action<Object*MemStream>
+type CustomizedSerializerAction = Action<Object*Stream>
 /// Programmer will implementation CustomizedSerializerAction of Func<MemStream, Object> to customarily deserialize an object 
-and CustomizedDeserializerFunction = Func<MemStream, Object>
+and CustomizedDeserializerFunction = Func<Stream, Object>
 
 /// <summary>
 /// In Prajna, except closure serialization, user may install a customized encoder/decoder to serialize data, to make serialization/deserialization more efficient
@@ -258,18 +258,18 @@ and internal CustomizedSerialization() =
     /// Collection of Customized Serializer by name
     static member val internal EncoderCollectionByName = ConcurrentDictionary<string, Guid>(StringComparer.Ordinal) with get
     /// Collection of Customized Serializer by Guid
-    static member val internal EncoderCollectionByGuid = ConcurrentDictionary<Guid, (Object*MemStream)->unit>() with get
+    static member val internal EncoderCollectionByGuid = ConcurrentDictionary<Guid, (Object*Stream)->unit>() with get
     /// Collection of Customized Deserializer by name
     static member val internal DecoderCollectionByName = ConcurrentDictionary<string, Guid>(StringComparer.Ordinal) with get
     /// Collection of Customized Serializer by Guid
-    static member val internal DecoderCollectionByGuid = ConcurrentDictionary<Guid, MemStream->Object>() with get
+    static member val internal DecoderCollectionByGuid = ConcurrentDictionary<Guid, Stream->Object>() with get
     /// <summary>
     /// Install a customized serializer, with a unique GUID that identified the use of the serializer in the bytestream. 
     /// </summary>
     /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
     /// run a customized deserializer function to deserialize the object. </param>
     /// <param name="encodeFunc"> Customized Serialization function that encodes the 'Type to a bytestream.  </param>
-    static member InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*MemStream->unit ) = 
+    static member InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*Stream->unit ) = 
         if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
             failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
         else
@@ -293,7 +293,7 @@ and internal CustomizedSerialization() =
     /// </summary>
     /// <param name="id"> Guid that uniquely identified the deserializer in the bytestream. </param>
     /// <param name="decodeFunc"> Customized Deserialization function that decodes bytestream to 'Type.  </param>
-    static member InstallDeserializer<'Type>( id: Guid, decodeFunc: MemStream -> 'Type ) = 
+    static member InstallDeserializer<'Type>( id: Guid, decodeFunc: Stream -> 'Type ) = 
         if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
             failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
         else
@@ -325,7 +325,7 @@ and internal CustomizedSerialization() =
         if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
             failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
         else
-            let wrappedEncodeFunc( o:Object, ms:MemStream ) = 
+            let wrappedEncodeFunc( o:Object, ms:Stream ) = 
                 del.Invoke( o, ms ) 
             CustomizedSerialization.EncoderCollectionByName.Item( fulltypename ) <- id
             CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
@@ -341,7 +341,7 @@ and internal CustomizedSerialization() =
         if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
             failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
         else
-            let wrappedDecodeFunc( ms:MemStream ) = 
+            let wrappedDecodeFunc( ms:Stream ) = 
                 del.Invoke( ms ) 
             CustomizedSerialization.DecoderCollectionByName.Item( fulltypename ) <- id
             CustomizedSerialization.DecoderCollectionByGuid.Item( id ) <- wrappedDecodeFunc
@@ -350,15 +350,15 @@ and private CustomizedSerializationSurrogate(nameObj, encoder, decoder ) =
     let getInstanceFields (obj : obj) =
         obj.GetType().GetFields(BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic)
     member val ObjName : string = nameObj with get
-    member val Encoder: (Object*MemStream)->unit = encoder with get
-    member val Decoder: MemStream->Object = decoder with get
+    member val Encoder: (Object*Stream)->unit = encoder with get
+    member val Decoder: Stream->Object = decoder with get
     interface ISerializationSurrogate with
         member x.GetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext): unit = 
             if Utils.IsNull( x.Encoder ) then 
                 getInstanceFields obj |> Array.iter (fun f -> info.AddValue(f.Name, f.GetValue(obj)))
             else
                 use ms = new MemStream()
-                x.Encoder( obj, ms )
+                x.Encoder( obj, ms :> Stream )
                 let bytes = ms.GetBuffer()
                 info.AddValue( nameObj, bytes )       
         member x.SetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext, selector: ISurrogateSelector): obj = 
@@ -368,7 +368,7 @@ and private CustomizedSerializationSurrogate(nameObj, encoder, decoder ) =
             else
                 let bytes = info.GetValue(nameObj, typeof<byte[]>) :?> byte[]
                 use ms = new MemStream( bytes, 0, bytes.Length, false, true )
-                let o = x.Decoder( ms )
+                let o = x.Decoder( ms :> Stream )
                 o        
 
 // The serialization surrogate selector that selects CSharpDisplayClassSerializationSurrogate for C# compiler generated display class. 

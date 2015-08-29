@@ -72,7 +72,7 @@ let getGitOwnerFromOrigin () =
         if b then
             let urlMsg = result |> Seq.find (fun m -> m.Contains("Fetch URL"))
             let uri = System.Uri(urlMsg.Substring(urlMsg.IndexOf("http")))
-            if uri.Segments.Length <> 3 || uri.Segments.[2] <> project then failwith( sprintf "Unexpected segments: %A" uri.Segments)
+            if uri.Segments.Length <> 3 || uri.Segments.[2].IndexOf( project, StringComparison.OrdinalIgnoreCase)<0 then failwith( sprintf "Unexpected segments: %A" uri.Segments)
             let owner = uri.Segments.[1].TrimEnd([| '/' |])
             owner |> Some
         else

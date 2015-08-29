@@ -1144,6 +1144,7 @@ and [<AllowNullLiteral; Serializable>]
                 msWire.WriteString( dset.Name )
                 msWire.WriteInt64( dset.Version.Ticks )
                 jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet ), msWire )
+                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Close, DSet sent for %s:%s" dset.Name dset.VersionString ))
         with 
         | e -> 
             let msg = sprintf "Exception at DSetReadAsSeparateApp with msg %A" e 

@@ -41,7 +41,6 @@ open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.StringTools
 open Prajna.Core
-//open OneNet.Service.CoreServices
 
 [<Serializable>]
 type StorageProfile (profileName : string) =

@@ -43,19 +43,19 @@ open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.StringTools
 open Prajna.Core
-//open OneNet.Service.CoreServices
+//open Prajna.Service.CoreServices
 open Prajna.Api.FSharp
 open Prajna.Api.FSharp
 
 open sortbenchmark
 open Microsoft.FSharp.NativeInterop
-//open OneNet.Service.FSharp
+//open Prajna.Service.FSharp
 
 let Usage = "
     Usage: Benchmark performance for distributed sort. \n\
     Command line arguments:\n\
-    -in         Copy into Onenet \n\
-    -out        Copy outof Onenet \n\
+    -in         Copy into Prajna \n\
+    -out        Copy outof Prajna \n\
     -dir        Directory where the sort gen file stays \n\
     -num        Number of remote instances running \n\
     -sort       Executing Sort (1: 1-pass sort, 2-2 pass sort) \n\
@@ -65,7 +65,7 @@ let Usage = "
     -close      Close network monitor service \n\
 
     -local      Local directory. All files in the directories will be copy to (or from) remote \n\
-    -remote     Name of the distributed Onenet folder\n\
+    -remote     Name of the distributed Prajna folder\n\
     -ver V      Select a particular DKV with Version string: in format yyMMdd_HHmmss.fff \n\
     -rep REP    Number of Replication \n\
     -slimit S   # of record to serialize \n\
@@ -1091,7 +1091,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                 File.Delete(!fn)
 
 //    member val dumpFileThread = null with get,set
-//    member val dumpCache = new OneNet.Tools.Queue.FixedLenQ<MemoryStreamB>()
+//    member val dumpCache = new Prajna.Tools.Queue.FixedLenQ<MemoryStreamB>()
 //    member x.WriteToFile() =
 //        while (true) do
 //            let ms:MemoryStreamB ref = ref Unchecked.defaultof<_>
@@ -1571,7 +1571,7 @@ type SamplingFunc( filePartNum:int, records:int64, dim:int, sampleRate:int, keyL
 let main orgargs = 
     let args = Array.copy orgargs
     let parse = ArgumentParser(args)
-    let OneNetClusterFile = parse.ParseString( "-cluster", "" )
+    let PrajnaClusterFile = parse.ParseString( "-cluster", "" )
     let localdir = parse.ParseString( "-local", "" )
     let remoteDKVname = parse.ParseString( "-remote", "" )
     let nrep = parse.ParseInt( "-rep", 3 )
@@ -1684,7 +1684,7 @@ let main orgargs =
     let bAllParsed = parse.AllParsed Usage
 
     if bAllParsed then 
-        Cluster.Start( null, OneNetClusterFile )
+        Cluster.Start( null, PrajnaClusterFile )
         
         let cluster = Cluster.GetCurrent()
         

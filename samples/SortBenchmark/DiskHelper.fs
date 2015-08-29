@@ -41,7 +41,7 @@ open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.StringTools
 open Prajna.Core
-//open Prajna.Service.CoreServices
+//open OneNet.Service.CoreServices
 
 [<Serializable>]
 type StorageProfile (profileName : string) =
@@ -74,6 +74,7 @@ type StorageProfile (profileName : string) =
 
                 x.lock := 0
                 b <- true
+
         ()
 
     
@@ -341,3 +342,36 @@ type RollingFileMgr(records:int64) =
 
 
 
+[<AllowNullLiteral>]
+type SingleThreadExec1() =
+    let counter = ref 0
+    let q = new ConcurrentQueue<unit->unit>()
+
+    // execute function only on one thread - "counter" number of times
+    member x.Exec(f : unit->unit) =
+        if (Interlocked.Increment(counter) = 1) then
+            let mutable bDone = false
+            while (not bDone) do
+                f()
+                bDone <- (Interlocked.Decrement(counter) = 0)
+
+    // execute function only on one thread - but at least one time after call
+    member x.ExecOnce(f : unit->unit) =
+        if (Interlocked.Increment(counter) = 1) then
+            let mutable bDone = false
+            while (not bDone) do
+                // get count prior to executing
+                let curCount = !counter
+                f()
+                bDone <- (Interlocked.Add(counter, -curCount) = 0)
+
+    member x.ExecQ(f : unit->unit) =
+        q.Enqueue(f)
+        if (Interlocked.Increment(counter) = 10) then
+            let mutable bDone = false
+            let fn = ref (fun () -> ())
+            while (not bDone) do
+                let ret = q.TryDequeue(fn)
+                if (ret) then
+                    (!fn)()
+                    bDone <- (Interlocked.Decrement(counter) = 0)

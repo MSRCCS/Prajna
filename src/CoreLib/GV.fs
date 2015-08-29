@@ -312,13 +312,12 @@ and /// Information of Within Job cluster information.
                 while idx < nodes.Length && not bFound do
                     let machineName = Dns.GetHostEntry(nodes.[idx].MachineName)
                     // Match both machine name and listening port
-                    if System.Text.RegularExpressions.Regex.Match(machineName.HostName, "^"+curMachineName+"""(\.|$)""", RegexOptions.IgnoreCase).Success || String.Compare(machineName.HostName, "localhost", StringComparison.InvariantCultureIgnoreCase) = 0 then
+                    if System.Text.RegularExpressions.Regex.Match(machineName.HostName, "^"+curMachineName+"""(\.|$)""", RegexOptions.IgnoreCase).Success then
                         if not (Utils.IsNull x.NodesInfo.[idx]) 
                             && (ClusterJobInfo.JobListenningPortCollection.ContainsKey(x.NodesInfo.[idx].ListeningPort)) then 
                             bFound <- true
                     if (not bFound) then
                         idx <- idx + 1
-
             if idx >= nodes.Length then 
                 x.CurPeerIndex <- -1
             else
@@ -1172,10 +1171,12 @@ type internal AggregateFunction<'K>( func: 'K -> 'K -> 'K ) =
                 let state1 = O1 :?> 'K
                 let state2 = O2 :?> 'K
                 func state1 state2 :> Object
-            elif Utils.IsNull O1 then 
+            elif Utils.IsNotNull O2 then 
                 O2
-            else
+            elif Utils.IsNotNull O1 then
                 O1
+            else
+                Unchecked.defaultof<_>()
         wrapperFunc func )
     member val FoldStateFunc = func with get
 
@@ -1207,13 +1208,10 @@ type internal FoldFunction<'U, 'State >( func ) =
     inherit FoldFunction( 
         let wrapperFunc (stateobj:Object) (meta, elemObject:Object ) = 
             if Utils.IsNotNull elemObject then 
-               //try 
-                   let state = stateobj :?> 'State
-                   let elemArray = elemObject :?> ('U)[]                              
-                   ( elemArray |> Array.fold func state ) :> Object
-                //with e ->
-                //   Logger.LogF(LogLevel.Error, fun _ -> sprintf "TYPE:%A %A" (stateobj.GetType()) (elemObject.GetType()))
-                //   reraise()
+               /// Jin Li, 08/25/2015, Remember to check back to main branch
+               let state = if Utils.IsNull stateobj then Unchecked.defaultof<_> else stateobj :?> 'State
+               let elemArray = elemObject :?> ('U)[]                              
+               ( elemArray |> Array.fold func state ) :> Object
             else
                 stateobj
         wrapperFunc 

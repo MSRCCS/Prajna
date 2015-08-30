@@ -346,8 +346,11 @@ type RollingFileMgr(records:int64) =
 [<AllowNullLiteral>]
 type SingleThreadExec1() =
     let counter = ref 0
+    let bRun = ref 0
     let q = new ConcurrentQueue<unit->unit>()
 
+    member val Flush = false with get,set
+    member x.IsEmpty() = q.IsEmpty
     // execute function only on one thread - "counter" number of times
     member x.Exec(f : unit->unit) =
         if (Interlocked.Increment(counter) = 1) then
@@ -368,11 +371,13 @@ type SingleThreadExec1() =
 
     member x.ExecQ(f : unit->unit) =
         q.Enqueue(f)
-        if (Interlocked.Increment(counter) = 10) then
-            let mutable bDone = false
-            let fn = ref (fun () -> ())
-            while (not bDone) do
-                let ret = q.TryDequeue(fn)
-                if (ret) then
-                    (!fn)()
-                    bDone <- (Interlocked.Decrement(counter) = 0)
+        if (Interlocked.Increment(counter) > 10 || x.Flush) then
+            if (Interlocked.CompareExchange(bRun,1,0) = 0) then
+                let mutable bDone = false
+                let fn = ref (fun () -> ())
+                while (not bDone) do
+                    let ret = q.TryDequeue(fn)
+                    if (ret) then
+                        (!fn)()
+                        bDone <- (Interlocked.Decrement(counter) = 0)
+                bRun := 0

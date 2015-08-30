@@ -24,9 +24,6 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="sort.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="qsort.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -36,9 +33,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="qsort.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="sort.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

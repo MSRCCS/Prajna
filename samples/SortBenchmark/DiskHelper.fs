@@ -271,6 +271,8 @@ type DiskHelper(records:int64) =
     member x.GeneratePartitionFilePath(parti:int) =
         x.partitiondataSP.GenerateFilePath(parti)
 
+    member x.GetNextPartitionFilePath() =
+        x.partitiondataSP.GetNextFilePath()
 
     member x.GenerateSortedFilePath(parti:int) = 
         x.sorteddataSP.GenerateFilePath(parti)

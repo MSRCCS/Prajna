@@ -1,5 +1,5 @@
 (*---------------------------------------------------------------------------
-    Copyright 2013 Microsoft
+	Copyright 2013 Microsoft
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -13,19 +13,19 @@
     See the License for the specific language governing permissions and
     limitations under the License.                                                      
 
-    File: 
-        mem.fs
+	File: 
+		mem.fs
   
-    Description: 
-        Memory tools
+	Description: 
+		Memory tools
 
-    Author:																	
-        Jin Li, Partner Research Manager
-        Microsoft Research, One Microsoft Way
-        Email: jinl at microsoft dot com
+	Author:																	
+ 		Jin Li, Partner Research Manager
+ 		Microsoft Research, One Microsoft Way
+ 		Email: jinl at microsoft dot com
     Date:
         Apr. 2013
-    
+	
  ---------------------------------------------------------------------------*)
 namespace Prajna.Tools
 
@@ -65,7 +65,7 @@ module internal NodeConfig =
     let MBToByte ( x : int<MB> ) = x * BytePerMB
 
     let GBToByte ( x : int<GB> ) = x * BytePerGB
-    
+
 /// ExpandableBuffer wraps around a bytearray object that can be extended in both direction, front & back
 /// The valid bytes in the Buffer is between Head & Tail. 
 /// The current implementation of expandableBuffer is not threadsafe, and should not be used in multiple thread environment. 
@@ -277,13 +277,13 @@ type [<AllowNullLiteral>] MemStream =
         Array.sub (x.GetBuffer()) 0 (int x.Length)
 
 type Strm =
-    /// <summary> 
+    /// <summary>
     /// Peak next 16B (GUID), and check if the result is null.
     /// </summary>
     /// <returns> true if null has been serialized </returns>
     static member PeekIfNull(x : StreamBase<byte>) = 
         let pos = x.Position
-        let buf = Array.zeroCreate<_> 16 
+        let buf = Array.zeroCreate<_> 16
         x.ReadBytes( buf ) |> ignore
         let bRet = Guid( buf ) = CustomizedSerialization.NullObjectGuid
         x.Seek( pos, SeekOrigin.Begin ) |> ignore

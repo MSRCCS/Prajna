@@ -1133,6 +1133,7 @@ and
         Cluster.Start( null, cluster )
     /// Stop all connnections and disconnect all clusters. 
     static member Stop() = 
+        Logger.Log( LogLevel.ExtremeVerbose, ("Shutdown all clusters, no more jobs should be executed."))
         CleanUp.Current.CleanUpAll()
     interface IComparable<Cluster> with 
         member x.CompareTo y = 

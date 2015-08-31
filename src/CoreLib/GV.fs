@@ -1208,7 +1208,6 @@ type internal FoldFunction<'U, 'State >( func ) =
     inherit FoldFunction( 
         let wrapperFunc (stateobj:Object) (meta, elemObject:Object ) = 
             if Utils.IsNotNull elemObject then 
-               /// Jin Li, 08/25/2015, Remember to check back to main branch
                let state = if Utils.IsNull stateobj then Unchecked.defaultof<_> else stateobj :?> 'State
                let elemArray = elemObject :?> ('U)[]                              
                ( elemArray |> Array.fold func state ) :> Object

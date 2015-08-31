@@ -15,11 +15,15 @@ open Fake.ReleaseNotesHelper
 open System
 open System.IO
 open System.Xml.Linq
+open System.Collections.Concurrent
+open System.Collections.Generic
 #if MONO
 #else
 #load "packages/SourceLink.Fake/tools/Fake.fsx"
 open SourceLink
 #endif
+#r @"packages/LibGit2Sharp/lib/net40/LibGit2Sharp.dll"
+open LibGit2Sharp
 
 // --------------------------------------------------------------------------------------
 // START TODO: Provide project-specific details below
@@ -59,16 +63,49 @@ let solutionFile  = "Prajna.sln"
 // Pattern specifying assemblies to be tested using NUnit
 let testAssemblies = "tests/**/bin/{0}/*Tests*.dll"
 
+let curDir = Directory.GetCurrentDirectory()
+
+// --------------------------------------------------------------------------------------
+// Git helpers
+// --------------------------------------------------------------------------------------
+
+// Try to find out the owner from the remote URL that "origin" points to, if fails, return None
+let getGitOwnerFromOrigin () = 
+    if Repository.IsValid(curDir) then
+        try
+            use repo = new Repository(curDir)
+            let origin = repo.Network.Remotes |> Seq.tryFind (fun r -> r.Name = "origin")
+            match origin with
+            | Some v -> let uri = System.Uri(v.Url)
+                        let isValid = uri.Segments.Length = 3 &&
+                                        let seg2 = uri.Segments.[2]
+                                        String.Compare(seg2, project, StringComparison.InvariantCultureIgnoreCase) = 0 ||
+                                        String.Compare(seg2, project + ".git", StringComparison.InvariantCultureIgnoreCase) = 0
+                        if not isValid then failwith( sprintf "Unexpected segments: %A" uri.Segments)
+                        let owner = uri.Segments.[1].TrimEnd([| '/' |])
+                        owner |> Some
+            | None -> None
+        with
+        | e ->  trace(sprintf "Fail to get the owner from origin: %s" e.Message)
+                None
+    else
+        None
+
 // Git configuration (used for publishing documentation in gh-pages branch)
 // The profile where the project is posted
-let gitOwner = "MSRCCS" 
+let gitDefaultOwner = "MSRCCS" 
+let gitOwner = match getGitOwnerFromOrigin() with
+               | Some o -> o
+               | None -> gitDefaultOwner
 let gitHome = "https://github.com/" + gitOwner
+
+trace ("GitHome: " + gitHome)
 
 // The name of the project on GitHub
 let gitName = "Prajna"
 
 // The url for the raw files hosted
-let gitRaw = environVarOrDefault "gitRaw" "https://raw.github.com/MSRCCS"
+let gitRaw = environVarOrDefault "gitRaw" "https://raw.github.com/" + gitOwner
 
 // --------------------------------------------------------------------------------------
 // END TODO: The rest of the file includes standard build steps
@@ -187,7 +224,7 @@ Target "FreeHandlesFromVS" ( fun _ ->
     let principal = System.Security.Principal.WindowsPrincipal(identity);
     // Only works if the build script is elevated
     if principal.IsInRole (System.Security.Principal.WindowsBuiltInRole.Administrator) then
-        let dir = Directory.GetCurrentDirectory()
+        let dir = curDir
         let handle = Path.Combine(dir, @"paket-files\download.sysinternals.com\Handle.exe")
         let vsName = "devenv"    
         let args = sprintf "-p %s %s -accepteula" vsName dir
@@ -366,11 +403,34 @@ Target "RunReleaseTests" (fun _ -> runTests "Releasex64")
 Target "SourceLink" (fun _ ->
     let baseUrl = (sprintf "%s/%s/{0}/" gitRaw project) + "%var2%"
 
+    // Collect all the PDBs that have been generated before being source indexed
+    let dic = ConcurrentDictionary<_,List<_>>(StringComparer.OrdinalIgnoreCase)
+    !! "**/**/*.pdb"
+    |> Seq.iter ( fun pdb -> let shortName = Path.GetFileName( pdb )
+                             let entry = dic.GetOrAdd( shortName, fun _ -> List<_>() )
+                             entry.Add( pdb )
+                        )
+
     !! "src/**/*.??proj"
     |> Seq.iter (fun projFile -> 
         let proj = VsProj.LoadRelease projFile 
-        SourceLink.Index proj.CompilesNotLinked proj.OutputFilePdb __SOURCE_DIRECTORY__ baseUrl 
+        try
+            SourceLink.Index proj.CompilesNotLinked proj.OutputFilePdb __SOURCE_DIRECTORY__ baseUrl 
+
+            // Replace the same PDB in all directories with the source indexed PDB
+            let pdbShortName = Path.GetFileName( proj.OutputFilePdb )
+            let bExist, entry = dic.TryGetValue( pdbShortName )
+            if bExist then 
+                for file1 in entry do 
+                    if String.Compare( Path.GetFullPath(proj.OutputFilePdb), Path.GetFullPath(file1), true )<>0 then 
+                        // trace ( sprintf "To copy file %s to %s " proj.OutputFilePdb file1 )
+                        File.Copy( proj.OutputFilePdb, file1, true )
+        with 
+        | ex -> traceImportant (sprintf "Fail to sourceLink file '%s': %s" proj.OutputFilePdb ex.Message)
     )
+
+    // Make sure the bin folder contains source indexed PDB
+    CopyBinariesFun("Releasex64")
 )
 #endif
 
@@ -574,7 +634,8 @@ Target "R" DoNothing // Incremental build of Release
 "Release" 
 #if MONO
 #else
-  =?> ("SourceLink", Pdbstr.tryFind().IsSome )
+  // =?> ("SourceLink", Pdbstr.tryFind().IsSome )
+  ==> "SourceLink"
 #endif
   ==> "NuGet"
   ==> "BuildPackage"

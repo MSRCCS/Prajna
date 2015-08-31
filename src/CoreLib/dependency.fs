@@ -304,7 +304,7 @@ type JobDependencies() =
         for local in locals do
             let remote = Path.GetFileName(local)
             x.AddLocalRemote((local, remote))   
-
+    
     /// Add referenced assemblies of the current program into dependency. The remote assembly will be located under current JobDirectory.
     /// If bAddPdb flag is true, PDB file is added to the remote  JobDirectory too. 
     member x.AddRefAssem(bAddPdb : bool) =
@@ -466,7 +466,7 @@ type JobDependencies() =
     /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
     /// run a customized deserializer function to deserialize the object. </param>
     /// <param name="encodeFunc"> Customized Serialization function that encodes the 'Type to a bytestream.  </param>
-    member x.InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*MemoryStream->unit, bAllowReplicate ) =  
+    member x.InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*Stream->unit, bAllowReplicate ) =  
         let wrappedEncodeFunc (o:Object, ms ) = 
             encodeFunc ( o :?> 'Type, ms )    
         x.InstallWrappedSerializer( id, typeof<'Type>.FullName, wrappedEncodeFunc, bAllowReplicate)
@@ -508,7 +508,7 @@ type JobDependencies() =
     /// </summary>
     /// <param name="id"> Guid that uniquely identified the deserializer in the bytestream. </param>
     /// <param name="decodeFunc"> Customized Deserialization function that decodes bytestream to 'Type.  </param>
-    member x.InstallDeserializer<'Type>( id: Guid, decodeFunc: MemoryStream -> 'Type, bAllowReplicate ) = 
+    member x.InstallDeserializer<'Type>( id: Guid, decodeFunc: Stream -> 'Type, bAllowReplicate ) = 
         let wrappedDecodeFunc (ms) = 
             decodeFunc ( ms ) :> Object
         x.InstallWrappedDeserializer( id, typeof<'Type>.FullName, wrappedDecodeFunc, bAllowReplicate)
@@ -595,7 +595,7 @@ type JobDependencies() =
             let obj = ms.Deserialize()
             if Utils.IsNotNull obj then 
                 match obj with 
-                | :? (Object * MemoryStream ->unit) as wrappedEncodeFunc -> 
+                | :? (Object * Stream->unit) as wrappedEncodeFunc -> 
                     x.InstallWrappedSerializer( id, name, wrappedEncodeFunc, true )
                 | _ -> 
                     Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Unpack Serializer %A of type %s, but the serializer is not a function of Object*MemStream->unit "
@@ -607,7 +607,7 @@ type JobDependencies() =
             let obj = ms.Deserialize()
             if Utils.IsNotNull obj then 
                 match obj with 
-                | :? ( MemoryStream -> Object) as wrappedDecodeFunc -> 
+                | :? ( Stream->Object) as wrappedDecodeFunc -> 
                     x.InstallWrappedDeserializer( id, name, wrappedDecodeFunc, true )
                 | _ -> 
                     Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Unpack Deserializer %A of type %s, but the deserializer is not a function of MemStream->Object "
@@ -630,7 +630,7 @@ type JobDependencies() =
     /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
     /// run a customized deserializer function to deserialize the object. </param>
     /// <param name="encodeFunc"> Customized Serialization function that encodes the 'Type to a bytestream.  </param>
-    static member InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*MemoryStream->unit ) =    
+    static member InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*Stream->unit ) =    
         JobDependencies.Current.InstallSerializer<_>(id, encodeFunc, false )   
         
     /// <summary>
@@ -638,7 +638,7 @@ type JobDependencies() =
     /// </summary>
     /// <param name="id"> Guid that uniquely identified the deserializer in the bytestream. </param>
     /// <param name="decodeFunc"> Customized Deserialization function that decodes bytestream to 'Type.  </param>
-    static member InstallDeserializer<'Type>( id: Guid, decodeFunc: MemoryStream -> 'Type ) = 
+    static member InstallDeserializer<'Type>( id: Guid, decodeFunc: Stream -> 'Type ) = 
         JobDependencies.Current.InstallDeserializer<_>( id, decodeFunc, false )
     /// <summary> 
     /// InstallSerializerDelegate allows language other than F# to install its own type serialization implementation. 

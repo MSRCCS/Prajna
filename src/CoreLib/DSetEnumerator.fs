@@ -172,6 +172,7 @@ type internal PartitionObjectQueue<'U>() =
         bExist
     member x.QueueSize with get() = !objsizeTotal
     member x.Count with get() = internalQueue.Count
+    member x.IsEmpty with get() = internalQueue.IsEmpty
 
 /// DSet is a distributed key-value set
 /// It is one of the foundation class in Prajna for computing. 
@@ -309,15 +310,24 @@ type internal DSetEnumerator<'U >( DSet: DSet ) =
                     bFind <- partitionKeyValuesList.[currPartition].TryDequeue( objRef )
                     if bFind then
                         curr <- Some (!objRef)
+                        Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "DoMoveNext read from partition %i: %A" currPartition !objRef)
                 if not bFind then 
                     // Doesn't find any K-V in this round. 
                     let bRemapping = x.RemappingForReadTask()
                     let bEnd = x.CurDSet.AllDSetsRead(  )
-                    if bEnd && not bRemapping then 
-                        // setting partitionKeyValuesList signals the end of the entire DSet Read 
-                        partitionKeyValuesList <- null
-                    else                 
-                        Threading.Thread.Sleep( 5 )
+                    // It's possible that some final items arrive after we went through partitionKeyValuesList thought there're not items
+                    // but before we call "AllDSetsRead". So bEnd is true but these final items were not read yet
+                    let anyItem = 
+                        partitionKeyValuesList |> Array.exists(fun l -> not l.IsEmpty)
+                    if not anyItem then
+                        if bEnd && not bRemapping then 
+                            Logger.LogF( LogLevel.WildVerbose, fun _ -> "DoMoveNext: completed")
+                            // setting partitionKeyValuesList signals the end of the entire DSet Read 
+                            partitionKeyValuesList <- null
+                        else                
+                            Threading.Thread.Sleep( 5 )
+                    elif bEnd && not bRemapping then 
+                        Logger.LogF( LogLevel.WildVerbose, fun _ -> "DoMoveNext: find some final items")
             if not bFind then 
                 x.CloseDSetEnumerator()
             bFind

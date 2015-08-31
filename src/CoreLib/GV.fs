@@ -342,7 +342,7 @@ and /// Information of Within Job cluster information.
                         | _ -> 
                             Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer, in cluster %s:%s, unknown node type %A for peer %d to connect to" 
                                             x.LinkedCluster.Name x.LinkedCluster.VersionString ndInfo.NodeType peeri )
-                    queue.AddRecvProc (Cluster.ParseHostCommand queue peeri) |> ignore
+                    queue.GetOrAddRecvProc ("ClusterParseHost", Cluster.ParseHostCommand queue peeri) |> ignore
                     queue.OnConnect.Add( fun _ -> let ms = new MemStream(1024)
                                                   ms.WriteString( x.LinkedCluster.Name )
                                                   ms.WriteInt64( x.LinkedCluster.Version.Ticks )

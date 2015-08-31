@@ -111,11 +111,9 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
     member val CanWrite = new ManualResetEvent(true) with get
     member val PartitionI = parti with get
     member val Serial = ref 0L with get
-//    member val SerializationLimit =  useLimit with get
-//    member val private ReadUnblockingLimit =  Math.Min( useLimit, int (DeploymentSettings.DefaultIOQueueReadUnblocking) ) with get
-//    member val private WriteUnblockingLimit = Math.Min( useLimit, int (DeploymentSettings.DefaultIOQueueWriteUnblocking) ) with get
-    member val SerializationLimit =  DeploymentSettings.DefaultIOMaxQueue with get
-    member val private WriteUnblockingLimit = DeploymentSettings.DefaultIOMaxQueue with get
+    member val SerializationLimit =  Math.Min(useLimit, DeploymentSettings.DefaultIOMaxQueue) with get
+    member val private ReadUnblockingLimit =  int (DeploymentSettings.DefaultIOQueueReadUnblocking) with get
+    member val private WriteUnblockingLimit = Math.Min(useLimit, DeploymentSettings.DefaultIOMaxQueue) with get
     member val private IOQueue : ConcurrentQueue<BlobMetadata*Object> = null with get, set
     member val private IOQueueLength = ref 0 with get
     member val private bEndReached = false with get, set
@@ -156,14 +154,11 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
         // the last item enqueued. 
         x.ReadyIOQueue()
         if (!x.IOQueueLength) >= x.SerializationLimit then 
-            
+            x.CanWrite.Reset() |> ignore 
             while (!x.IOQueueLength) >= x.SerializationLimit do
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Partition %d, reaches queue length %d, to block\n" x.PartitionI (!x.IOQueueLength) ))
-                x.CanRead.Set() |> ignore
-                if x.CanWrite.WaitOne(0) then
-                    x.CanWrite.Reset() |> ignore 
-                else 
-                    ThreadPoolWaitHandles.safeWaitOne( x.CanWrite ) |> ignore
+                Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Partition %d, reaches queue length %d, to block\n" x.PartitionI (!x.IOQueueLength) ))
+                x.CanRead.Set() |> ignore           
+                ThreadPoolWaitHandles.safeWaitOne( x.CanWrite ) |> ignore
         x.IOQueue.Enqueue( meta, objarray )
         let cnt = Interlocked.Increment( x.IOQueueLength ) 
         Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Partition %d, add to queue (len:%d) ...  %s\n" x.PartitionI cnt (meta.ToString()) ))
@@ -172,7 +167,7 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
             x.SetLastMeta( meta )
             Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Partition %d end reached %s\n" x.PartitionI (meta.ToString()) ))
             x.CanRead.Set() |> ignore
-        elif cnt >= 2 then 
+        elif cnt >= x.ReadUnblockingLimit then 
             x.CanRead.Set() |> ignore
     member x.RetrieveQueue( ) = 
         // Note: it's designed to work with a single reader, does not assume multiple concurrent readers
@@ -242,8 +237,8 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
         if bSuccess then 
             let cnt = Interlocked.Decrement( x.IOQueueLength )
             if cnt < x.WriteUnblockingLimit then 
-            //if not (x.CanWrite.WaitOne(0)) then 
-                x.CanWrite.Set() |> ignore
+                if not (x.CanWrite.WaitOne(0)) then 
+                    x.CanWrite.Set() |> ignore
             let retMeta, obj = !retVal
             let serial = !x.Serial
             x.Serial := serial + int64 retMeta.NumElems

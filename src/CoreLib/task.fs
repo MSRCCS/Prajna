@@ -1646,13 +1646,13 @@ and [<AllowNullLiteral; Serializable>]
                                                                                     |> String.concat "," ) ))
             let bTerminateJob = ref false
             let task : Task ref = ref null
-            let procItemTask = (
+            let procParseQueueTask = (
                 fun (cmd : NetworkCommand) -> 
                     Task.ParseQueueCommand task queue allConnections allTasks showConnections bConnectedBefore bTerminateJob cmd.cmd (cmd.ms)
                     ContractStoreAtProgram.Current.ParseContractCommand queue.RemoteEndPointSignature cmd.cmd (cmd.ms)
                     null
             )
-            queue.AddRecvProc(procItemTask) |> ignore
+            queue.GetOrAddRecvProc("ParseQueue", procParseQueueTask) |> ignore
             ContractStoreAtProgram.RegisterNetworkParser( queue )
             queue.Initialize()
             // Wait for connection to PrajnaClient to establish

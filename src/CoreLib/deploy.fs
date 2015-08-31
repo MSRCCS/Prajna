@@ -221,8 +221,8 @@ type DeploymentSettings() =
     /// ReSerialization For Cache
     static member val internal DefaultIOMaxQueue = 100 with get, set
     /// ReSerialization For Cache
-    static member val internal DefaultIOQueueReadUnblocking = 1 with get, set
-    static member val internal DefaultIOQueueWriteUnblocking = 50 with get, set
+    static member val internal DefaultIOQueueReadUnblocking = 2 with get, set
+    static member val internal DefaultIOQueueWriteUnblocking = 100 with get, set
     /// Track seen partitions
     static member val internal TrackSeenKeyValue = false with get, set
     /// Save Initial Metadata?

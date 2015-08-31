@@ -311,7 +311,7 @@ type JobListener() =
                 x.ProcessPeerJobCommandLoop queuePeer cmd
         )
         let remoteSignature = queuePeer.RemoteEndPointSignature
-        queuePeer.AddRecvProc procItem |> ignore
+        queuePeer.GetOrAddRecvProc( "ProcessPeerJob", procItem ) |> ignore
         queuePeer.Initialize()
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "add command parser for backend server %s." (LocalDNS.GetShowInfo( queuePeer.RemoteEndPoint )) ))
 

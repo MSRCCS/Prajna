@@ -267,7 +267,7 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
         x.RecvProc <- recvProc
         x.DisconnectProc <- disconnectProc
         x.ConnectionToDaemon <- NetworkConnections.Current.AddConnect( machineName, port )
-        x.ConnectionToDaemon.AddRecvProc ( x.RecvProc x.ConnectionToDaemon ) |> ignore
+        x.ConnectionToDaemon.GetOrAddRecvProc ( "DaemonConnect", x.RecvProc x.ConnectionToDaemon ) |> ignore
         /// Timestamp refresh. 
         x.ConnectionToDaemon.OnConnect.Add( fun _ -> Logger.LogF(LogLevel.MildVerbose, ( fun _ -> let soc = x.ConnectionToDaemon.Socket
                                                                                                   sprintf "node %s:%d connected, local end point %A ..." 
@@ -281,7 +281,7 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
     member x.DaemonReconnect() = 
         /// Second time to connect 
         let newAttemptQueue = NetworkConnections.Current.AddConnect( machineName, port )
-        newAttemptQueue.AddRecvProc ( x.RecvProc x.ConnectionToDaemon ) |> ignore
+        newAttemptQueue.GetOrAddRecvProc ( "DaemonConnect", x.RecvProc x.ConnectionToDaemon ) |> ignore
         /// Timestamp refresh. 
         newAttemptQueue.OnConnect.Add( fun _ -> Logger.LogF(LogLevel.MildVerbose, ( fun _ -> sprintf "node %s:%d reconnected ..." 
                                                                                                         machineName port ))
@@ -1200,7 +1200,7 @@ and
                 lock ( x.Nodes.[peeri].MachineName ) ( fun _ -> 
                     x.Queues.[peeri] <- Cluster.Connects.AddConnect( x.Nodes.[peeri].MachineName, x.Nodes.[peeri].MachinePort )
                     queue := x.Queues.[peeri]
-                    (!queue).AddRecvProc (Cluster.ParseHostCommand (!queue) peeri) |> ignore
+                    (!queue).GetOrAddRecvProc ("ClusterParseHost", Cluster.ParseHostCommand (!queue) peeri) |> ignore
                     if ((!x.QueuesInitialized)=1) then
                         (!queue).Initialize() // otherwise no processing until all queues added
                 )
@@ -1397,7 +1397,7 @@ and
                         | ( ControllerVerb.Echo2, ControllerNoun.Job ) ->
                             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Echo2, Job from client"))
                         | _ -> 
-                            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Receive cmd %A from peer %d with payload %A, but there is no parsing logic!" cmd i (ms.GetBuffer()) ))
+                            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Receive cmd %A from peer %d with payload %A, but there is no parsing logic!" cmd i (ms.GetBuffer()) ))
                     if not bNotBlocked then 
                     // JinL: 06/24/2014
                     // Blocking, the command cannot be further processed (e.g., too many read pending, will need to block further read of the receiving queue 

@@ -455,7 +455,7 @@ type DSet<'U> () =
             s
         let aggr s1 s2 = 
             s1
-        x.FoldWithCommonStatePerNode( folder, aggr, Unchecked.defaultof<'U> ) |> ignore
+        x.FoldWithCommonStatePerNode( folder, aggr, new Object() ) |> ignore
 
     /// Iterate the given function to each element. This is an action.
     static member iter iterFunc (x:DSet<'U>) = 

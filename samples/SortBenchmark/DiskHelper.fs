@@ -41,7 +41,6 @@ open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.StringTools
 open Prajna.Core
-//open Prajna.Service.CoreServices
 
 [<Serializable>]
 type StorageProfile (profileName : string) =
@@ -74,6 +73,7 @@ type StorageProfile (profileName : string) =
 
                 x.lock := 0
                 b <- true
+
         ()
 
     
@@ -271,6 +271,8 @@ type DiskHelper(records:int64) =
     member x.GeneratePartitionFilePath(parti:int) =
         x.partitiondataSP.GenerateFilePath(parti)
 
+    member x.GetNextPartitionFilePath() =
+        x.partitiondataSP.GetNextFilePath()
 
     member x.GenerateSortedFilePath(parti:int) = 
         x.sorteddataSP.GenerateFilePath(parti)
@@ -341,3 +343,41 @@ type RollingFileMgr(records:int64) =
 
 
 
+[<AllowNullLiteral>]
+type SingleThreadExec1() =
+    let counter = ref 0
+    let bRun = ref 0
+    let q = new ConcurrentQueue<unit->unit>()
+
+    member val Flush = false with get,set
+    member x.IsEmpty() = q.IsEmpty
+    // execute function only on one thread - "counter" number of times
+    member x.Exec(f : unit->unit) =
+        if (Interlocked.Increment(counter) = 1) then
+            let mutable bDone = false
+            while (not bDone) do
+                f()
+                bDone <- (Interlocked.Decrement(counter) = 0)
+
+    // execute function only on one thread - but at least one time after call
+    member x.ExecOnce(f : unit->unit) =
+        if (Interlocked.Increment(counter) = 1) then
+            let mutable bDone = false
+            while (not bDone) do
+                // get count prior to executing
+                let curCount = !counter
+                f()
+                bDone <- (Interlocked.Add(counter, -curCount) = 0)
+
+    member x.ExecQ(f : unit->unit) =
+        q.Enqueue(f)
+        if (Interlocked.Increment(counter) > 10 || x.Flush) then
+            if (Interlocked.CompareExchange(bRun,1,0) = 0) then
+                let mutable bDone = false
+                let fn = ref (fun () -> ())
+                while (not bDone) do
+                    let ret = q.TryDequeue(fn)
+                    if (ret) then
+                        (!fn)()
+                        bDone <- (Interlocked.Decrement(counter) = 0)
+                bRun := 0

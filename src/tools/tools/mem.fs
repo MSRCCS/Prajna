@@ -267,20 +267,20 @@ type Strm =
                     bCustomized <- true
         if not bCustomized then 
             match (obj) with
-//                | :? ((System.Byte)[][]) as arr ->
-//                    x.WriteBytes( CustomizedSerialization.ArrSerializerGuid.ToByteArray() )
-//                    x.WriteInt32(arr.Length)
-//                    for i=0 to arr.Length-1 do
-//                        x.WriteInt32(arr.[i].Length)
-//                        x.WriteBytes(arr.[i])
-//                | :? ((StreamBase<byte>)[]) as arr ->
-//                    x.WriteBytes( CustomizedSerialization.MStreamSerializerGuid.ToByteArray() )
-//                    x.WriteInt32(arr.Length)
-//                    for i=0 to arr.Length-1 do
-//                        x.WriteInt32(int32 arr.[i].Length)
-//                    for i=0 to arr.Length-1 do
-//                        x.AppendNoCopy(arr.[i], 0L, arr.[i].Length)
-//                        arr.[i].DecRef()
+                | :? ((System.Byte)[][]) as arr ->
+                    x.WriteBytes( CustomizedSerialization.ArrSerializerGuid.ToByteArray() )
+                    x.WriteInt32(arr.Length)
+                    for i=0 to arr.Length-1 do
+                        x.WriteInt32(arr.[i].Length)
+                        x.WriteBytes(arr.[i])
+                | :? ((StreamBase<byte>)[]) as arr ->
+                    x.WriteBytes( CustomizedSerialization.MStreamSerializerGuid.ToByteArray() )
+                    x.WriteInt32(arr.Length)
+                    for i=0 to arr.Length-1 do
+                        x.WriteInt32(int32 arr.[i].Length)
+                    for i=0 to arr.Length-1 do
+                        x.AppendNoCopy(arr.[i], 0L, arr.[i].Length)
+                        arr.[i].DecRef()
                 | _ ->
                     x.WriteBytes( CustomizedSerialization.DefaultSerializerGuid.ToByteArray() )
                     x.BinaryFormatterSerializeFromTypeName( obj, fullname )
@@ -301,28 +301,28 @@ type Strm =
         let typeGuid = Guid( buf ) 
         if typeGuid = CustomizedSerialization.NullObjectGuid then 
             null 
-//        elif typeGuid = CustomizedSerialization.ArrSerializerGuid then
-//            let arr = Array.zeroCreate<System.Byte[]>(x.ReadInt32())
-//            for i=0 to arr.Length-1 do
-//                arr.[i] <- Array.zeroCreate<System.Byte>(x.ReadInt32())
-//                x.ReadBytes(arr.[i]) |> ignore
-////                let len = x.ReadInt32()
-////                x.Seek(int64 len, SeekOrigin.Current) |> ignore
-////                arr.[i] <- Strm.ArrToReadTo
-//            box(arr)
-//        elif typeGuid = CustomizedSerialization.MStreamSerializerGuid then
-//            let len = x.ReadInt32()
-//            let arr = Array.zeroCreate<MemoryStreamB>(len)
-//            let arrLen = Array.zeroCreate<int32>(arr.Length)
-//            for i=0 to arr.Length-1 do
-//                arrLen.[i] <- x.ReadInt32()
-//            for i=0 to arr.Length-1 do
-//                arr.[i] <- new MemoryStreamB()
-//                //arr.[i].WriteFromStream(x, arrLen.[i])
-//                arr.[i].AppendNoCopy(x, x.Position, int64 arrLen.[i])
-//                x.Seek(int64 arrLen.[i], SeekOrigin.Current) |> ignore
-//            //x.DecRef()
-//            box(arr)
+        elif typeGuid = CustomizedSerialization.ArrSerializerGuid then
+            let arr = Array.zeroCreate<System.Byte[]>(x.ReadInt32())
+            for i=0 to arr.Length-1 do
+                arr.[i] <- Array.zeroCreate<System.Byte>(x.ReadInt32())
+                x.ReadBytes(arr.[i]) |> ignore
+//                let len = x.ReadInt32()
+//                x.Seek(int64 len, SeekOrigin.Current) |> ignore
+//                arr.[i] <- Strm.ArrToReadTo
+            box(arr)
+        elif typeGuid = CustomizedSerialization.MStreamSerializerGuid then
+            let len = x.ReadInt32()
+            let arr = Array.zeroCreate<MemoryStreamB>(len)
+            let arrLen = Array.zeroCreate<int32>(arr.Length)
+            for i=0 to arr.Length-1 do
+                arrLen.[i] <- x.ReadInt32()
+            for i=0 to arr.Length-1 do
+                arr.[i] <- new MemoryStreamB()
+                //arr.[i].WriteFromStream(x, arrLen.[i])
+                arr.[i].AppendNoCopy(x, x.Position, int64 arrLen.[i])
+                x.Seek(int64 arrLen.[i], SeekOrigin.Current) |> ignore
+            //x.DecRef()
+            box(arr)
         elif typeGuid <> CustomizedSerialization.DefaultSerializerGuid then 
             let bE, decodeFunc = CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( typeGuid ) 
             if bE then 

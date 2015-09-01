@@ -625,6 +625,26 @@ type DSet<'U> () =
         x
 
     /// <summary>
+    /// Create a distributed dataset on the distributed cluster, with each element created by a functional delegate, using
+    /// a given number of parallel execution per node.
+    /// <param name="initFunc"> The functional delegate that create each element in the dataset, the integer index passed to the function 
+    /// indicates the partition, and the second integer passed to the function index (from 0) element within the partition. 
+    /// </param> 
+    /// <param name="partitionSizeFunc"> The functional delegate that returns the size of the partition,  the integer index passed to the function 
+    /// indicates the partition. 
+    /// </param> 
+    /// </summary> 
+    member x.InitN(initFunc, partitionSizeFunc : int->int->int) =
+        x.NumPartitions <- x.Cluster.NumNodes * x.NumParallelExecution
+        x.NumReplications <- 1
+        x.Dependency <- Source
+        x.Function <- Function.Init<'U>( initFunc, partitionSizeFunc x.NumPartitions ) 
+        // Trigger of setting the serialization limit parameter within functions. 
+        // Automatic set serialization limit
+        // x.SerializationLimit <- x.SerializationLimit
+        x
+
+    /// <summary>
     /// Create a distributed dataset on the distributed cluster, with each element created by a functional delegate.
     /// </summary> 
     /// <param name="initFunc"> The functional delegate that create each element in the dataset, the integer index passed to the function 
@@ -698,20 +718,6 @@ type DSet<'U> () =
         x.Mapping <- Array.init (x.Cluster.NumNodes*num) ( fun i -> Array.create 1 (i/num) )
         x.Dependency <- Source
         x.Function <- Function.SourceN<'U>( num, sourceNSeqFunc ) 
-        x
-
-    /// <summary>
-    /// Create a distributed dataset on the distributed cluster, with each element created by a functional delegate.
-    /// </summary> 
-    member x.InitN2(num, initFunc, partitionSizeFunc) =
-        x.NumParallelExecution <- num
-        x.NumPartitions <- x.Cluster.NumNodes * x.NumParallelExecution
-        x.NumReplications <- 1
-        x.Dependency <- Source
-        x.Function <- Function.Init<'U>( initFunc, partitionSizeFunc ) 
-        // Trigger of setting the serialization limit parameter within functions. 
-        // Automatic set serialization limit
-        // x.SerializationLimit <- x.SerializationLimit
         x
 
     /// <summary> 

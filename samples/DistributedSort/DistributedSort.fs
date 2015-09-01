@@ -219,7 +219,7 @@ let main orgargs =
             startDSet.NumPartitions <- nump
             startDSet.NumParallelExecution <- nump / startDSet.Cluster.NumNodes
         let numPartitions = startDSet.NumPartitions
-        let partitionSizeFunc( parti ) = 
+        let partitionSizeFunc (numPartitions) ( parti ) = 
             let ba = int (num / int64 numPartitions) 
             if parti < int ( num % int64 numPartitions ) then ba + 1 else ba
         let initVectorFunc (parti, serial) =
@@ -229,7 +229,7 @@ let main orgargs =
 //            key
         let partitionFunc (kv:byte[]) = 
             int kv.[0]
-        let dkvGen = startDSet.InitN2(startDSet.NumParallelExecution, initVectorFunc, partitionSizeFunc)
+        let dkvGen = startDSet.InitN(initVectorFunc, partitionSizeFunc)
         //let dkvGen = startDSet |> DSet.init initVectorFunc partitionSizeFunc 
         //let dkvGenRAM = dkvGen |> DSet.cacheInRAM
         let repartParam = DParam ( PreGroupByReserialization = 0, NumPartitions = finalPartitions )

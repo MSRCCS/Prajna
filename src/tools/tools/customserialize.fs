@@ -72,6 +72,10 @@ and internal CustomizedSerialization() =
     static member val internal NullObjectGuid = Guid( "45BD7C41-0595-4854-A375-0A1895B10AAD" ) with get
     /// Use default system serializer
     static member val internal DefaultSerializerGuid = Guid( "4721F23B-65D3-499D-9750-2D6FE6A6AE54" ) with get
+    /// Byte[] serializer
+    static member val internal ArrSerializerGuid = Guid("0C57DE71-CAB7-46DE-9A51-133E003862D1") with get
+    /// Memstream[] serializer
+    static member val internal MStreamSerializerGuid = Guid("4D6BD747-AC4C-43A9-BDDA-2EB007B4C601") with get
     /// Collection of Customized Serializer by name
     static member val internal EncoderCollectionByName = ConcurrentDictionary<string, Guid>(StringComparer.Ordinal) with get
     /// Collection of Customized Serializer by Guid

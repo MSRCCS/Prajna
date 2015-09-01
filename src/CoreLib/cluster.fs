@@ -359,7 +359,7 @@ type internal JobListeningPortManagement( jobip : string, minPort : int, maxPort
                                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Successful in reserving job port %d" usePort ))
                             with 
                             | e -> 
-                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Try binding to port %d failed" usePort ))
+                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Try binding to port %d failed exception %A" usePort e))
                                 // Marked the port as not usable
                                 x.JobListeningPortArray.[i] := 3
                     i <- i + 1

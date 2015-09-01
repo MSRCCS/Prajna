@@ -1374,7 +1374,7 @@ and
     member val internal CustomizedFuncStream = null with get, set
     /// Deserialize Job description to Blob, 
     member x.UnpackToBlob( ms:StreamBase<byte> ) = 
-        x.MetadataStream <- ms.GetNewOfSameType()
+        x.MetadataStream <- ms.Replicate()
         let blobList = List<_>()
         x.Name <- ms.ReadString( ) 
         x.Version <- DateTime( ms.ReadInt64() )

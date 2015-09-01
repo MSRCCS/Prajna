@@ -505,7 +505,7 @@ type internal ContractStoreAtDaemon() =
         // Parse out name and request ID
         let pos = ms.Position
         let reqID = ms.ReadGuid( )
-        let bNull = Strm.PeekIfNull(ms) 
+        let bNull = CustomizedSerialization.PeekIfNull(ms) 
         ms.Seek( pos, SeekOrigin.Begin ) |> ignore
         let bExist, tuple = x.PendingRequests.TryGetValue( reqID ) 
         let errorMsg = ref null
@@ -573,7 +573,7 @@ type internal ContractStoreAtDaemon() =
                         // Insert a null reply before error 
                         let msNull = new MemStream( 1024 )
                         msNull.WriteGuid( reqID )
-                        Strm.WriteNull(msNull) 
+                        CustomizedSerialization.WriteNull(msNull) 
                         queue.ToSend( ControllerCommand( ControllerVerb.Reply, ControllerNoun.Contract ), msNull )
                     queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract ), ms )
                 else

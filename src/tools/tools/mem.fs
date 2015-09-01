@@ -173,42 +173,8 @@ type ExpandableBuffer internal ( initialBuffer:byte[], posAtZero:int ) =
         x.ReadStream( readStream, ExpandableBuffer.DefaultReadStreamBlockLength)
         x.GetBufferTuple()
 
-/// <summary>
-/// Prajna allows user to implement customized memory manager. The corresponding class 'Type implement a 
-///     allocFunc: () -> 'Type to grab an object of 'Type (from a pool of preallocated object). 
-///     resetFunc: int -> () to return an object to the pool. 
-/// Jin Li: This class is to be internalized, with a corresponding external implementation at JobDependencies. 
-/// </summary> 
-type internal CustomizedMemoryManager() = 
-    static member val internal MemoryManagerCollectionByName = ConcurrentDictionary<string, _>() with get
-    /// <summary>
-    /// Install a customized Memory Manager, in raw format of storage and no checking
-    /// </summary>
-    /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
-    /// run a customized deserializer function to deserialize the object. </param>
-    /// <param name="fullname"> Type name of the object. </param>
-    /// <param name="wrappedEncodeFunc"> Customized Serialization function that encodes an Object to a bytestream.  </param>
-    static member InstallMemoryManager( fullname, allocFunc: unit -> Object, preallocFunc: int -> unit ) = 
-        CustomizedMemoryManager.MemoryManagerCollectionByName.Item( fullname ) <- ( allocFunc, preallocFunc )
-    static member GetAllocFunc<'Type when 'Type :> IDisposable >() = 
-        let bExist, tuple = CustomizedMemoryManager.MemoryManagerCollectionByName.TryGetValue( typeof<'Type>.FullName )
-        if bExist then 
-            let allocFunc, _ = tuple 
-            let wrappedAllocFunc() =
-                allocFunc() :?> 'Type
-            wrappedAllocFunc
-        else 
-            failwith (sprintf "Can't find customized memory manager for type %s" typeof<'Type>.FullName )
-    static member GetPreallocFunc<'Type when 'Type :> IDisposable >() =
-        let bExist, tuple = CustomizedMemoryManager.MemoryManagerCollectionByName.TryGetValue( typeof<'Type>.FullName )
-        if bExist then 
-            let _, preallocFunc = tuple 
-            preallocFunc
-        else 
-            failwith (sprintf "Can't find customized memory manager for type %s" typeof<'Type>.FullName )
-
-//type MStream = MemoryStreamB
-type MStream = StreamBaseByte
+type MStream = MemoryStreamB
+//type MStream = StreamBaseByte
 
 /// <summary>
 /// MemStream is similar to MemoryStream and provide a number of function to ease the read and write object
@@ -271,28 +237,13 @@ type [<AllowNullLiteral>] MemStream =
     override x.GetNew(size) =
         new MemStream(size) :> StreamBase<byte>
 
-    override x.GetNewOfSameType() =
-        new MemStream(x) :> StreamBase<byte>
+    override x.GetNew(buffer, index, count, writable, publiclyVisible) =
+        new MemStream(buffer, index, count, writable, publiclyVisible) :> StreamBase<byte>
+
     member internal  x.GetValidBuffer() =
         Array.sub (x.GetBuffer()) 0 (int x.Length)
 
 type Strm =
-    /// <summary>
-    /// Peak next 16B (GUID), and check if the result is null.
-    /// </summary>
-    /// <returns> true if null has been serialized </returns>
-    static member PeekIfNull(x : StreamBase<byte>) = 
-        let pos = x.Position
-        let buf = Array.zeroCreate<_> 16
-        x.ReadBytes( buf ) |> ignore
-        let bRet = Guid( buf ) = CustomizedSerialization.NullObjectGuid
-        x.Seek( pos, SeekOrigin.Begin ) |> ignore
-        bRet
-    /// <summary> 
-    /// Write a Null Guid to bytestream
-    /// </summary>
-    static member WriteNull(x : StreamBase<byte>) = 
-        x.WriteBytes( CustomizedSerialization.NullObjectGuid.ToByteArray() ) 
     /// <summary> 
     /// Serialize a particular object to bytestream, allow use of customizable serializer if installed. 
     /// If obj is null, it is serialized to a specific reserved NullObjectGuid for null. 
@@ -316,20 +267,20 @@ type Strm =
                     bCustomized <- true
         if not bCustomized then 
             match (obj) with
-                | :? ((System.Byte)[][]) as arr ->
-                    x.WriteBytes( CustomizedSerialization.ArrSerializerGuid.ToByteArray() )
-                    x.WriteInt32(arr.Length)
-                    for i=0 to arr.Length-1 do
-                        x.WriteInt32(arr.[i].Length)
-                        x.WriteBytes(arr.[i])
-                | :? ((StreamBase<byte>)[]) as arr ->
-                    x.WriteBytes( CustomizedSerialization.MStreamSerializerGuid.ToByteArray() )
-                    x.WriteInt32(arr.Length)
-                    for i=0 to arr.Length-1 do
-                        x.WriteInt32(int32 arr.[i].Length)
-                    for i=0 to arr.Length-1 do
-                        x.AppendNoCopy(arr.[i], 0L, arr.[i].Length)
-                        arr.[i].DecRef()
+//                | :? ((System.Byte)[][]) as arr ->
+//                    x.WriteBytes( CustomizedSerialization.ArrSerializerGuid.ToByteArray() )
+//                    x.WriteInt32(arr.Length)
+//                    for i=0 to arr.Length-1 do
+//                        x.WriteInt32(arr.[i].Length)
+//                        x.WriteBytes(arr.[i])
+//                | :? ((StreamBase<byte>)[]) as arr ->
+//                    x.WriteBytes( CustomizedSerialization.MStreamSerializerGuid.ToByteArray() )
+//                    x.WriteInt32(arr.Length)
+//                    for i=0 to arr.Length-1 do
+//                        x.WriteInt32(int32 arr.[i].Length)
+//                    for i=0 to arr.Length-1 do
+//                        x.AppendNoCopy(arr.[i], 0L, arr.[i].Length)
+//                        arr.[i].DecRef()
                 | _ ->
                     x.WriteBytes( CustomizedSerialization.DefaultSerializerGuid.ToByteArray() )
                     x.BinaryFormatterSerializeFromTypeName( obj, fullname )
@@ -350,28 +301,28 @@ type Strm =
         let typeGuid = Guid( buf ) 
         if typeGuid = CustomizedSerialization.NullObjectGuid then 
             null 
-        elif typeGuid = CustomizedSerialization.ArrSerializerGuid then
-            let arr = Array.zeroCreate<System.Byte[]>(x.ReadInt32())
-            for i=0 to arr.Length-1 do
-                arr.[i] <- Array.zeroCreate<System.Byte>(x.ReadInt32())
-                x.ReadBytes(arr.[i]) |> ignore
-//                let len = x.ReadInt32()
-//                x.Seek(int64 len, SeekOrigin.Current) |> ignore
-//                arr.[i] <- Strm.ArrToReadTo
-            box(arr)
-        elif typeGuid = CustomizedSerialization.MStreamSerializerGuid then
-            let len = x.ReadInt32()
-            let arr = Array.zeroCreate<MemoryStreamB>(len)
-            let arrLen = Array.zeroCreate<int32>(arr.Length)
-            for i=0 to arr.Length-1 do
-                arrLen.[i] <- x.ReadInt32()
-            for i=0 to arr.Length-1 do
-                arr.[i] <- new MemoryStreamB()
-                //arr.[i].WriteFromStream(x, arrLen.[i])
-                arr.[i].AppendNoCopy(x, x.Position, int64 arrLen.[i])
-                x.Seek(int64 arrLen.[i], SeekOrigin.Current) |> ignore
-            //x.DecRef()
-            box(arr)
+//        elif typeGuid = CustomizedSerialization.ArrSerializerGuid then
+//            let arr = Array.zeroCreate<System.Byte[]>(x.ReadInt32())
+//            for i=0 to arr.Length-1 do
+//                arr.[i] <- Array.zeroCreate<System.Byte>(x.ReadInt32())
+//                x.ReadBytes(arr.[i]) |> ignore
+////                let len = x.ReadInt32()
+////                x.Seek(int64 len, SeekOrigin.Current) |> ignore
+////                arr.[i] <- Strm.ArrToReadTo
+//            box(arr)
+//        elif typeGuid = CustomizedSerialization.MStreamSerializerGuid then
+//            let len = x.ReadInt32()
+//            let arr = Array.zeroCreate<MemoryStreamB>(len)
+//            let arrLen = Array.zeroCreate<int32>(arr.Length)
+//            for i=0 to arr.Length-1 do
+//                arrLen.[i] <- x.ReadInt32()
+//            for i=0 to arr.Length-1 do
+//                arr.[i] <- new MemoryStreamB()
+//                //arr.[i].WriteFromStream(x, arrLen.[i])
+//                arr.[i].AppendNoCopy(x, x.Position, int64 arrLen.[i])
+//                x.Seek(int64 arrLen.[i], SeekOrigin.Current) |> ignore
+//            //x.DecRef()
+//            box(arr)
         elif typeGuid <> CustomizedSerialization.DefaultSerializerGuid then 
             let bE, decodeFunc = CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( typeGuid ) 
             if bE then 
@@ -465,7 +416,6 @@ type internal CircularBuffer<'a> (size: int) =
         x.writePtr <- (x.writePtr + len)
         if x.writePtr >= x.bufferSize then
             x.writePtr <- x.writePtr - x.bufferSize
-        
 
     member x.Write(src:'a) =
         if x.freeSize < 1 then

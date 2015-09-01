@@ -69,6 +69,7 @@
     <Compile Include="AssemblyProperties.fs" />
     <Compile Include="setup.fs" />
     <Compile Include="KVStore.fs" />
+    <Compile Include="Serialization.fs" />
     <None Include="paket.references" />
   </ItemGroup>
   <ItemGroup>

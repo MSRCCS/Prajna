@@ -29,36 +29,11 @@ namespace Prajna.Tools
 open System
 open System.IO
 open System.Collections.Generic
-open System.Collections.Concurrent
-open System.Reflection
-open System.Runtime.Serialization
 open System.Threading
 
 open Prajna.Tools
 open Prajna.Tools.Queue
 open Prajna.Tools.FSharp
-
-
-// For C# lambda, C# compiler generates a display class that is not marked as "Serializable"
-// To be able to serialize C# lambdas that is supplied to Prajna functions, use serialization surrogate
-
-// The serialization surrogate for C# compiler generated display class. It implements ISerializationSurrogate
-type private CSharpDisplayClassSerializationSurrogate () =
-    let getInstanceFields (obj : obj) =
-        obj.GetType().GetFields(BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic)
-
-    interface ISerializationSurrogate with
-        member x.GetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext): unit = 
-            getInstanceFields obj |> Array.iter (fun f -> info.AddValue(f.Name, f.GetValue(obj)))
-        
-        member x.SetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext, selector: ISurrogateSelector): obj = 
-            getInstanceFields obj |> Array.iter (fun f -> f.SetValue(obj, info.GetValue(f.Name, f.FieldType)))
-            obj
-
-[<Serializable>]
-type internal NullObjectForSerialization() = 
-    class
-    end
 
 // use AddRef/DecRef to acquire / release resource
 // should not directly use this class, as there is no backup resource freeing in destructor (no override Finalize)
@@ -129,8 +104,7 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
     member val UserToken : obj = null with get, set
 
 // use release to release resource, not ref counted
-[<AllowNullLiteral>]
-type RBufPart<'T>() =
+type [<AllowNullLiteral>] RBufPart<'T>() =
     let bReleased = ref 0
 
     new (rbuf : RefCntBuf<'T>, offset : int, count : int) as x =
@@ -164,8 +138,7 @@ type RBufPart<'T>() =
     // the beginning element's position in the stream 
     member val StreamPos = 0L with get, set
 
-[<AllowNullLiteral>]
-type SharedMemoryPool<'T,'TBase when 'T :> RefCntBuf<'TBase> and 'T: (new : unit -> 'T)>() =
+type [<AllowNullLiteral>] SharedMemoryPool<'T,'TBase when 'T :> RefCntBuf<'TBase> and 'T: (new : unit -> 'T)>() =
     let mutable stack : SharedStack<'T> = null
     let mutable initFunc : 'T -> unit = (fun _ -> ())
 
@@ -201,187 +174,7 @@ type SharedMemoryPool<'T,'TBase when 'T :> RefCntBuf<'TBase> and 'T: (new : unit
             elem.Reset()
         event
 
-// Note: We hit some trouble adopting the new StreamBase<byte> and MemoryStreamB for CustomizedSerializer related classes due to circular dependencies and generics
-// For now, these interfaces are using the MemoryStream type. It's probably OK, since StreamBase<byte> implements MemoryStream (thus is a MemoryStream). Can be revisited.
-
-/// Programmer will implementation CustomizedSerializerAction of Action<Object*Stream> to customarily serialize an object 
-type CustomizedSerializerAction = Action<Object*Stream>
-/// Programmer will implementation CustomizedSerializerAction of Func<MemStream, Object> to customarily deserialize an object 
-and CustomizedDeserializerFunction = Func<Stream, Object>
-
-/// <summary>
-/// In Prajna, except closure serialization, user may install a customized encoder/decoder to serialize data, to make serialization/deserialization more efficient
-/// Jin Li: This class is internal, with a corresponding external interface to be accessed at JobDependencies. 
-/// </summary> 
-and internal CustomizedSerialization() = 
-    /// For null boject
-    static member val internal NullObjectGuid = Guid( "45BD7C41-0595-4854-A375-0A1895B10AAD" ) with get
-    /// Use default system serializer
-    static member val internal DefaultSerializerGuid = Guid( "4721F23B-65D3-499D-9750-2D6FE6A6AE54" ) with get
-    /// Byte[] serializer
-    static member val internal ArrSerializerGuid = Guid("0C57DE71-CAB7-46DE-9A51-133E003862D1") with get
-    /// Memstream[] serializer
-    static member val internal MStreamSerializerGuid = Guid("4D6BD747-AC4C-43A9-BDDA-2EB007B4C601") with get
-    /// Collection of Customized Serializer by name
-    static member val internal EncoderCollectionByName = ConcurrentDictionary<string, Guid>(StringComparer.Ordinal) with get
-    /// Collection of Customized Serializer by Guid
-    static member val internal EncoderCollectionByGuid = ConcurrentDictionary<Guid, (Object*Stream)->unit>() with get
-    /// Collection of Customized Deserializer by name
-    static member val internal DecoderCollectionByName = ConcurrentDictionary<string, Guid>(StringComparer.Ordinal) with get
-    /// Collection of Customized Serializer by Guid
-    static member val internal DecoderCollectionByGuid = ConcurrentDictionary<Guid, Stream->Object>() with get
-    /// <summary>
-    /// Install a customized serializer, with a unique GUID that identified the use of the serializer in the bytestream. 
-    /// </summary>
-    /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
-    /// run a customized deserializer function to deserialize the object. </param>
-    /// <param name="encodeFunc"> Customized Serialization function that encodes the 'Type to a bytestream.  </param>
-    static member InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*Stream->unit ) = 
-        if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
-            failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
-        else
-            let fullname = typeof<'Type>.FullName
-            let wrappedEncodeFunc (o:Object, ms ) = 
-                encodeFunc ( o :?> 'Type, ms )    
-            CustomizedSerialization.EncoderCollectionByName.Item( fullname ) <- id 
-            CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
-    /// <summary>
-    /// Install a customized serializer, in raw format of storage and no checking
-    /// </summary>
-    /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
-    /// run a customized deserializer function to deserialize the object. </param>
-    /// <param name="fullname"> Type name of the object. </param>
-    /// <param name="wrappedEncodeFunc"> Customized Serialization function that encodes an Object to a bytestream.  </param>
-    static member InstallSerializer( id: Guid, fullname, wrappedEncodeFunc ) = 
-        CustomizedSerialization.EncoderCollectionByName.Item( fullname ) <- id 
-        CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
-    /// <summary>
-    /// Install a customized deserializer, with a unique GUID that identified the use of the deserializer in the bytestream. 
-    /// </summary>
-    /// <param name="id"> Guid that uniquely identified the deserializer in the bytestream. </param>
-    /// <param name="decodeFunc"> Customized Deserialization function that decodes bytestream to 'Type.  </param>
-    static member InstallDeserializer<'Type>( id: Guid, decodeFunc: Stream -> 'Type ) = 
-        if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
-            failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
-        else
-            let fullname = typeof<'Type>.FullName
-            let wrappedDecodeFunc (ms) = 
-                decodeFunc ( ms ) :> Object
-            CustomizedSerialization.DecoderCollectionByName.Item( fullname ) <- id 
-            CustomizedSerialization.DecoderCollectionByGuid.Item( id ) <- wrappedDecodeFunc
-    /// <summary>
-    /// Install a customized serializer, in raw format of storage and no checking
-    /// </summary>
-    /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
-    /// run a customized deserializer function to deserialize the object. </param>
-    /// <param name="fullname"> Type name of the object. </param>
-    /// <param name="wrappedDecodeFunc"> Customized Deserialization function that decodes the bytestream to object. </param>
-    static member InstallDeserializer( id: Guid, fullname, wrappedDecodeFunc ) = 
-        CustomizedSerialization.DecoderCollectionByName.Item( fullname ) <- id 
-        CustomizedSerialization.DecoderCollectionByGuid.Item( id ) <- wrappedDecodeFunc
-
-    /// <summary> 
-    /// InstallSerializerDelegate allows language other than F# to install its own type serialization implementation. 
-    /// </summary> 
-    /// <param name="id"> Guid, that uniquely identifies the serializer/deserializer installed. </param>
-    /// <param name="fulltypename"> Type.FullName that captures object that will trigger the serializer. 
-    ///         please note that the customized serializer/deserializer will not be triggered on the derivative type. You may need to install additional 
-    ///         serializer if multiple derivative type share the same customzied serializer/deserializer. </param>
-    /// <param name="del"> An action delegate that perform the serialization function. </param>
-    static member InstallSerializerDelegate( id: Guid, fulltypename, del: CustomizedSerializerAction ) = 
-        if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
-            failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
-        else
-            let wrappedEncodeFunc( o:Object, ms:Stream ) = 
-                del.Invoke( o, ms ) 
-            CustomizedSerialization.EncoderCollectionByName.Item( fulltypename ) <- id
-            CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
-    /// <summary> 
-    /// InstallDeserializerDelegate allows language other than F# to install its own type deserialization implementation. 
-    /// </summary> 
-    /// <param name = "id"> Guid, that uniquely identifies the serializer/deserializer installed. </param>
-    /// <param name = "fulltypename"> Type.FullName that captures object that will trigger the serializer. 
-    ///         please note that the customized serializer/deserializer will not be triggered on the derivative type. You may need to install additional 
-    ///         serializer if multiple derivative type share the same customzied serializer/deserializer </param>
-    /// <param name = "del"> A function delegate that perform the deserialization function. </param>
-    static member InstallDeserializerDelegate( id: Guid, fulltypename, del: CustomizedDeserializerFunction ) = 
-        if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
-            failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
-        else
-            let wrappedDecodeFunc( ms:Stream ) = 
-                del.Invoke( ms ) 
-            CustomizedSerialization.DecoderCollectionByName.Item( fulltypename ) <- id
-            CustomizedSerialization.DecoderCollectionByGuid.Item( id ) <- wrappedDecodeFunc
-
-and private CustomizedSerializationSurrogate(nameObj, encoder, decoder ) = 
-    let getInstanceFields (obj : obj) =
-        obj.GetType().GetFields(BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic)
-    member val ObjName : string = nameObj with get
-    member val Encoder: (Object*Stream)->unit = encoder with get
-    member val Decoder: Stream->Object = decoder with get
-    interface ISerializationSurrogate with
-        member x.GetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext): unit = 
-            if Utils.IsNull( x.Encoder ) then 
-                getInstanceFields obj |> Array.iter (fun f -> info.AddValue(f.Name, f.GetValue(obj)))
-            else
-                let ms = new MemoryStream()
-                x.Encoder( obj, ms :> Stream )
-                let bytes = Array.zeroCreate<byte> ((int)ms.Length)
-                ms.Read(bytes,0,bytes.Length) |> ignore
-                info.AddValue( nameObj, bytes )       
-        member x.SetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext, selector: ISurrogateSelector): obj = 
-            if Utils.IsNull( x.Decoder ) then 
-                getInstanceFields obj |> Array.iter (fun f -> f.SetValue(obj, info.GetValue(f.Name, f.FieldType)))
-                obj
-            else
-                let bytes = info.GetValue(nameObj, typeof<byte[]>) :?> byte[]
-                let ms = new MemoryStream( bytes, 0, bytes.Length, false, true )
-                let o = x.Decoder( ms :> Stream)
-                o        
-
-// The serialization surrogate selector that selects CSharpDisplayClassSerializationSurrogate for C# compiler generated display class. 
-// It implements ISurrogateSelector
-and private CustomizedSerializationSurrogateSelector () =
-    let mutable nextSelector = Unchecked.defaultof<ISurrogateSelector> 
-
-    interface ISurrogateSelector with
-        member x.ChainSelector(selector: ISurrogateSelector): unit = 
-            nextSelector <- selector
-        
-        member x.GetNextSelector(): ISurrogateSelector = 
-            nextSelector
-        
-        member x.GetSurrogate(ty: Type, context: StreamingContext, selector: byref<ISurrogateSelector>): ISerializationSurrogate = 
-            let fullname = ty.FullName
-            let bExistEncoder, guidEncoder = CustomizedSerialization.EncoderCollectionByName.TryGetValue( fullname ) 
-            let bExistDecoder, guidDecoder = CustomizedSerialization.DecoderCollectionByName.TryGetValue( fullname ) 
-            if bExistEncoder || bExistDecoder then 
-                // Customized encoder/decoder exist 
-                let encoder = ref Unchecked.defaultof<_>
-                let decoder = ref Unchecked.defaultof<_>
-                if bExistEncoder then 
-                    CustomizedSerialization.EncoderCollectionByGuid.TryGetValue( guidEncoder, encoder ) |> ignore 
-                if bExistDecoder then 
-                    CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( guidDecoder, decoder ) |> ignore 
-                if Utils.IsNull( !encoder ) && Utils.IsNull( !decoder ) then 
-                    null 
-                else
-                    CustomizedSerializationSurrogate( fullname, !encoder, !decoder) :> ISerializationSurrogate
-            else      
-                // Use CSharpDisplayClassSerializationSurrogate if we see a type:
-                // * is not serializable
-                // * is compiler generated
-                // * The name contains "DisplayClass"                     
-                if (not ty.IsSerializable) && 
-                   ty.IsDefined(typeof<System.Runtime.CompilerServices.CompilerGeneratedAttribute>, false) &&
-                   ty.Name.Contains("<>c__DisplayClass") then
-                    CSharpDisplayClassSerializationSurrogate() :> ISerializationSurrogate
-                else
-                    null
-
-
-and 
-    [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
+type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
     inherit MemoryStream
 
     // sufficient for upto GUID
@@ -458,7 +251,27 @@ and
 
     abstract member GetNew : unit -> StreamBase<'T>
     abstract member GetNew : int -> StreamBase<'T>
-    abstract member GetNewOfSameType : unit -> StreamBase<'T>
+    abstract member GetNew : 'T[]*int*int*bool*bool -> StreamBase<'T>
+
+    member private x.GetNewMs() =
+        x.GetNew() :> MemoryStream
+
+    member private x.GetNewMsBuf(buf,pos,len,a,b) =
+        x.GetNew(buf,pos,len,a,b) :> MemoryStream
+
+    member private x.GetNewMsByteBuf(buf : byte[], pos, len, a, b) =
+        if (typeof<'T> = typeof<byte[]>) then
+            x.GetNew(box(buf) :?> 'T[], pos, len, a, b) :> MemoryStream
+        else
+            null
+
+    abstract member Replicate : unit->StreamBase<'T>
+    // copy and seek to same position
+    default x.Replicate() =
+        let ms = x.GetNew()
+        ms.AppendNoCopy(x, 0L, x.Length)
+        ms.Seek(x.Position, SeekOrigin.Begin) |> ignore
+        ms
 
     member private x.Init() =
         x.ValBuf <- Array.zeroCreate<byte>(32)
@@ -713,14 +526,6 @@ and
         let buf = x.ReadBytesWLen()
         let port = x.ReadInt32() 
         Net.IPEndPoint( Net.IPAddress( buf ), port )
- 
-    /// Insert a bytearray (buf) before the current MemStream, and return the resultant MemStream
-//    member x.InsertBytesBefore( buf:byte[] ) = 
-//        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
-//        let y = x.GetNew( buf.Length + xlen )
-//        y.WriteBytes( buf ) 
-//        y.Append(x, int64 xpos, int64 xlen)
-//        y
 
     /// Insert a second MemStream before the current MemStream, and return the resultant MemStream
     member x.InsertBefore( mem2 : StreamBase<'T> ) = 
@@ -757,7 +562,7 @@ and
         ms
     member private x.GetBinaryFormatter() =
         let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
-        fmt.SurrogateSelector <- CustomizedSerializationSurrogateSelector()
+        fmt.SurrogateSelector <- CustomizedSerializationSurrogateSelector(x.GetNewMs, x.GetNewMsByteBuf)
         fmt
     /// Serialize an object to bytestream with BinaryFormatter, support serialization of null. 
     member internal x.Serialize( obj )=
@@ -866,7 +671,6 @@ type StreamReader<'T>(_bls : StreamBase<'T>, _bufPos : int64, _maxLen : int64) =
             else
                 bDone <- true
 
-
 [<AllowNullLiteral>] 
 type StreamBaseByte =
     inherit StreamBase<byte>
@@ -911,8 +715,8 @@ type StreamBaseByte =
     override x.GetNew(size : int) =
         new StreamBaseByte(size) :> StreamBase<byte>
 
-    override x.GetNewOfSameType() =
-        new StreamBaseByte(x) :> StreamBase<byte>
+    override x.GetNew(buffer, index, count, writable, publiclyVisible) =
+        new StreamBaseByte(buffer, index, count, writable, publiclyVisible) :> StreamBase<byte>
 
     override x.GetMoreBuffer(elemPos : int byref, pos : int64 byref) =
         if (pos >= x.Length || pos < 0L) then
@@ -937,6 +741,11 @@ type StreamBaseByte =
 
     override x.AppendNoCopy(b : RefCntBuf<byte>, offset : int64, count : int64) =
         x.Write(b.Buffer, int offset, int count)
+
+    override x.Replicate() =
+        let ms = new StreamBaseByte(x.GetBuffer(), 0, int x.Length, false, true)
+        ms.Seek(x.Position, SeekOrigin.Begin) |> ignore
+        ms :> StreamBase<byte>
 
     override x.AddRef() = ()
     override x.DecRef() = ()
@@ -1017,8 +826,9 @@ type BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool) =
     override x.GetNew(size) =
         new BufferListStream<'T>(size) :> StreamBase<'T>
 
-    override x.GetNewOfSameType() =
-        new BufferListStream<'T>(x) :> StreamBase<'T>
+    // not supported
+    override x.GetNew(buf : 'T[], offset : int, count : int, a : bool, b : bool) =
+        new BufferListStream<'T>(buf, offset, count) :> StreamBase<'T>
 
     member x.Id with get() = id
 
@@ -1486,8 +1296,8 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
     override x.GetNew(size) =
         new MemoryStreamB(size) :> StreamBase<byte>
 
-    override x.GetNewOfSameType() =
-        new MemoryStreamB(x) :> StreamBase<byte>
+    override x.GetNew(buf, index, count, b1, b2) =
+        new MemoryStreamB(buf, index, count, b1, b2) :> StreamBase<byte>
 
     override x.ComputeHash(hasher : Security.Cryptography.HashAlgorithm, offset : int64, len : int64) =
         let mutable bDone = false

@@ -31,6 +31,9 @@
     <Compile Include="utils.fs" />
     <Compile Include="interops.fs" />
     <Compile Include="Math.fs" />
+    <Compile Include="extension.fs" />
+    <Compile Include="customserialize.fs" />
+    <Compile Include="custommemory.fs" />
     <Compile Include="StringTools.fs" />
     <Compile Include="bytes.fs" />
     <Compile Include="file.fs" />

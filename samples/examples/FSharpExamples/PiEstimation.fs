@@ -14,7 +14,7 @@
     limitations under the License.                                                      
 
     File: 
-        EstimatePi.fs
+        PiEstimation.fs
   
     Description: 
         Estimate Pi
@@ -29,7 +29,7 @@ open Prajna.Api.FSharp
 
 open Prajna.Examples.Common
 
-type EstimatePi ()=
+type PiEstimation ()=
 
     static let NumPartitions = 16
     static let NumSamplesPerPartition = 1024

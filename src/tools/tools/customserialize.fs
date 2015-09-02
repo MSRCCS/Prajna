@@ -166,6 +166,44 @@ and internal CustomizedSerialization() =
                 del.Invoke( ms ) 
             CustomizedSerialization.DecoderCollectionByName.Item( fulltypename ) <- id
             CustomizedSerialization.DecoderCollectionByGuid.Item( id ) <- wrappedDecodeFunc
+
+    static member internal GetBinaryFormatter(getNewMs, getNewMsBuf) =
+        let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+        fmt.SurrogateSelector <- CustomizedSerializationSurrogateSelector(getNewMs, getNewMsBuf)
+        fmt
+
+    /// <summary> 
+    /// Serialize a particular object to bytestream using BinaryFormatter, support serialization of null.  
+    /// </summary>
+    static member internal BinaryFormatterSerializeFromTypeName( x, getNewMs, getNewMsBuf, obj: 'U, fullname:string )=
+            let fmt = CustomizedSerialization.GetBinaryFormatter(getNewMs, getNewMsBuf)
+            if Utils.IsNull obj then 
+                fmt.Serialize( x, NullObjectForSerialization() )
+            else
+#if DEBUG
+                if obj.GetType().FullName<>fullname then 
+                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.SerializeFromTypeName, expect type of %s but get %s"
+                                                                    fullname
+                                                                    (obj.GetType().FullName) )     
+#endif
+                fmt.Serialize( x, obj )
+    /// <summary> 
+    /// Deserialize a particular object from bytestream using BinaryFormatter, support serialization of null.
+    /// </summary>
+    static member internal BinaryFormatterDeserializeToTypeName( x, getNewMs, getNewMsBuf, fullname:string ) =
+            let fmt = CustomizedSerialization.GetBinaryFormatter(getNewMs, getNewMsBuf)
+            let o = fmt.Deserialize( x )
+            match o with 
+            | :? NullObjectForSerialization -> 
+                Unchecked.defaultof<_>
+            | _ -> 
+#if DEBUG
+                if Utils.IsNotNull fullname && o.GetType().FullName<>fullname then 
+                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.DeserializeToTypeName, expect type of %s but get %s"
+                                                                    fullname
+                                                                    (o.GetType().FullName) )     
+#endif
+                o 
     /// <summary>
     /// Peak next 16B (GUID), and check if the result is null.
     /// </summary>

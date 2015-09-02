@@ -1238,13 +1238,14 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     // use standard dequeue for fixed size q (using RecvDequeueGenericConn) - won't set any events, use release to set
 
     member private x.RecvSARelease(rb : RBufPart<byte> ref) =
-        let e = ((!rb).Buf :?> RefCntBufSA).SA
-        let size = int64 e.BytesTransferred
+        //let e = ((!rb).Buf :?> RefCntBufSA).SA
+        //let size = int64 e.BytesTransferred
+        let size = int64 (!rb).Count
         Interlocked.Add(recvSAQ.CurrentSizeRef, -size) |> ignore
         Interlocked.Add(x.ONet.TotalSARecvSize, -size) |> ignore
         Ev.SetOnNotCondNoInline(x.RecvSAFullDesired, recvSAQ.Empty)
         //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "ID:%d Release:%d" (!rb).Buf.Id size)
-        (!rb).Release() // also released in ProcessRecvGenericConn, but double release should be okay
+        //(!rb).Release() // also released in ProcessRecvGenericConn, but double release should be okay
 
     // Cmd Recv ===============================
     member inline private x.RecvCmdFullMax() =

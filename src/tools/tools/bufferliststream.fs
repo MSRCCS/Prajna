@@ -106,21 +106,23 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
 // use release to release resource, not ref counted
 type [<AllowNullLiteral>] RBufPart<'T>() =
     let bReleased = ref 0
+    let mutable buf : RefCntBuf<'T> = null
 
     new (rbuf : RefCntBuf<'T>, offset : int, count : int) as x =
         new RBufPart<'T>()
         then
-            x.Buf <- rbuf
+            x.SetBuf(rbuf)
             x.Offset <- offset
             x.Count <- count
+            let b : RefCntBuf<'T> = x.Buf
             x.Buf.AddRef()
 
     member x.Release(?bFinalize) =
         if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
-            if (Utils.IsNotNull x.Buf) then
+            if (Utils.IsNotNull buf) then
                 let bFinalize = defaultArg bFinalize false
                 //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Partition releasing with id %d finalize %b" x.Buf.Id bFinalize)
-                x.Buf.DecRef()
+                buf.DecRef()
 
     // backup release in destructor - here it is okay since rbufpart is never reused
     override x.Finalize() =
@@ -132,7 +134,15 @@ type [<AllowNullLiteral>] RBufPart<'T>() =
             x.Release(true)
             GC.SuppressFinalize(x)
 
-    member val internal Buf : RefCntBuf<'T> = null with get, set
+    //member val internal Buf : RefCntBuf<'T> = null with get, set
+    member private x.SetBuf(v) =
+        buf <- v
+    member internal x.Buf 
+        with get() =
+            if (!bReleased = 1) then
+                failwith "Already Released"
+            else
+                buf
     member val Offset : int = 0 with get, set
     member val Count : int = 0 with get, set
     // the beginning element's position in the stream 
@@ -560,59 +570,32 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
         let ms = x.GetNew()
         ms.Append(x, xpos, int64 xlen)
         ms
-    member private x.GetBinaryFormatter() =
-        let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
-        fmt.SurrogateSelector <- CustomizedSerializationSurrogateSelector(x.GetNewMs, x.GetNewMsByteBuf)
-        fmt
+
+    member internal x.BinaryFormatterSerializeFromTypeName(obj, fullname) =
+        CustomizedSerialization.BinaryFormatterSerializeFromTypeName(x, x.GetNewMs, x.GetNewMsByteBuf, obj, fullname)
+
+    member internal x.BinaryFormatterDeserializeToTypeName(fullname) =
+        CustomizedSerialization.BinaryFormatterDeserializeToTypeName(x, x.GetNewMs, x.GetNewMsByteBuf, fullname)
+
     /// Serialize an object to bytestream with BinaryFormatter, support serialization of null. 
     member internal x.Serialize( obj )=
-        let fmt = x.GetBinaryFormatter()
-        if Utils.IsNull obj then 
-            fmt.Serialize( x, NullObjectForSerialization() )
-        else
-            fmt.Serialize( x, obj )
+        x.BinaryFormatterSerializeFromTypeName(obj, obj.GetType().FullName)
+//        let fmt = new Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+//        if Utils.IsNull obj then 
+//            fmt.Serialize( x, NullObjectForSerialization() )
+//        else
+//            fmt.Serialize( x, obj )
+
     /// Deserialize an object from bytestream with BinaryFormatter, support deserialization of null. 
     member internal x.Deserialize() =
-        let fmt = x.GetBinaryFormatter()
+//        let fmt = new Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+        let fmt = CustomizedSerialization.GetBinaryFormatter(x.GetNewMs, x.GetNewMsByteBuf)
         let o = fmt.Deserialize( x )
         match o with 
         | :? NullObjectForSerialization -> 
             null
         | _ -> 
             o
-    /// <summary> 
-    /// Serialize a particular object to bytestream using BinaryFormatter, support serialization of null.  
-    /// </summary>
-    member internal x.BinaryFormatterSerializeFromTypeName( obj: 'U, fullname:string )=
-            let fmt = x.GetBinaryFormatter()
-            if Utils.IsNull obj then 
-                fmt.Serialize( x, NullObjectForSerialization() )
-            else
-#if DEBUG
-                if obj.GetType().FullName<>fullname then 
-                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.SerializeFromTypeName, expect type of %s but get %s"
-                                                                    fullname
-                                                                    (obj.GetType().FullName) )     
-#endif
-                fmt.Serialize( x, obj )
-    /// <summary> 
-    /// Deserialize a particular object from bytestream using BinaryFormatter, support serialization of null.
-    /// </summary>
-    member internal x.BinaryFormatterDeserializeToTypeName( fullname:string ) =
-            let fmt = x.GetBinaryFormatter()
-            let o = fmt.Deserialize( x )
-            match o with 
-            | :? NullObjectForSerialization -> 
-                Unchecked.defaultof<_>
-            | _ -> 
-#if DEBUG
-                if Utils.IsNotNull fullname && o.GetType().FullName<>fullname then 
-                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.DeserializeToTypeName, expect type of %s but get %s"
-                                                                    fullname
-                                                                    (o.GetType().FullName) )     
-#endif
-                o 
-
 
 [<AllowNullLiteral>] 
 type StreamReader<'T>(_bls : StreamBase<'T>, _bufPos : int64, _maxLen : int64) =

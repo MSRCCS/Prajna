@@ -1919,9 +1919,8 @@ and [<AllowNullLiteral; Serializable>]
                         else
                             if bExist then 
                                 let buf, pos, count = stream.GetBufferPosLength()
-                                blob.Stream <- new MemStream()
+                                blob.Stream <- stream.GetNew()
                                 blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
-                                //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
                                 blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
                                 match availFuncOpt with 
                                 | Some availFunc -> 
@@ -2009,9 +2008,8 @@ and [<AllowNullLiteral; Serializable>]
     member x.ReceiveBlob blobi (blob:Blob) (ms:StreamBase<byte>, epSignature) = 
         if not (blob.IsAllocated) then 
             let buf, pos, count = ms.GetBufferPosLength()
-            blob.Stream <- new MemStream()
+            blob.Stream <- ms.GetNew()
             blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
-            //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
             blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
             x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
             x.AvailThis.CheckAllAvailable()

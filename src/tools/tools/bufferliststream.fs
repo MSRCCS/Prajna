@@ -105,6 +105,8 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
 
 // use release to release resource, not ref counted
 type [<AllowNullLiteral>] RBufPart<'T>() =
+    static let g_id = ref -1
+    let id = Interlocked.Increment(g_id)
     let bReleased = ref 0
     let mutable buf : RefCntBuf<'T> = null
 
@@ -121,7 +123,7 @@ type [<AllowNullLiteral>] RBufPart<'T>() =
         if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
             if (Utils.IsNotNull buf) then
                 let bFinalize = defaultArg bFinalize false
-                //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Partition releasing with id %d finalize %b" x.Buf.Id bFinalize)
+                //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Partition releasing with id %d bufid %d finalize %b" id buf.Id bFinalize)
                 buf.DecRef()
 
     // backup release in destructor - here it is okay since rbufpart is never reused
@@ -140,7 +142,7 @@ type [<AllowNullLiteral>] RBufPart<'T>() =
     member internal x.Buf 
         with get() =
             if (!bReleased = 1) then
-                failwith "Already Released"
+                failwith (sprintf "Already Released %d" id)
             else
                 buf
     member val Offset : int = 0 with get, set

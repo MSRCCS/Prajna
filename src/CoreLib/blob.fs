@@ -90,6 +90,7 @@ type internal BlobFactory() =
         let tuple = x.Collection.GetOrAdd( id, addFunc )
         let refMS, refTicks, epQueue, epDic = tuple 
         refMS := ms
+        ms.AddRef()
         refTicks := (PerfDateTime.UtcNowTicks())
         epDic.GetOrAdd( epSignature, true ) |> ignore
         let refValue = ref Unchecked.defaultof<_>
@@ -111,6 +112,7 @@ type internal BlobFactory() =
         if bExist then 
             let refMS, refTicks, epQueue, epDic = tuple 
             refMS := ms
+            ms.AddRef()
             refTicks := (PerfDateTime.UtcNowTicks())
             epDic.GetOrAdd( epSignature, true ) |> ignore
             let refValue = ref Unchecked.defaultof<_>
@@ -129,10 +131,18 @@ type internal BlobFactory() =
             if !refTime < t1 then 
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "remove blob %A after %d secs of inactivity"
                                                                        pair.Key BlobFactory.InactiveSecondsToEvictBlob ))
-                x.Collection.TryRemove( pair.Key ) |> ignore
+                let mutable tuple = Unchecked.defaultof<(_*_*_*_)>
+                let ret = x.Collection.TryRemove( pair.Key, &tuple )
+                if (ret) then
+                    let refMS, refTicks, epQueue, epDic = tuple
+                    (!refMS).DecRef()
     /// Remove a certain entry
     member x.Remove( id ) = 
-        x.Collection.TryRemove( id ) |> ignore
+        let mutable tuple = Unchecked.defaultof<(_*_*_*_)>
+        let ret = x.Collection.TryRemove( id, &tuple )
+        if (ret) then
+            let refMS, refTicks, epQueue, epDic = tuple
+            (!refMS).DecRef()
     /// Refresh timer entry of an object
     member x.Refresh( id ) = 
         let bExist, tuple = x.Collection.TryGetValue( id ) 
@@ -172,7 +182,6 @@ type internal BlobFactory() =
         BlobFactory.Current.Refresh( id, elapseSeconds )
     static member toArray() = 
         BlobFactory.Current.ToArray()
-
 
 
 and [<AllowNullLiteral>]

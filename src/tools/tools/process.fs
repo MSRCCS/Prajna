@@ -808,7 +808,7 @@ type internal ThreadTracking private () as this =
             let elapseMs = curTime.Subtract( startTime ).TotalMilliseconds
             let waitMs = Math.Max( 0, millisecondTimeout - int elapseMs )
             let bTerminate = thread.Join( waitMs ) 
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadTracking, waiting for thread %s to join is %A" name bTerminate ))
+            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadTracking, waiting for thread (%d) %s to join is %A" thread.ManagedThreadId name bTerminate ))
         ThreadTracking.nCloseAllCalled := 0
     /// Standard form for all class that use CleanUp service
     override x.Finalize() =

@@ -278,7 +278,7 @@ type internal ClientLauncher() =
 
         /// Give a chance for all the launched task to be closed. 
 
-
+        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ClientLauncher.Main (for daemon on port %d) returns" DeploymentSettings.ClientPort))
         0 // return an integer exit code
 
     // Instance member that wraps over Main
@@ -304,17 +304,29 @@ type internal ClientLauncher() =
                     let remoteObj = proxy :?> ClientLauncher
                     Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "RemoteObject for %s is created (%i)" fullTypeName port))
                     remoteObj.Start orgargs |> ignore
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ClientLauncher.Start has returned, current domain is '%s'" AppDomain.CurrentDomain.FriendlyName)
                 finally
                     try 
                         if DeploymentSettings.SleepMSBeforeUnloadAppDomain > 0 then 
                             Threading.Thread.Sleep( DeploymentSettings.SleepMSBeforeUnloadAppDomain )
-                        AppDomain.Unload(ad)   
-                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Successfully unload AppDomain for client with name '%s' and args '%s'" name (String.Join(" ", orgargs))))
+                        // Currently, during unit test clean up phase, the container hosted by appdomain takes very long time to unload for unknow reasons. It causes
+                        // the appdomain for deamon (which starts the container appdomain) also cannot unload quickly.
+                        // As a temporary workaround before the root cause was figured out, the code below limits the time given to unload the appdomain. 
+                        // Notes:
+                        //  1. When we reach this point, the execution for the daemon has already completed. Unload the now un-used appdomain is the only thing left.
+                        //  2. If the unload itself hit any exception, the Wait should rethrow it here and it would be caught by the "with" below.
+                        if Async.StartAsTask(async { AppDomain.Unload( ad ) }).Wait(DeploymentSettings.AppDomainUnloadWaitTime) then
+                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Successfully unload AppDomain for client with name '%s' and args '%s'" name (String.Join(" ", orgargs))))
+                        else
+                            Logger.LogF( LogLevel.MildVerbose, 
+                                ( fun _ -> sprintf "Time budget (%f ms) for unload AppDomain for client with name '%s' is used up, continue without waiting " 
+                                             DeploymentSettings.AppDomainUnloadWaitTime.TotalMilliseconds name )  )                            
                     with 
                     | e -> 
                         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "fail to unload AppDomain for client with name '%s' and args '%s'" name (String.Join(" ", orgargs))))
             with            
             | e -> 
                 Logger.Log( LogLevel.Error, ( sprintf "ClientLauncher.StartAppDomain exception: %A" e ))
+            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ClientLauncher.StartAppDomain (for client with name '%s' and args '%s') returns" name (String.Join(" ", orgargs))))
         )
         ()

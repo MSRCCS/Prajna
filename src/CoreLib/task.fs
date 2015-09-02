@@ -2568,6 +2568,7 @@ and internal ContainerAppDomainLauncher() =
         // MakeFileAccessible( logfname )
 //        let task = Task( SignatureName=name, SignatureVersion=ver )
         Task.StartTaskAsSeperateApp( name, ver, port, jobport, authParams, None, None, None)
+        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ContainerAppDomainLauncher.Start returns"))
 and [<AllowNullLiteral>]
     internal ContainerAppDomainInfo() =
     member val Name = "" with get, set
@@ -2594,41 +2595,42 @@ and [<AllowNullLiteral>]
                     ads.ApplicationBase <- x.JobDir
                     // Make sure that we have unique name, even if the same job is launched again and again
                     AppDomain.CreateDomain( x.Name + "_" + x.Version.ToString("X") + VersionToString(DateTime(x.Ticks)), new Security.Policy.Evidence(), ads)
-//            x.AppDomain <- ad2
             let fullTypename = Operators.typeof< ContainerAppDomainLauncher >.FullName
             let exeAssembly = Assembly.GetExecutingAssembly()
-//                let mutable exeAssembly = null 
-//                for assem in AppDomain.CurrentDomain.GetAssemblies() do 
-//                    let t = assem.GetType( fullTypename, false, true ) 
-//                    if Utils.IsNotNull t then 
-//                        exeAssembly <- assem 
-            // Create a instance 
             try
                 if Utils.IsNotNull exeAssembly then 
                     let proxy = ad2.CreateInstanceFromAndUnwrap( exeAssembly.Location, fullTypename ) 
                     let mbrt = proxy :?> ContainerAppDomainLauncher
                     mbrt.Start( x.Name, x.Version, DeploymentSettings.StatusUseAllDrivesForData, 
                         x.Ticks, DeploymentSettings.MaxMemoryLimitInMB, DeploymentSettings.ClientPort, x.JobPort, DeploymentSettings.LogFolder, int (Prajna.Tools.Logger.DefaultLogLevel), x.JobDir, x.JobEnvVars, Cluster.Connects.GetAuthParam() ) 
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ContainerAppDomainLauncher.Start has returned, current domain is '%s'" AppDomain.CurrentDomain.FriendlyName)
                 else
                     failwith "Can't find ContainerAppDomainLauncher in Assemblies"
             finally
-                ()
-// Try to unload the Appdomain in the current thread, if successfully upload, we will reset the AppDomain flag. 
-                for i = 1 to 1 do 
-//                    if Utils.IsNotNull x.AppDomain then 
-                        try 
-                            if DeploymentSettings.SleepMSBeforeUnloadAppDomain > 0 then 
-                                Threading.Thread.Sleep( DeploymentSettings.SleepMSBeforeUnloadAppDomain )
-                            AppDomain.Unload( ad2 )   
-//                            x.AppDomain <- null
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Successfully Unload AppDomain for task %s:%s...................... " x.Name (x.Version.ToString("X")) )  )
-                        with 
-                        | e -> 
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt %d, fail to unload AppDomain@StartProgram...... %s" i e.Message))
-                            // Threading.Thread.Sleep( 1000 )       
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ContainerAppDomainInfo.StartProgram reached finally, current domain is '%s', sleep %d ms" AppDomain.CurrentDomain.FriendlyName DeploymentSettings.SleepMSBeforeUnloadAppDomain)
+                try 
+                    if DeploymentSettings.SleepMSBeforeUnloadAppDomain > 0 then 
+                        Threading.Thread.Sleep( DeploymentSettings.SleepMSBeforeUnloadAppDomain )
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ContainerAppDomainInfo.StartProgram starts to unload AppDomain %s" ad2.FriendlyName)
+                    // Currently, during unit test clean up phase, the container hosted by appdomain takes very long time to unload for unknow reasons until this thread
+                    // is aborted when the daemon appdomain is unloaded. As a temporary workaround before the root cause was figured out, the code below limits the 
+                    // time given to unload the appdomain. 
+                    // Notes:
+                    //  1. When we reach this point, the execution for the container has already completed. Unload the now un-used appdomain is the only thing left.
+                    //  2. If the unload itself hit any exception, the Wait should rethrow it here and it would be caught by the "with" below.
+                    if Async.StartAsTask(async { AppDomain.Unload( ad2 ) }).Wait(DeploymentSettings.AppDomainUnloadWaitTime) then
+                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Successfully Unload AppDomain for task %s:%s...................... " x.Name (x.Version.ToString("X")) )  )
+                    else 
+                        Logger.LogF( LogLevel.MildVerbose, 
+                            ( fun _ -> sprintf "Time budget (%f ms) for unload AppDomain for task %s:%s is used up, continue without waiting " 
+                                         DeploymentSettings.AppDomainUnloadWaitTime.TotalMilliseconds x.Name (x.Version.ToString("X")) )  )
+                with 
+                | e -> 
+                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "failed to unload AppDomain@StartProgram...... %A" e))
         with 
         | e ->
             Logger.Log( LogLevel.Error, ( sprintf "ContainerAppDomainLauncher.StartProgram exception: %A" e ))
+        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ContainerAppDomainInfo.StartProgram returns"))
 
 and internal TaskQueue() = 
     // ToDo: 12/23/2014, to change tasks, lookupTable and executionTable to concurrent data structure

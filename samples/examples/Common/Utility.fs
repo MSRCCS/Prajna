@@ -26,6 +26,7 @@ open System.Reflection
 open System.IO
 
 open Prajna.Tools
+open Prajna.Tools.FSharp
 open Prajna.Core
 
 /// Utilities that can be used by different examples projects
@@ -113,10 +114,16 @@ module Utility =
         let examplesArg = parser.ParseString("-examples", null)
     
         let allParsed = parser.AllParsed CommandLineUsage
-
+        
         if not allParsed then
             parser.PrintUsage CommandLineUsage
         else 
+            Logger.ParseArgs([| "-verbose"; "4"; 
+                                "-log" ; Path.Combine([| DeploymentSettings.LocalFolder; 
+                                                         "Log"; 
+                                                         "Examples"; 
+                                                         "Examples_" + DateTime.UtcNow.ToString("yyMMdd_HHmmss.ffffff") + ".log" |])|])
+
             let examples = GetExamples(Assembly.GetCallingAssembly(), ``namespace``)
             if shouldList then
                 ListExamples(examples)
@@ -126,6 +133,8 @@ module Utility =
                     printfn "Error:"
                     printfn "%s" msg
                 else
+                    let sw = System.Diagnostics.Stopwatch()
+                    sw.Start()
                     Environment.Init()
                     let cluster =  
                         if Utils.IsNotNull clusterArg then
@@ -134,8 +143,12 @@ module Utility =
                             // use local cluster with 2 nodes
                             Cluster("local[2]")
                 
+                    // start a cache service to keep the container alive during the course of running examples
                     Prajna.Service.CacheService.Start(cluster)
-                    
+                    sw.Stop()
+
+                    Logger.Log (LogLevel.Info, sprintf "Initialization: %i ms" sw.ElapsedMilliseconds)
+
                     examplesToExecute
                     |> Array.iter (fun e -> 
                            printfn "==============================================================" 
@@ -146,5 +159,12 @@ module Utility =
                            printfn "%s" (if ret then "Succeeded" else "Failed")
                        )
 
-                    Prajna.Service.CacheService.Stop(cluster)                        
+                    sw.Restart()
+                    
+                    // Shutdown the countainer 
+                    Prajna.Service.CacheService.Stop(cluster)
+                    // Shutdown the environment
                     Environment.Cleanup()
+
+                    sw.Stop();
+                    Logger.Log (LogLevel.Info, sprintf "Cleanup: %i ms" sw.ElapsedMilliseconds)

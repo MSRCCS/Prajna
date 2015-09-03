@@ -469,6 +469,8 @@ and [<AllowNullLiteral>]
     member internal  x.GetValidBuffer() =
         Array.sub (x.GetBuffer()) 0 (int x.Length)
     member private x.GetBinaryFormatter() =
+//      Uncomment to use new BinarySerializer
+//        let fmt = new BinarySerializer()
         let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
         fmt.SurrogateSelector <- CustomizedSerializationSurrogateSelector()
         fmt

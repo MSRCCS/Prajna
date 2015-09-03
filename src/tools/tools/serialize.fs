@@ -17,9 +17,9 @@
  ---------------------------------------------------------------------------*)
 namespace Prajna.Tools
 open System
-open System.Runtime.Serialization
-open System.Runtime.InteropServices
 open System.Reflection
+open System.Runtime.InteropServices
+open System.Runtime.Serialization
 open System.Collections.Generic
 open System.IO
 open System.Runtime.Serialization.Formatters.Binary
@@ -176,6 +176,8 @@ module internal Serialize =
 
     let AllInstance = BindingFlags.Instance ||| BindingFlags.FlattenHierarchy ||| BindingFlags.Public ||| BindingFlags.NonPublic
 
+    let CSharpFuncFields = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+
     let rec isBlittable (t: Type) = 
 //        let rec fieldsAreBlittable = memo <| fun (t: Type) -> t.GetFields(AllInstanceFields) |> Seq.forall (fun field -> isBlittable field.FieldType)
         t.IsPrimitive //|| (t.IsValueType && fieldsAreBlittable t)
@@ -201,24 +203,31 @@ type internal SerTypeInfo(objType: Type) =
             getSerializationCallback typeof<OnDeserializingAttribute>, 
             getSerializationCallback typeof<OnDeserializedAttribute>
 
-    let serializedFields = lazy (objType.GetFields(Serialize.AllInstance) |> Array.filter (fun fi -> not fi.IsNotSerialized))
+    let serializedFields = 
+        lazy 
+            let bindingFlags = 
+                if (not objType.IsSerializable) && objType.IsDefined(typeof<System.Runtime.CompilerServices.CompilerGeneratedAttribute>, false) && objType.Name.Contains("<>c__DisplayClass") then
+                    Serialize.CSharpFuncFields
+                else
+                    Serialize.AllInstance
+            objType.GetFields(bindingFlags) |> Array.filter (fun fi -> not fi.IsNotSerialized)
 
-    member inline this.OnSerializing(obj, sc) = 
+    member this.OnSerializing(obj, sc) = 
         match onSerializing with
         | Some func -> func obj sc
         | _ -> ()
     
-    member inline this.OnSerialized(obj, sc) = 
+    member this.OnSerialized(obj, sc) = 
         match onSerialized with
         | Some func -> func obj sc
         | _ -> ()
     
-    member inline this.OnDeserializing(obj, sc) = 
+    member this.OnDeserializing(obj, sc) = 
         match onDeserializing with
         | Some func -> func obj sc
         | _ -> ()
     
-    member inline this.OnDeserialized(obj, sc) = 
+    member this.OnDeserialized(obj, sc) = 
         match onSerializing with
         | Some func -> func obj sc
         | _ -> ()
@@ -234,18 +243,27 @@ type internal SerTypeInfo(objType: Type) =
     member inline this.IsSerializable = objType.IsSerializable
 
     member val HaveSerializationCallbacks = 
-        Option.isSome onSerializing || Option.isSome onSerialized || Option.isSome onDeserializing || Option.isSome onDeserialized
+        Option.isSome onSerializing || Option.isSome onSerialized 
+
+    member val HaveDeserializationCallbacks = 
+        Option.isSome onDeserializing || Option.isSome onDeserialized
+
+    member val NoArgConstructor = 
+        let mi = objType.GetConstructor(Type.EmptyTypes)
+        if mi <> null then
+            (fun (obj: obj) -> mi.Invoke(obj, null) |> ignore)
+        else
+            (fun obj -> ())
 
     member inline this.SerializedFields : FieldInfo[] = serializedFields.Value
-
-//    member val FieldTypes : SerTypeInfo[]
-
 
 type internal TypeSerializer() =
 
     let mutable serializedCount = 0
     
-    member val GetSerTypeInfo = Serialize.memo SerTypeInfo
+    let deserializedTypes = List<SerTypeInfo>()
+
+    member val GetSerTypeInfo = Serialize.memo (fun t -> SerTypeInfo t)
 
     member this.Serialize (objType: SerTypeInfo, stream: BinaryWriter) = 
         match objType.SerializedPosition with
@@ -258,7 +276,24 @@ type internal TypeSerializer() =
             stream.Write(byte ReferenceType.TypePosition)
             stream.Write objType.SerializedPosition
 
-type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typeSerializer: TypeSerializer) as self = 
+    member this.Deserialize (reader: BinaryReader) : SerTypeInfo =
+        let typeTag = LanguagePrimitives.EnumOfValue<byte, ReferenceType>(reader.ReadByte()) 
+        match typeTag with
+        | ReferenceType.InlineType -> 
+            let newTypeName = reader.ReadString()
+            let newType = Type.GetType(newTypeName)
+            if newType = null then
+                failwith <| sprintf "Could not load type %A." newTypeName
+            let newSerType = this.GetSerTypeInfo newType
+            deserializedTypes.Add newSerType
+            newSerType
+        | ReferenceType.TypePosition -> 
+            let typePos = reader.ReadInt32()
+            deserializedTypes.[typePos]
+        | _ -> failwith <| sprintf "Unexpected tag: %A" typeTag
+
+
+type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typeSerializer: TypeSerializer, surrogateSelector: ISurrogateSelector) as self = 
 
     let writePrimitive (obj: obj) = 
         // List of primitive types obtained from FieldInfo.IsPrimitive documentation
@@ -280,7 +315,7 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
     let writeMemoryBlittableArray (elType: Type, arrObj: Array, memStream: MemoryStream) =
         let sizeInBytes = arrObj.Length * Marshal.SizeOf(elType)
         let curPos = int memStream.Position
-        while memStream.Capacity < curPos + sizeInBytes do
+        while memStream.Capacity <= curPos + sizeInBytes do
             memStream.Capacity <- memStream.Capacity * 2
         let buffer = memStream.GetBuffer()
         Buffer.BlockCopy(arrObj, 0, buffer, curPos, sizeInBytes)
@@ -304,8 +339,8 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
             | TypeCode.Decimal | TypeCode.DateTime | TypeCode.DBNull | TypeCode.String | TypeCode.Object | TypeCode.Empty | _ -> 
                 failwith <| sprintf "Unknown primitive type %A" elType
         match stream.BaseStream with
-        | :? MemoryStream as memStream -> 
-            fun (elType: Type, arrObj: Array) -> writeMemoryBlittableArray (elType, arrObj, memStream)
+//        | :? MemoryStream as memStream -> 
+//            fun (elType: Type, arrObj: Array) -> writeMemoryBlittableArray (elType, arrObj, memStream)
         | _ -> writePrimitiveArrayOneByOne
 
     let writeValueArray : Type * Array -> unit = 
@@ -315,12 +350,12 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
             for i = 0 to len - 1 do
                 self.WriteContents(elTypeInfo, arrObj.GetValue(i))
         match stream.BaseStream with
-        | :? MemoryStream as memStream ->
-            fun (elType: Type, arrObj: Array) ->
-                if Serialize.isBlittable elType then
-                    writeMemoryBlittableArray(elType, arrObj, memStream)
-                else
-                    writeOtherValueTypeArray(elType, arrObj)
+//        | :? MemoryStream as memStream ->
+//            fun (elType: Type, arrObj: Array) ->
+//                if Serialize.isBlittable elType then
+//                    writeMemoryBlittableArray(elType, arrObj, memStream)
+//                else
+//                    writeOtherValueTypeArray(elType, arrObj)
         | _ -> writeOtherValueTypeArray
 
     let writeObjectArray(arrObj: Array) = 
@@ -351,12 +386,31 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
             else
                 this.WriteObject fieldValue
 
+    member private this.WriteMembers(serInfo: SerializationInfo) = 
+        stream.Write serInfo.MemberCount
+        for entry in serInfo do
+            this.WriteObject(entry.Name)
+            this.WriteObject(entry.Value)
+
+    member private this.WriteCustomSerializedObject(objType: Type, obj: ISerializable) : unit =
+        let serInfo = new SerializationInfo(objType, Serialize.theConverter)
+        obj.GetObjectData(serInfo, Serialize.theContext)
+        this.WriteObject serInfo.ObjectType
+        marked.Add(obj, marked.Count)
+        this.WriteMembers serInfo
+
+    member this.WriteSurrogateSerializedObject(surrogate: ISerializationSurrogate, objType: Type, obj: obj) =
+        let serInfo = new SerializationInfo(objType, Serialize.theConverter)
+        surrogate.GetObjectData(obj, serInfo, Serialize.theContext)
+        this.WriteMembers serInfo
+
     member this.WriteObject (obj: obj) =
         if obj = null then
             stream.Write(byte ReferenceType.Null)
         else
             let objType = obj.GetType()
-            if objType.IsSerializable then
+            let surrogate = surrogateSelector.GetSurrogate(objType, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
+            if surrogate <> null || objType.IsSerializable then
                 match marked.TryGetValue(obj) with
                 | true, position -> 
                     stream.Write(byte ReferenceType.ObjectPosition)
@@ -365,14 +419,41 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
                     stream.Write(byte ReferenceType.InlineObject)
                     let serTypeInfo = typeSerializer.GetSerTypeInfo objType
                     typeSerializer.Serialize(serTypeInfo, stream)
-                    marked.Add(obj, marked.Count)
-                    match obj with
-                    | :? Type as typeObj -> stream.Write typeObj.AssemblyQualifiedName
-                    | :? Array as arrObj -> this.WriteArray(objType, arrObj)
-                    | :? string as strObj ->  stream.Write strObj  
-                    | _ -> this.WriteContents(serTypeInfo, obj)
+                    if surrogate <> null then
+                        marked.Add(obj, marked.Count)
+                        this.WriteSurrogateSerializedObject(surrogate, serTypeInfo.Type, obj)
+                    else
+                        match obj with
+                        | :? Type as typeObj -> 
+                            marked.Add(obj, marked.Count)
+                            stream.Write typeObj.AssemblyQualifiedName
+                        | :? MethodInfo as mi -> 
+                            marked.Add(obj, marked.Count)
+                            this.WriteObject mi.DeclaringType
+                            this.WriteObject mi.Name
+                            this.WriteArray(typeof<Type[]>, mi.GetParameters() |> Array.map (fun pi -> pi.ParameterType))
+                        | :? Array as arrObj -> 
+                            marked.Add(obj, marked.Count)
+                            this.WriteArray(objType, arrObj)
+                        | :? string as strObj ->  
+                            marked.Add(obj, marked.Count)
+                            stream.Write strObj  
+                        | :? ISerializable as customSerObj -> 
+                            // omitting marked.Add because custom serialization requires writing 
+                            // the SerInfo type before the actual object, so WriteCustomSerializedObject will do this
+                            this.WriteCustomSerializedObject(objType, customSerObj)
+                        | _ -> 
+                            marked.Add(obj, marked.Count)
+                            if serTypeInfo.HaveSerializationCallbacks then
+                                serTypeInfo.OnSerializing(obj, Serialize.theContext)
+                                this.WriteContents(serTypeInfo, obj)
+                                serTypeInfo.OnSerialized(obj, Serialize.theContext)
+                            else
+                                this.WriteContents(serTypeInfo, obj)
 
-type Deserializer(reader: BinaryReader, marked: List<obj>, types: List<Type>) as self =
+type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializer: TypeSerializer, surrogateSelector: ISurrogateSelector) as self =
+
+    let onDeserializationList = new List<IDeserializationCallback>()
 
     let readPrimitive (objType: Type) : obj = 
         match Type.GetTypeCode(objType) with
@@ -414,22 +495,22 @@ type Deserializer(reader: BinaryReader, marked: List<obj>, types: List<Type>) as
             | TypeCode.Decimal | TypeCode.DateTime | TypeCode.DBNull | TypeCode.String | TypeCode.Object | TypeCode.Empty | _ -> 
                 failwith <| sprintf "Unknown primitive type %A" elType
         match reader.BaseStream with
-        | :? MemoryStream as memStream -> fun (elType: Type) (arrObj: Array) -> readMemoryBlittableArray (elType, arrObj, memStream)
+//        | :? MemoryStream as memStream -> fun (elType: Type) (arrObj: Array) -> readMemoryBlittableArray (elType, arrObj, memStream)
         | _ -> readPrimitiveArrayOneByOne
 
-    let readValueArray : Type -> Array -> unit = 
-        let inline readOtherValueTypeArray (elType: Type) (arrObj: Array) = 
-            let mutable value = FormatterServices.GetUninitializedObject(elType)
+    let readValueArray : SerTypeInfo -> Array -> unit = 
+        let inline readOtherValueTypeArray (elType: SerTypeInfo) (arrObj: Array) = 
+            let mutable value = FormatterServices.GetUninitializedObject(elType.Type)
             for i = 0 to arrObj.Length - 1 do
                 do self.ReadContents(elType, &value)
                 arrObj.SetValue(value, i)
         match reader.BaseStream with
-        | :? MemoryStream as memStream ->
-            fun (elType: Type) (arrObj: Array) ->
-                if Serialize.isBlittable elType then
-                    readMemoryBlittableArray(elType, arrObj, memStream)
-                else
-                    readOtherValueTypeArray elType arrObj
+//        | :? MemoryStream as memStream ->
+//            fun (elType: SerTypeInfo) (arrObj: Array) ->
+//                if Serialize.isBlittable elType.Type then
+//                    readMemoryBlittableArray(elType.Type, arrObj, memStream)
+//                else
+//                    readOtherValueTypeArray elType arrObj
         | _ -> readOtherValueTypeArray
 
     let readObjectArray(arrObj: Array) =
@@ -443,90 +524,134 @@ type Deserializer(reader: BinaryReader, marked: List<obj>, types: List<Type>) as
         if elType.IsPrimitive then
             readPrimitiveArray elType arrObj
         elif elType.IsValueType then 
-            readValueArray elType arrObj
+            readValueArray (typeSerializer.GetSerTypeInfo elType) arrObj
         else 
             readObjectArray arrObj
 
-    member private this.ReadContents (objType: Type, obj: byref<obj>) : unit = 
+    member private this.ReadContents (objType: SerTypeInfo, obj: byref<obj>) : unit = 
+        for field in objType.SerializedFields (* objType.GetFields(Serialize.AllInstance)*) do 
+            let fieldType = field.FieldType
+            if fieldType.IsPrimitive then
+                let value = readPrimitive fieldType
+                field.SetValue(obj, value)
+            elif fieldType.IsValueType then
+                let mutable newValue = FormatterServices.GetUninitializedObject(fieldType) 
+                do this.ReadContents(typeSerializer.GetSerTypeInfo fieldType, &newValue)
+                field.SetValue(obj, newValue)
+            else
+                let newValue = this.ReadObject(reader, marked)
+                field.SetValue(obj, newValue)
 
-        for field in objType.GetFields(Serialize.AllInstance) do 
-            if not field.IsNotSerialized then
-                let fieldType = field.FieldType
-                if fieldType.IsPrimitive then
-                    let value = readPrimitive fieldType
-                    field.SetValue(obj, value)
-                elif fieldType.IsValueType then
-                    let mutable newValue = FormatterServices.GetUninitializedObject(fieldType) 
-                    do this.ReadContents(fieldType, &newValue)
-                    field.SetValue(obj, newValue)
-                else
-                    let newValue = this.ReadObject(reader, marked)
-                    field.SetValue(obj, newValue)
+    member private this.ReadSerializationInfo(deserType: Type) : SerializationInfo =
+        let deserInfo = new SerializationInfo(deserType, Serialize.theConverter)
+        let numFields = reader.ReadInt32()
+        for _ in 1..numFields do
+            let name = this.ReadObject(reader, marked) :?> string
+            let value = this.ReadObject(reader, marked)
+            if value <> null then
+                deserInfo.AddValue(name, value, value.GetType())
+        deserInfo
 
-//    member private this.ReadCustomSerializedObject(objType: Type) : obj =
-//        let numFields = reader.ReadInt32()
-//        let deserInfo = new SerializationInfo(objType, Serialize.theConverter)
-//        for _ in 1..numFields do
-//            let name = this.ReadObject() :?> string
-////            let value = this
-//            
-//        
-//        
-//        let deserConstructor = objType.GetConstructor(DeserConstructorArgTypes)
-//        deserConstructor.Invoke( [|   ;Serialize.theContext |]  )
-//        let mutable newObj = FormatterServices.GetUninitializedObject(objType) 
-//        marked.Add newObj
-//        do this.ReadContents(objType, &newObj)
-//        newObj
-            
+    member this.ReadSurrogateSerializedObject(surrogate: ISerializationSurrogate, objType: Type, obj: obj) : unit =
+        let serInfo = this.ReadSerializationInfo objType
+        surrogate.SetObjectData(obj, serInfo, Serialize.theContext, null) |> ignore
+
+    member private this.ReadCustomSerializedObject() : obj =
+        let ty = this.ReadObject(reader, marked)
+        let deserType = ty :?> Type
+        let mutable newObj = FormatterServices.GetUninitializedObject(deserType)
+        if newObj = null then
+            failwith <| sprintf "Failed to create unintialized instance of %A." deserType
+        let refPosition = marked.Count
+        marked.Add newObj
+        let deserInfo = this.ReadSerializationInfo deserType
+        let deserConstructor = deserType.GetConstructor(Serialize.AllInstance, null, DeserConstructorArgTypes, null)
+        deserConstructor.Invoke( newObj, [| deserInfo; Serialize.theContext |]) |> ignore
+        match newObj with
+        | :? IDeserializationCallback as cb -> onDeserializationList.Add(cb)
+        | _ -> ()
+        match newObj with
+        | :? IObjectReference as objRef -> 
+            let realObject = objRef.GetRealObject(Serialize.theContext)
+            match realObject with
+            | :? IDeserializationCallback as cb -> onDeserializationList.Add(cb)
+            | _ -> () 
+            marked.[refPosition] <- realObject
+            realObject
+        | _ -> 
+            marked.[refPosition] <- newObj
+            newObj
 
     member private this.ReadObject (reader: BinaryReader, marked: List<obj>) : obj =
         let tag = LanguagePrimitives.EnumOfValue<byte, ReferenceType>(reader.ReadByte()) 
         match tag with
         | ReferenceType.Null -> null
-        | ReferenceType.ObjectPosition -> marked.[reader.ReadInt32()]
+        | ReferenceType.ObjectPosition -> 
+            let pos = reader.ReadInt32()
+            let obj = marked.[pos]
+            match obj with
+            | :? IObjectReference as objRef -> objRef.GetRealObject(Serialize.theContext)
+            | _ -> obj
         | ReferenceType.InlineObject ->
-            let typeTag = LanguagePrimitives.EnumOfValue<byte, ReferenceType>(reader.ReadByte()) 
-            let objType =
-                match typeTag with
-                | ReferenceType.InlineType -> 
-                    let newTypeName = reader.ReadString()
-                    let newType = Type.GetType(newTypeName)
-                    if newType = null then
-                        failwith <| sprintf "Could not load type %A." newTypeName
-                    types.Add newType
-                    newType
-                | ReferenceType.TypePosition -> 
-                    let typePos = reader.ReadInt32()
-                    types.[typePos]
-                | _ -> failwith <| sprintf "Unexpected tag: %A" tag
-            match objType with
-            | strType when strType = typeof<string> -> 
-                let str = reader.ReadString()
-                marked.Add str
-                upcast str
-            | arrType when arrType.IsArray ->
-                let size = reader.ReadInt32()
-                let elType = arrType.GetElementType()
-                let newArr = Array.CreateInstance(elType, size)
-                marked.Add newArr
-                do this.ReadArray(elType, newArr)
-                upcast newArr
-//            | serType when typeof<ISerializable>.IsAssignableFrom(serType) ->
-//                this.ReadCustomSerializedObject(objType)
-            | typeType when typeof<Type>.IsAssignableFrom(typeType) -> 
-                let typeName = reader.ReadString()
-                let ``type`` = Type.GetType(typeName)
-                marked.Add ``type``
-                upcast ``type``
-            | _ -> 
-                let mutable newObj = FormatterServices.GetUninitializedObject(objType) 
+            let serType = typeSerializer.Deserialize(reader)
+            let surrogate = surrogateSelector.GetSurrogate(serType.Type, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
+            if surrogate <> null then
+                let mutable newObj = FormatterServices.GetUninitializedObject(serType.Type)
+                if newObj = null then
+                    failwith <| sprintf "Failed to create unintialized instance of %A." serType.Type
                 marked.Add newObj
-                do this.ReadContents(objType, &newObj)
+                this.ReadSurrogateSerializedObject(surrogate, serType.Type, ref newObj)
                 newObj
+            else
+                match serType.Type with
+                | strType when strType = typeof<string> -> 
+                    let str = reader.ReadString()
+                    marked.Add str
+                    upcast str
+                | arrType when arrType.IsArray ->
+                    let size = reader.ReadInt32()
+                    let elType = arrType.GetElementType()
+                    let newArr = Array.CreateInstance(elType, size)
+                    marked.Add newArr
+                    do this.ReadArray(elType, newArr)
+                    upcast newArr
+                | typeRuntypeMethod when typeof<MethodInfo>.IsAssignableFrom(typeRuntypeMethod) -> 
+                    let declaringType = this.ReadObject(reader, marked) :?> Type
+                    let name = this.ReadObject(reader, marked) :?> string
+                    let len = reader.ReadInt32()
+                    let paramTypes = Array.zeroCreate len
+                    do this.ReadArray(typeof<Type>, paramTypes)
+                    let mi = declaringType.GetMethod(name, Serialize.AllInstance ||| BindingFlags.Static, null, paramTypes, null)
+                    marked.Add mi
+                    upcast mi
+                | typeType when typeof<Type>.IsAssignableFrom(typeType) -> 
+                    let typeName = reader.ReadString()
+                    let ``type`` = Type.GetType(typeName)
+                    marked.Add ``type``
+                    upcast ``type``
+                | ty when typeof<ISerializable>.IsAssignableFrom(ty) ->
+                    this.ReadCustomSerializedObject()
+                | _ -> 
+                    let mutable newObj = FormatterServices.GetUninitializedObject(serType.Type)
+                    marked.Add newObj
+                    if serType.HaveDeserializationCallbacks then
+                        serType.OnDeserializing(newObj, Serialize.theContext)
+                        if not serType.IsValueType then
+                            serType.NoArgConstructor newObj
+                        this.ReadContents(serType, &newObj)
+                        serType.OnDeserialized(newObj, Serialize.theContext)
+                    else
+                        if not serType.IsValueType then
+                            serType.NoArgConstructor newObj
+                        this.ReadContents(serType, &newObj)
+                    newObj
         | _ -> failwith <| sprintf "Unexpected tag: %A" tag
 
-    member this.ReadObject() = this.ReadObject(reader, marked)
+    member this.ReadObject() = 
+        let root = this.ReadObject(reader, marked)
+        for cb in onDeserializationList do
+            cb.OnDeserialization(null)
+        root
 
 type internal ReferenceComparer() =
     interface IEqualityComparer<obj> with
@@ -537,25 +662,19 @@ type internal ReferenceComparer() =
 
 type BinarySerializer() =
 
+    member val SurrogateSelector: ISurrogateSelector = null with get, set
+
     member this.Serialize(stream: Stream, graph: obj): unit = 
+        assert (this.SurrogateSelector <> null)
         let writer = new BinaryWriter(stream, Text.UTF8Encoding.UTF8)
         let marked = new Dictionary<obj, int>(ReferenceComparer())
-        let ser = new Serializer(writer, marked, new TypeSerializer())
+        let ser = new Serializer(writer, marked, new TypeSerializer(), this.SurrogateSelector)
         do ser.WriteObject(graph)
     
     member this.Deserialize (stream: Stream) : obj = 
+        assert (this.SurrogateSelector <> null)
         let reader = new BinaryReader(stream, Text.UTF8Encoding.UTF8)
         let marked = new List<obj>()
-        let types = new List<Type>()
-        let deser = new Deserializer(reader, marked, types)
+        let deser = new Deserializer(reader, marked, new TypeSerializer(), this.SurrogateSelector)
         let ret = deser.ReadObject()
         ret
-    
-//        member this.Deserialize(stream: Stream): obj = 
-//            let reader = new BinaryReader(stream)
-//            let marked = new List<obj>()
-//            let ret = readObject reader marked
-//            do marked.Clear()
-//            ret
-
-

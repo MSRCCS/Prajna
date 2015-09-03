@@ -27,6 +27,7 @@ open System.Diagnostics
 open System.IO
 
 open Prajna.Core
+open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Api.FSharp
 
@@ -52,7 +53,7 @@ type NaiveBayes() =
 
     // A tiny fraction of 20 Newsgroups dataset data (http://archive.ics.uci.edu/ml/datasets/Twenty+Newsgroups)
     // slightly processed to have one example per line and eliminite newlines in example
-    let data = Path.Combine(Utility.GetExecutingDir(), "20news-featurized2-train.txt")
+    let data = Path.Combine(Utility.GetExecutingDir(), "20news-featurized2-tiny.txt")
 
     let split (c: char) (str:string) = str.Split([|c|], StringSplitOptions.RemoveEmptyEntries)
 
@@ -136,8 +137,9 @@ type NaiveBayes() =
             let all = 
                 data 
                 |> File.ReadLines 
+                |> Seq.take 300
                 |> Seq.toArray
-            let numTrain = 8000
+            let numTrain = 200
             all |> Seq.take numTrain |> Seq.toArray, all |> Seq.skip numTrain |> Seq.toArray
 
         // Both the Seq and DSet versions have the same structure: throw away a few badly formatted
@@ -147,45 +149,125 @@ type NaiveBayes() =
             trainSet
             |> Seq.choose chooseLine
             |> Seq.fold (addWords numClasses) null 
-        printfn "Seq train took: %A" (sw.Stop(); sw.Elapsed)
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Seq train took: %A" (sw.Stop(); sw.Elapsed))
 
+        // ...only difference is that the DSet version needs a second "reducer" function
+        // to do sum up intermediate per-partition results.
+        // DSet.distributeN will create N partitions per node.
+        let name = "20News-TinyTest-" + Guid.NewGuid().ToString("D")
+        sw.Restart()
+        let dsetCounts = 
+            DSet<string>(Name = name, Cluster = cluster)
+            |> DSet.distribute trainSet
+            |> DSet.choose chooseLine
+            |> DSet.fold (addWords numClasses) addCounts null
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "DSet train took: %A" (sw.Stop(); sw.Elapsed))
+
+        sw.Restart()
+        let mapReduceCounts = naiveBayesMapReduce name cluster trainSet
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "MapReduce train took: %A" (sw.Stop(); sw.Elapsed))
+
+        // All versions should yield the exact same result.
+        // As can be seen above, even though the algorithm *can* be expressed as map-reduce,
+        // it is simpler and more natural as a fold.
+        let areEqual = // true
+            let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
+            Seq.zip3 seqCounts dsetCounts mapReduceCounts
+            |> Seq.map (fun (seqLabelCounts, dsetLabelCounts, mapReduceLabelCounts) -> 
+                let seqMap = dictToMap seqLabelCounts
+                let dsetMap = dictToMap dsetLabelCounts
+                let mrMap = dictToMap mapReduceLabelCounts
+                seqMap = dsetMap && dsetMap = mrMap)
+            |> Seq.forall id
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Model comparison result: %s" (if areEqual then "Equal" else "Different"))
+
+        areEqual
+            
+    // Call this to test prediction accuracy on large dataset, but not during unit test
+    let evaluate (trainSet: string[]) (testSet: string[]) (counts: Dictionary<string, int>[]) =
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Testing...")
+
+        // A class' "prior" is simply the probability of the class in the dataset overall,
+        // before we look at any words
+        let priors: float[] = 
+            let labelCounts = 
+                trainSet
+                |> Seq.choose chooseLine 
+                |> Seq.map snd
+                |> Seq.countBy id
+                |> Seq.sortBy fst
+                |> Seq.map snd
+                |> Seq.toArray
+            let sum = labelCounts |> Array.sum |> float
+            labelCounts |> Array.map (fun x -> float x / sum)
+
+        // For each example in the *test* set, return the actual label, predicted label, and predicted probabilities,
+        // in this order.
+        let preds : (int * int * float[])[] = 
+            [|for words,label in testSet |> Seq.choose chooseLine do
+                // Do the multiplications in log space to avoid numerical instability.
+                // Using log(a * b) = log(a) + log(b)
+                let logProbs : float[] = Array.zeroCreate numClasses
+                for w in words do
+                    let wCounts : int[] = 
+                        counts 
+                        |> Array.map (fun labelCounts -> 
+                            match labelCounts.TryGetValue w with
+                            | true, c -> c
+                            | _ -> 0)
+                    let sum = Array.sum wCounts |> float
+                    wCounts |> Seq.iteri (fun i c -> logProbs.[i] <- logProbs.[i] + Math.Log(float (c + 1) / (sum + 1.0)))
+                let normProbs = 
+                    // Remember to multiply by the prior
+                    let probs = Array.map2 (fun logProb prior -> Math.Exp logProb * prior) logProbs priors 
+                    let probSum = probs |> Seq.sum
+                    probs |> Array.map (fun p -> p / probSum)
+                let prediction = Array.IndexOf(normProbs, Array.max normProbs)
+                yield label, prediction, normProbs |]
+
+        let hits = preds |> Seq.where (fun (l,p,_) -> l = p) |> Seq.length
+        let accuracy = float hits / float (preds.Length)
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Accuracy: %f" accuracy)
+
+    let timeSerialization (seqCounts: Dictionary<string,int>[]) =
+        let sw = new Stopwatch()
+ 
         let stream = new MemoryStream()
         sw.Restart()
         BinarySerializer().Serialize(stream, seqCounts)
         let timeSer = sw.Stop(); sw.Elapsed
-        printfn "Serializing took: %A" timeSer
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Serializing took: %A" timeSer)
 
         stream.Position <- 0L
         sw.Restart()
         let newCounts = BinarySerializer().Deserialize(stream) :?> Counts[]
         let timeDeser = sw.Stop(); sw.Elapsed
-        printfn "Deserializing took: %A" timeDeser
-        printfn "Total: %A" (timeSer + timeDeser)
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Deserializing took: %A" timeDeser)
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Total: %A" (timeSer + timeDeser))
 
-        printfn "----------------------------------"
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "----------------------------------")
 
-        printfn "Using standard .NET BinaryFormatter:"
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Using standard .NET BinaryFormatter:")
         let newStream = new MemoryStream()
         let bf = new System.Runtime.Serialization.Formatters.Binary.BinaryFormatter()
         sw.Restart()
         bf.Serialize(newStream, seqCounts)
         let timeSer2 = sw.Stop(); sw.Elapsed
-//        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Serializing took: %A" timeSer2)
-        printfn "Serializing took: %A" timeSer2
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Serializing took: %A" timeSer2)
         newStream.Position <- 0L
         sw.Restart()
         let newCounts2 = bf.Deserialize(newStream)
         let timeDeser2 = sw.Stop(); sw.Elapsed
-        printfn "Deserializing took: %A" timeDeser2
-        printfn "Total: %A" (timeSer2 + timeDeser2)
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Deserializing took: %A" timeDeser2)
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Total: %A" (timeSer2 + timeDeser2))
 
-        printfn ""
+        Logger.LogF (LogLevel.Info, fun _ -> "")
         let serRatio = (timeSer.TotalMilliseconds / timeSer2.TotalMilliseconds)
         let deserRatio = (timeDeser.TotalMilliseconds / timeDeser2.TotalMilliseconds)
         let totalRatio = (timeSer + timeDeser).TotalMilliseconds / (timeSer2 + timeDeser2).TotalMilliseconds
-        printfn "Ser Ratio: %f (%fx)" serRatio (1.0 / serRatio)
-        printfn "Deser Ratio: %f (%fx)" deserRatio (1.0 / deserRatio)
-        printfn "Total Ratio: %f (%fx)" totalRatio (1.0 / totalRatio)
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Ser Ratio: %f (%fx)" serRatio (1.0 / serRatio))
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Deser Ratio: %f (%fx)" deserRatio (1.0 / deserRatio))
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Total Ratio: %f (%fx)" totalRatio (1.0 / totalRatio))
 
         let areEqual = 
             let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
@@ -195,92 +277,13 @@ type NaiveBayes() =
                 let newSeqMap = dictToMap newLabelCounts
                 seqMap = newSeqMap)
             |> Seq.forall id
-        printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
-
-        // ...only difference is that the DSet version needs a second "reducer" function
-        // to do sum up intermediate per-partition results.
-        // DSet.distributeN will create N partitions per node.
-//        let name = "20News-TinyTest-" + Guid.NewGuid().ToString("D")
-//        sw.Restart()
-//        let dsetCounts = 
-//            DSet<string>(Name = name, Cluster = cluster)
-//            |> DSet.distributeN 8 trainSet
-//            |> DSet.choose chooseLine
-//            |> DSet.fold (addWords numClasses) addCounts null
-//        printfn "DSet train took: %A" (sw.Stop(); sw.Elapsed)
-//
-////        sw.Restart()
-//        let mapReduceCounts = seqCounts // naiveBayesMapReduce name cluster trainSet
-////        printfn "MapReduce train took: %A" (sw.Stop(); sw.Elapsed)
-//
-//
-//        // All versions should yield the exact same result.
-//        // As can be seen above, even though the algorithm *can* be expressed as map-reduce,
-//        // it is simpler and more natural as a fold.
-//        let areEqual = 
-//            let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
-//            Seq.zip3 seqCounts dsetCounts mapReduceCounts
-//            |> Seq.map (fun (seqLabelCounts, dsetLabelCounts, mapReduceLabelCounts) -> 
-//                let seqMap = dictToMap seqLabelCounts
-//                let dsetMap = dictToMap dsetLabelCounts
-//                let mrMap = dictToMap mapReduceLabelCounts
-//                seqMap = dsetMap && dsetMap = mrMap)
-//            |> Seq.forall id
-//        printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
-
-        // Call this to test prediction accuracy on large dataset, but not during unit test
-        let evaluate() =
-            printfn "Testing..."
-
-            // A class' "prior" is simply the probability of the class in the dataset overall,
-            // before we look at any words
-            let priors: float[] = 
-                let labelCounts = 
-                    trainSet
-                    |> Seq.choose chooseLine 
-                    |> Seq.map snd
-                    |> Seq.countBy id
-                    |> Seq.sortBy fst
-                    |> Seq.map snd
-                    |> Seq.toArray
-                let sum = labelCounts |> Array.sum |> float
-                labelCounts |> Array.map (fun x -> float x / sum)
-
-            // For each example in the *test* set, return the actual label, predicted label, and predicted probabilities,
-            // in this order.
-            let preds : (int * int * float[])[] = 
-                [|for words,label in testSet |> Seq.choose chooseLine do
-                    // Do the multiplications in log space to avoid numerical instability.
-                    // Using log(a * b) = log(a) + log(b)
-                    let logProbs : float[] = Array.zeroCreate numClasses
-                    for w in words do
-                        let wCounts : int[] = 
-                            seqCounts 
-                            |> Array.map (fun labelCounts -> 
-                                match labelCounts.TryGetValue w with
-                                | true, c -> c
-                                | _ -> 0)
-                        let sum = Array.sum wCounts |> float
-                        wCounts |> Seq.iteri (fun i c -> logProbs.[i] <- logProbs.[i] + Math.Log(float (c + 1) / (sum + 1.0)))
-                    let normProbs = 
-                        // Remember to multiply by the prior
-                        let probs = Array.map2 (fun logProb prior -> Math.Exp logProb * prior) logProbs priors 
-                        let probSum = probs |> Seq.sum
-                        probs |> Array.map (fun p -> p / probSum)
-                    let prediction = Array.IndexOf(normProbs, Array.max normProbs)
-                    yield label, prediction, normProbs |]
-
-            let hits = preds |> Seq.where (fun (l,p,_) -> l = p) |> Seq.length
-            let accuracy = float hits / float (preds.Length)
-            printfn "Accuracy: %f" accuracy
-
+        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Model comparison result: %s" (if areEqual then "Equal" else "Different"))
         areEqual
-            
+
+    
     interface IExample with
         member this.Description = 
             "Create Naive Bayes model"
         member this.Run(cluster) =
             run cluster        
         
-
-    

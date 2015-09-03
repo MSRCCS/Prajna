@@ -76,8 +76,6 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
 
     member private x.Release() =
         if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
-            if (id >= 24570) then
-                Console.WriteLine("Release")
             x.ReleaseBuffer(x) // add self back to buffer pool
 
     member internal x.Id with get() = id

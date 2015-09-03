@@ -27,6 +27,7 @@ namespace Prajna.Examples.CSharp
 
     using Prajna.Core;
     using Prajna.Api.CSharp;
+    using Prajna.Api.CSharp.Linq;
 
     using Prajna.Examples.Common;
 
@@ -46,7 +47,7 @@ namespace Prajna.Examples.CSharp
             var value =
                 (new DSet<int> { Name = name, Cluster = cluster })
                 .SourceI(NumPartitions, i => Enumerable.Range(1, NumSamplesPerPartition).Select(j => i * NumSamplesPerPartition + j))
-                .Map(i =>
+                .Select(i =>
                          {
                              var rnd = new Random(i);
                              var x = rnd.NextDouble();
@@ -57,7 +58,7 @@ namespace Prajna.Examples.CSharp
                                  return 0.0;
                          }
                 )
-                .Reduce((a, b) => a + b);
+                .Aggregate((a, b) => a + b);
 
             var pi = (value * 4.0) / NumSamples;
 

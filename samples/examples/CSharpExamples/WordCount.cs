@@ -1,4 +1,4 @@
-//---------------------------------------------------------------------------
+﻿//---------------------------------------------------------------------------
 //    Copyright 2013 Microsoft
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,6 +28,7 @@ namespace Prajna.Examples.CSharp
 
     using Prajna.Core;
     using Prajna.Api.CSharp;
+    using Prajna.Api.CSharp.Linq;
 
     using Prajna.Examples.Common;
 
@@ -51,7 +52,7 @@ namespace Prajna.Examples.CSharp
             var count1 =
                 (new DSet<string> { Name = name, Cluster = cluster })
                 .Distribute(corpus)
-                .Collect(SplitWords)
+                .SelectMany(SplitWords)
                 .Count();
 
             Console.WriteLine("Counted with DSet: there are {0} words", count1);

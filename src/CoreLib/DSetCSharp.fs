@@ -173,7 +173,7 @@ type DSet<'U> () =
     /// <param name="folder"> update the state given the input elements </param>
     /// <param name="aggrFunc"> aggregate the state from different partitions to a single state variable.</param>
     /// <param name="state"> initial state for each partition </param>
-    member private x.Fold (folder : Func<'State, 'U, 'State>, aggrFunc : Func<'State, 'State, 'State>, state : 'State) = 
+    member x.Fold (folder : Func<'State, 'U, 'State>, aggrFunc : Func<'State, 'State, 'State>, state : 'State) = 
         x.DSet.Fold(folder.ToFSharpFunc(), aggrFunc.ToFSharpFunc(), state)
 
     /// <summary>

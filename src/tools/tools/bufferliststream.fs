@@ -349,7 +349,7 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
     member x.ReadGuid() = 
         let buf = Array.zeroCreate<byte>(16)
         x.ReadBytes(buf) |> ignore
-        Guid( x.ValBuf )
+        Guid( buf )
     /// Attempt to read the remainder of the bytestream as a single bytearray. 
     member x.ReadBytesToEnd() = 
         let buf = Array.zeroCreate<byte> (int ( x.Length - x.Position ))

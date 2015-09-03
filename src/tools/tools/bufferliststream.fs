@@ -189,6 +189,8 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
 
     // sufficient for upto GUID
     [<DefaultValue>] val mutable ValBuf : byte[]
+    [<DefaultValue>] val mutable Writable : bool
+    [<DefaultValue>] val mutable Visible : bool
 
     new() as x = 
         { inherit MemoryStream() }
@@ -209,6 +211,7 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
         { inherit MemoryStream(buf, writable) }
         then
             x.Init()
+            x.Writable <- writable
 
     new(buf : byte[], index, count : int) as x =
         { inherit MemoryStream(buf, index, count) }
@@ -219,11 +222,14 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
         { inherit MemoryStream(buffer, index, count, writable)  }
         then
             x.Init()
+            x.Writable <- writable
 
     new(buffer, index, count, writable, publiclyVisible ) as x = 
         { inherit MemoryStream(buffer, index, count, writable, publiclyVisible)  }
         then
             x.Init()
+            x.Writable <- writable
+            x.Visible <- publiclyVisible
 
     abstract member GetTotalBuffer : unit -> 'T[]
     abstract member GetMoreBuffer : (int byref)*(int64 byref) -> 'T[]*int*int
@@ -285,6 +291,8 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
 
     member private x.Init() =
         x.ValBuf <- Array.zeroCreate<byte>(32)
+        x.Writable <- true
+        x.Visible <- true
 
     member x.ComputeSHA512(offset : int64, len : int64) =
         use sha512 = new Security.Cryptography.SHA512Managed() // has dispose
@@ -934,7 +942,7 @@ type BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool) =
 
     override val CanRead = true with get
     override val CanSeek = true with get
-    override val CanWrite = true with get
+    override x.CanWrite with get() = x.Writable
 
     override x.Flush() =
         ()
@@ -1251,14 +1259,19 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
     new(buf : byte[]) =
         new MemoryStreamB(buf, 0, buf.Length)
 
-    new(buf : byte[], b : bool) =
+    new(buf : byte[], b : bool) as x =
         new MemoryStreamB(buf)
+        then
+            x.Writable <- b
 
     new(buf : byte[], index : int, count : int, b : bool) =
         new MemoryStreamB(buf, index, count)
 
-    new(buf : byte[], index : int, count : int, b1, b2) =
+    new(buf : byte[], index : int, count : int, b1, b2) as x =
         new MemoryStreamB(buf, index, count)
+        then
+            x.Writable <- b1
+            x.Visible <- b2
 
     new(ms : MemoryStreamB, position : int64, count : int64) as x =
         new MemoryStreamB()

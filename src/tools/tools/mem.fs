@@ -173,8 +173,8 @@ type ExpandableBuffer internal ( initialBuffer:byte[], posAtZero:int ) =
         x.ReadStream( readStream, ExpandableBuffer.DefaultReadStreamBlockLength)
         x.GetBufferTuple()
 
-type MStream = MemoryStreamB
-//type MStream = StreamBaseByte
+//type MStream = MemoryStreamB
+type MStream = StreamBaseByte
 
 /// <summary>
 /// MemStream is similar to MemoryStream and provide a number of function to ease the read and write object

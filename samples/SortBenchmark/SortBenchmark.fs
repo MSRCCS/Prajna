@@ -369,7 +369,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                 Seq.empty
 
 
-    member x.ReadFilesToMemStream parti = 
+    member internal x.ReadFilesToMemStream parti = 
             let defaultReadBlock = x.blockSizeReadFromFile
             let tbuf = Array.zeroCreate<byte> defaultReadBlock
             let _, filename = x.diskHelper.GetDataFilePath()
@@ -404,7 +404,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                 Seq.empty
 
 
-    member x.ReadFilesToMemStreamF parti = 
+    member internal x.ReadFilesToMemStreamF parti = 
             
             let defaultReadBlock = x.blockSizeReadFromFile
             let tbuf = Array.zeroCreate<byte> defaultReadBlock
@@ -436,7 +436,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
     member val repartitionThread = ref 0
 
 
-    member x.RepartitionMemStream (stage:RepartitionStage) (buffer:MemoryStreamB) = 
+    member internal x.RepartitionMemStream (stage:RepartitionStage) (buffer:MemoryStreamB) = 
         if buffer.Length > 0L then
             let retseq = seq {
 
@@ -632,7 +632,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
 
 
    
-    member x.NativeRepartitionWithMemStream (stage:RepartitionStage) (buffer:byte[], size:int)=
+    member internal x.NativeRepartitionWithMemStream (stage:RepartitionStage) (buffer:byte[], size:int)=
         if size > 1 then
             let retseq = seq {
                             let partionBoundary =
@@ -875,11 +875,11 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
 
 
     member val rollingFileMgr:Object = null with get,set
-    member val dumpCache = new ConcurrentQueue<MemoryStreamB>()
+    member val internal dumpCache = new ConcurrentQueue<MemoryStreamB>()
     member val maxDumpFileSize = 100000000
 
 
-    member x.RepartitionAndWriteToFileMem ( ms:MemoryStreamB ) = 
+    member internal x.RepartitionAndWriteToFileMem ( ms:MemoryStreamB ) = 
         ms.DecRef()
 
     member val WriteEventHandle:Object = null with get,set
@@ -899,7 +899,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
 
     member val CleanUpSignalCount = ref 0
 
-    member x.RepartitionAndWriteToFileMemuseless ( ms:MemoryStreamB ) = 
+    member internal x.RepartitionAndWriteToFileMemuseless ( ms:MemoryStreamB ) = 
         
         let CleanCache(bForceCache:bool) = 
                 let elem = ref Unchecked.defaultof<_> 
@@ -1015,11 +1015,11 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
     member x.ReturnSharedBuf ( parti:int,buf:byte[],len:int ) = 
         RemoteFunc.partiSharedMem.Enqueue(buf)
         
-    member x.DeRefMemStream ( buf:MemoryStreamB ) = 
+    member internal x.DeRefMemStream ( buf:MemoryStreamB ) = 
         buf.DecRef()
         ()
 
-    member x.DeRefMemStreamSeq ( data ) = 
+    member internal x.DeRefMemStreamSeq ( data ) = 
 //        data |> Seq.iter (fun (parti:int,buf:MemoryStreamB) ->
 //                                    buf.DecRef()
 //                                    )

@@ -146,7 +146,7 @@ type [<AllowNullLiteral>] RBufPart<'T>() =
     // the beginning element's position in the stream 
     member val StreamPos = 0L with get, set
 
-type [<AllowNullLiteral>] SharedMemoryPool<'T,'TBase when 'T :> RefCntBuf<'TBase> and 'T: (new : unit -> 'T)>() =
+type [<AllowNullLiteral>] internal SharedMemoryPool<'T,'TBase when 'T :> RefCntBuf<'TBase> and 'T: (new : unit -> 'T)>() =
     let mutable stack : SharedStack<'T> = null
     let mutable initFunc : 'T -> unit = (fun _ -> ())
 
@@ -604,7 +604,7 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
             o
 
 [<AllowNullLiteral>] 
-type StreamReader<'T>(_bls : StreamBase<'T>, _bufPos : int64, _maxLen : int64) =
+type internal StreamReader<'T>(_bls : StreamBase<'T>, _bufPos : int64, _maxLen : int64) =
     let bls = _bls
     let bReleased = ref 0
     let mutable elemPos = 0
@@ -742,7 +742,7 @@ type StreamBaseByte =
 // essentially a generic list of buffers of type 'T
 // use AddRef/Release to acquire / release resource
 [<AllowNullLiteral>] 
-type BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool) =
+type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool) =
     inherit StreamBase<'T>()
 
     static let g_id = ref -1
@@ -1234,7 +1234,7 @@ type BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool) =
 // MemoryStream which is essentially a collection of RefCntBuf
 // Not GetBuffer is not supported by this as it is not useful
 [<AllowNullLiteral>]
-type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
+type internal MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
     inherit BufferListStream<byte>(defaultBufSize)
 
     let emptyBlk = [||]

@@ -998,20 +998,22 @@ and [<AllowNullLiteral>]
             let mapping = childStream.GetMapping()
             let peers = mapping.[parti]
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "DStream %s:%s, Multicast to peers %A with blob %A" x.Name x.VersionString peers meta ))
+            let ms = o :?> StreamBase<byte>
+            ms.AddRef()
             for peeri in peers do 
+                // Write to local. 
                 if peeri = childStream.CurPeerIndex then 
-                    // Write to local. 
-                    let ms = o :?> StreamBase<byte>
                     // Start execution engine
                     childStream.SyncReceiveFromPeer meta ms peeri |> ignore
                     if Utils.IsNull o then 
                         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DStream PassTo.SendTo %s:%s, reach end of SyncExecuteDownstream for parti %d with null object" x.Name x.VersionString parti ))
                 else
                     // Async network queue is used 
-                    childStream.SyncSendPeer jbInfo parti meta o peeri
+                    childStream.SyncSendPeer jbInfo parti meta ms peeri
                     // We don't flush network queue (as the network queue are multiplexed), the execution queue will be flushed at close stream. 
                     // x.SendPeer jbInfo parti meta o peeri 
                 ()
+            ms.DecRef()
         | DecodeTo child ->
             let childDSet = child.Target 
             childDSet.SyncExecuteDownstream jbInfo parti meta o

@@ -50,7 +50,6 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
     let bRelease = ref 0
     let mutable buffer : 'T[] = null
     let refCount = ref 0
-    let mutable bReleased = false
     let id = Interlocked.Increment(g_id)
 
     new(size : int) as x =
@@ -66,7 +65,6 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
     member x.Reset() =
         refCount := 0
         bRelease := 0
-        bReleased <- false
 
     abstract Alloc : int->unit
     default x.Alloc (size : int) =
@@ -78,8 +76,8 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
 
     member private x.Release() =
         if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
-            assert(not bReleased)
-            bReleased <- true
+            if (id >= 24570) then
+                Console.WriteLine("Release")
             x.ReleaseBuffer(x) // add self back to buffer pool
 
     member internal x.Id with get() = id
@@ -92,7 +90,7 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
     member x.Buffer 
         with get() =
             if (!bRelease = 1) then
-                failwith "Buffer already released"
+                failwith (sprintf "Buffer %d already released" id)
                 null
             else
                 buffer

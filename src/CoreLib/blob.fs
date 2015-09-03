@@ -86,11 +86,14 @@ type internal BlobFactory() =
     /// Store object info into the Factory class, apply trigger if there are any function waiting to be executed. 
     member x.Store( id:byte[], ms: StreamBase<byte>, epSignature:int64 ) = 
         let addFunc _ = 
+            ms.AddRef()
             ref ms, ref (PerfDateTime.UtcNowTicks()), ConcurrentQueue<_>(), ConcurrentDictionary<_,_>()
         let tuple = x.Collection.GetOrAdd( id, addFunc )
         let refMS, refTicks, epQueue, epDic = tuple 
-        refMS := ms
+        if (Utils.IsNotNull (!refMS)) then
+            (!refMS).DecRef()
         ms.AddRef()
+        refMS := ms
         refTicks := (PerfDateTime.UtcNowTicks())
         epDic.GetOrAdd( epSignature, true ) |> ignore
         let refValue = ref Unchecked.defaultof<_>
@@ -111,8 +114,10 @@ type internal BlobFactory() =
         let bExist, tuple = x.Collection.TryGetValue( id )
         if bExist then 
             let refMS, refTicks, epQueue, epDic = tuple 
-            refMS := ms
+            if (Utils.IsNotNull (!refMS)) then
+                (!refMS).DecRef()
             ms.AddRef()
+            refMS := ms
             refTicks := (PerfDateTime.UtcNowTicks())
             epDic.GetOrAdd( epSignature, true ) |> ignore
             let refValue = ref Unchecked.defaultof<_>
@@ -135,14 +140,16 @@ type internal BlobFactory() =
                 let ret = x.Collection.TryRemove( pair.Key, &tuple )
                 if (ret) then
                     let refMS, refTicks, epQueue, epDic = tuple
-                    (!refMS).DecRef()
+                    if (Utils.IsNotNull (!refMS)) then
+                        (!refMS).DecRef()
     /// Remove a certain entry
     member x.Remove( id ) = 
         let mutable tuple = Unchecked.defaultof<(_*_*_*_)>
         let ret = x.Collection.TryRemove( id, &tuple )
         if (ret) then
             let refMS, refTicks, epQueue, epDic = tuple
-            (!refMS).DecRef()
+            if (Utils.IsNotNull (!refMS)) then
+                (!refMS).DecRef()
     /// Refresh timer entry of an object
     member x.Refresh( id ) = 
         let bExist, tuple = x.Collection.TryGetValue( id ) 

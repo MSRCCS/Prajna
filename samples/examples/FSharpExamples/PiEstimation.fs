@@ -50,7 +50,7 @@ type PiEstimation ()=
 
         printfn "Estimate Pi value: %f" pi
 
-        Math.Abs(pi - Math.PI) < 0.1
+        abs (pi - Math.PI) < 0.1
 
     interface IExample with
         member this.Description = 

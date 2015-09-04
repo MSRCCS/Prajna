@@ -35,6 +35,136 @@ open Prajna.Tools
 open Prajna.Tools.Queue
 open Prajna.Tools.FSharp
 
+// Helper classes for ref counted objects & shared memory pool
+// A basic refcounter interface
+type [<AllowNullLiteral>] IRefCounter =
+    interface   
+        abstract Release : (IRefCounter->unit) with get, set
+        abstract SetRef : int64->unit
+        abstract AddRef : unit->unit
+        abstract DecRef : unit->unit
+    end
+
+// A shared pool of RefCounters
+//type [<AllowNullLiteral>] internal SharedPool<'T when 'T :> IRefCounter and 'T:(new:unit->'T)> private () =
+type [<AllowNullLiteral>] internal SharedPool<'T when 'T :> IRefCounter and 'T:(new:unit->'T)>() =
+    let mutable stack : SharedStack<'T> = null
+
+    member private x.Stack with get() = stack and set(v) = stack <- v
+
+    abstract InitStack : int*int*string -> unit
+    default x.InitStack(initSize : int, maxSize : int, infoStr : string) =
+        x.Stack <- new SharedStack<'T>(initSize, x.Alloc, infoStr)
+        let lstack : SharedStack<'T> = x.Stack
+        if (maxSize > 0) then
+            x.Stack.MaxStackSize <- maxSize
+
+    abstract Alloc : 'T->unit
+    default x.Alloc (elem : 'T) =
+        elem.Release <- x.Release
+
+    abstract Release : IRefCounter->unit
+    default x.Release(elem : IRefCounter) =
+        stack.ReleaseElem(elem :?> 'T)
+
+    abstract GetElem : unit->ManualResetEvent*'T
+    default x.GetElem() =
+        stack.GetElem()
+
+    abstract GetElem : 'T byref->ManualResetEvent
+    default x.GetElem(elem : 'T byref) =
+        stack.GetElem(&elem)
+
+[<AllowNullLiteral>]
+type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter> (infoStr : string, bAlloc : bool)=
+    static let g_id = ref -1L
+    let id = Interlocked.Increment(g_id)
+    let bRelease = ref 0
+    let mutable elem : 'T = 
+        if (bAlloc) then
+            new 'T()
+        else
+            null
+
+    new(infoStr : string) as x =
+        new SafeRefCnt<'T>(infoStr, true)
+        then
+            let r : IRefCounter = x.RC
+            x.InitElem()
+            x.RC.SetRef(1L)
+
+    new(infoStr : string, e : SafeRefCnt<'T>) as x =
+        new SafeRefCnt<'T>(infoStr, false)
+        then
+            x.Element <- e.Element
+            x.RC.AddRef()
+    
+    static member internal GetFromPool<'TP when 'TP:null and 'TP:(new:unit->'TP) and 'TP :> IRefCounter>(infoStr : string, pool : SharedPool<'TP>, createNew : unit->SafeRefCnt<'T>) : ManualResetEvent*SafeRefCnt<'T> =
+        let (event, poolElem) = pool.GetElem()
+        if (Utils.IsNotNull poolElem) then
+            let x = createNew()
+            x.Element <- poolElem :> IRefCounter :?> 'T
+            x.InitElem()
+            x.RC.SetRef(1L)
+            (event, x)
+        else
+            (event, null)
+
+    abstract InitElem : unit->unit
+    default x.InitElem() =
+        ()
+
+    abstract ReleaseElem : Option<bool>->unit
+    default x.ReleaseElem(bFinalize : Option<bool>) =
+        if (Interlocked.CompareExchange(bRelease, 1, 0) = 0) then
+            if (Utils.IsNotNull elem) then
+                let bFinalize = defaultArg bFinalize false
+                //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Releasing %s with id %d finalize %b" infoStr id bFinalize)
+                x.RC.DecRef()
+
+    member x.Release(?bFinalize : bool) =
+        x.ReleaseElem(bFinalize)
+
+    override x.Finalize() =
+        x.Release(true)
+
+    interface IDisposable with
+        member x.Dispose() =
+            x.Release(true)
+            GC.SuppressFinalize(x)
+
+    member private x.Element with get() = elem and set(v) = elem <- v
+    member private x.RC with get() = (elem :> IRefCounter)
+
+    // use to access the element from outside
+    /// Obtain element contained wit
+    member x.Elem
+        with get() = 
+            if (!bRelease = 1) then
+                failwith (sprintf "Already Released %s %d" infoStr id)
+            else
+                elem
+
+    member x.Id with get() = id
+
+type [<AbstractClass>] [<AllowNullLiteral>] RefCountBase() =
+    member val RefCount = ref 0L with get
+    member x.RC with get() = (x :> IRefCounter)
+
+    interface IRefCounter with
+        override val Release : IRefCounter->unit = (fun _ -> ()) with get, set
+        override x.SetRef(v) =
+            x.RefCount := v
+        override x.AddRef() =
+            Interlocked.Increment(x.RefCount) |> ignore
+        override x.DecRef() =
+            if (Interlocked.Decrement(x.RefCount) <= 0L) then
+                if (!x.RefCount < 0L) then
+                    failwith (sprintf "Illegal ref count of %d" !x.RefCount)
+                x.RC.Release(x :> IRefCounter)
+
+// ======================================
+
 // use AddRef/DecRef to acquire / release resource
 // should not directly use this class, as there is no backup resource freeing in destructor (no override Finalize)
 // this is because otherwise race condition can cause ReleaseElem to be called incorrectly
@@ -46,11 +176,13 @@ open Prajna.Tools.FSharp
 // could fix this by making refcntbuf single use and just getting and releasing byte[], but byte[] not supported by SharedStack
 // and RBufPart already encapsulates RefCntBuf, so there is no need
 type [<AllowNullLiteral>] RefCntBuf<'T>() =
+    inherit RefCountBase()
+
     static let g_id = ref -1
+    let id = Interlocked.Increment(g_id)
+
     let bRelease = ref 0
     let mutable buffer : 'T[] = null
-    let refCount = ref 0
-    let id = Interlocked.Increment(g_id)
 
     new(size : int) as x =
         new RefCntBuf<'T>()
@@ -63,20 +195,16 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
             x.SetBuffer(buf)
 
     member x.Reset() =
-        refCount := 0
+        x.RC.SetRef(0L)
         bRelease := 0
 
     abstract Alloc : int->unit
     default x.Alloc (size : int) =
         x.SetBuffer(Array.zeroCreate<'T>(size))
 
-    static member internal AllocBuffer (size : int) (releaseFn : RefCntBuf<'T>->unit) (x : RefCntBuf<'T>) =
+    static member internal AllocBuffer (size : int) (releaseFn : IRefCounter->unit) (x : RefCntBuf<'T>) =
         x.SetBuffer(Array.zeroCreate<'T>(size))
-        x.ReleaseBuffer <- releaseFn
-
-    member private x.Release() =
-        if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
-            x.ReleaseBuffer(x) // add self back to buffer pool
+        x.RC.Release <- releaseFn
 
     member internal x.Id with get() = id
     member internal x.SetBuffer(v : 'T[]) =
@@ -84,7 +212,6 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
     member internal x.GetBuffer() =
         buffer
 
-    member val ReleaseBuffer : RefCntBuf<'T>->unit = (fun _ -> ()) with get, set
     member x.Buffer 
         with get() =
             if (!bRelease = 1) then
@@ -92,92 +219,93 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
                 null
             else
                 buffer
-    member x.AddRef() =
-        Interlocked.Increment(refCount) |> ignore
-    member x.DecRef() =
-        if (0 = Interlocked.Decrement(refCount)) then
-            x.Release()
     member val UserToken : obj = null with get, set
 
-// use release to release resource, not ref counted
-type [<AllowNullLiteral>] RBufPart<'T>() =
-    static let g_id = ref -1
-    let id = Interlocked.Increment(g_id)
-    let bReleased = ref 0
-    let mutable buf : RefCntBuf<'T> = null
+type [<AllowNullLiteral>] RBufPart<'T> =
+    inherit SafeRefCnt<RefCntBuf<'T>>
 
-    new (rbuf : RefCntBuf<'T>, offset : int, count : int) as x =
-        new RBufPart<'T>()
+    [<DefaultValue>] val mutable Offset : int
+    [<DefaultValue>] val mutable Count : int
+    // the beginning element's position in the stream 
+    [<DefaultValue>] val mutable StreamPos : int64
+
+    new(bAlloc : bool) as x =
+        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", bAlloc) }
         then
-            x.SetBuf(rbuf)
+            x.Init()
+
+    new() as x =
+        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart") }
+        then
+            x.Init()
+
+    new(e : RBufPart<'T>) as x =
+        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", e) }
+        then
+            x.Init()
+
+    new(e : RBufPart<'T>, offset : int, count : int) as x =
+        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", e) }
+        then
+            x.Init()
             x.Offset <- offset
             x.Count <- count
-            let b : RefCntBuf<'T> = x.Buf
-            x.Buf.AddRef()
 
-    member x.Release(?bFinalize) =
-        if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
-            if (Utils.IsNotNull buf) then
-                let bFinalize = defaultArg bFinalize false
-                //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Partition releasing with id %d bufid %d finalize %b" id buf.Id bFinalize)
-                buf.DecRef()
+    new (buf : 'T[], offset : int, count : int) as x =
+        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", false) }
+        then
+            x.Init()
+            let rcb = new RefCntBuf<'T>(buf)
+            x.Offset <- offset
+            x.Count <- count
+            x.Elem.RC.SetRef(1L)
 
-    // backup release in destructor - here it is okay since rbufpart is never reused
+    member x.Init() =
+        ()
+
+    override x.InitElem() =
+        base.InitElem()
+        x.Offset <- 0
+        x.Count <- 0
+        x.StreamPos <- 0L
+
+    override x.ReleaseElem(b) =
+        base.ReleaseElem(b)
+
     override x.Finalize() =
         x.Release(true)
 
-    // this is not ref counted, so can support dispose pattern
     interface IDisposable with
         member x.Dispose() = 
             x.Release(true)
             GC.SuppressFinalize(x)
 
-    //member val internal Buf : RefCntBuf<'T> = null with get, set
-    member private x.SetBuf(v) =
-        buf <- v
-    member internal x.Buf 
-        with get() =
-            if (!bReleased = 1) then
-                failwith (sprintf "Already Released %d" id)
-            else
-                buf
-    member val Offset : int = 0 with get, set
-    member val Count : int = 0 with get, set
-    // the beginning element's position in the stream 
-    member val StreamPos = 0L with get, set
+type [<AllowNullLiteral>] internal SharedMemoryPool<'T,'TBase when 'T :> RefCntBuf<'TBase> and 'T: (new : unit -> 'T)> =
+    inherit SharedPool<'T>
 
-type [<AllowNullLiteral>] internal SharedMemoryPool<'T,'TBase when 'T :> RefCntBuf<'TBase> and 'T: (new : unit -> 'T)>() =
-    let mutable stack : SharedStack<'T> = null
-    let mutable initFunc : 'T -> unit = (fun _ -> ())
+    [<DefaultValue>] val mutable InitFunc : 'T->unit
+    [<DefaultValue>] val mutable BufSize : int
 
     new (initSize : int, maxSize : int, bufSize : int, initFn : 'T -> unit, infoStr : string) as x =
-        new SharedMemoryPool<'T,'TBase>()
+        { inherit SharedPool<'T>() }
         then
             x.InitFunc <- initFn
-            x.Stack <- new SharedStack<'T>(initSize, x.Alloc bufSize, infoStr)
-            let lstack : SharedStack<'T> = x.Stack
-            if (maxSize > 0) then
-                x.Stack.MaxStackSize <- maxSize
+            x.BufSize <- bufSize
+            x.InitStack(initSize, maxSize, infoStr)
 
-    member private x.InitFunc with get() = initFunc and set(v) = initFunc <- v
-    member private x.Stack with get() = stack and set(v) = stack <- v
-
-    member private x.Alloc (bufSize : int) (elem : 'T) =
-        elem.Alloc(bufSize)
-        elem.ReleaseBuffer <- x.Release
+    override x.Alloc (elem : 'T) =
+        base.Alloc(elem)
+        elem.Alloc(x.BufSize)
         x.InitFunc(elem)
 
-    member private x.Release(elem : RefCntBuf<'TBase>) =
-        stack.ReleaseElem(elem :?> 'T)
-
-    member x.GetElem() =
-        let (event, elem) = stack.GetElem()
+    override x.GetElem() =
+        let (event, elem) = base.GetElem()
         if (Utils.IsNull event) then
             elem.Reset()
         (event, elem)
 
-    member x.GetElem(elem : 'T byref) =
-        let event = stack.GetElem(&elem)
+    override x.GetElem(elem : 'T byref) =
+        let event = base.GetElem(&elem)
         if (Utils.IsNull event) then
             elem.Reset()
         event
@@ -231,11 +359,11 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
 
     abstract member GetTotalBuffer : unit -> 'T[]
     abstract member GetMoreBuffer : (int byref)*(int64 byref) -> 'T[]*int*int
-    abstract member GetMoreBufferPart : (int byref)*(int64 byref) -> RefCntBuf<'T>*int*int
+    abstract member GetMoreBufferPart : (int byref)*(int64 byref) -> RBufPart<'T>
 
     abstract member Append : StreamBase<'TS>*int64*int64 -> unit
     abstract member AppendNoCopy : StreamBase<'T>*int64*int64 -> unit
-    abstract member AppendNoCopy : RefCntBuf<'T>*int64*int64 -> unit
+    abstract member AppendNoCopy : RBufPart<'T>*int64*int64 -> unit
     abstract member Append : StreamBase<'TS>*int64 -> unit
     default x.Append(sb, count) =
         x.Append(sb, 0L, count)
@@ -299,231 +427,6 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
     member x.ComputeSHA256(offset : int64, len : int64) =
         use sha256managed = new Security.Cryptography.SHA256Managed()
         x.ComputeHash(sha256managed, offset, len)
-
-    // Existing operations to support
-
-    /// Writes a bytearray to the current stream.
-    member x.WriteBytes( buf ) = 
-        x.Write( buf, 0, buf.Length ) |> ignore
-    /// <summary>
-    /// Writes a bytearray with offset and count to the current stream.
-    /// </summary>
-    member x.WriteBytesWithOffset( buf, offset, count ) = 
-        x.Write( buf, offset, count ) |> ignore    
-    /// <summary>
-    /// Read a bytearray from the current stream. The length of bytes to be read is determined by the size of the bytearray. 
-    /// </summary>
-    /// <param name="buf"> byte array to be read </param>
-    /// <returns> The total number of bytes read from the stream. This can be less than the number of bytes requested if that number of bytes are not currently available, or zero if the end of the stream is reached before any bytes are read.
-    /// </returns>
-    member x.ReadBytes( buf ) = 
-        x.Read( buf, 0, buf.Length ) 
-    /// <summary>
-    /// Read a bytearray from the current stream.
-    /// </summary>
-    /// <param name="buf"> byte array to be read </param>
-    /// <param name="offset">offset into the byte array</param>
-    /// <param name="count">count of maximum number of bytes to read</param>
-    /// <returns> The total number of bytes read from the stream. This can be less than the number of bytes requested if that number of bytes are not currently available, or zero if the end of the stream is reached before any bytes are read.
-    /// </returns>
-    member x.ReadBytesWithOffset( buf, offset, count ) = 
-        x.Read( buf, offset, count ) 
-    /// <summary>
-    /// Read a bytearray of len bytes to the current stream. The function always return a bytearray of size len even if the number of bytes that is currently available is less (or even zero if the end of the stream is reached before any bytes are read). 
-    /// In such a case, the remainder of the bytearray is filled with zero. 
-    /// </summary>
-    /// <returns> A bytearray of size len. If the number of bytes that is currently available is less (or if the end of the stream is reached before any bytes are read), 
-    /// the remainder of the bytearray is filled with zero. 
-    /// </returns>
-    member x.ReadBytes( len : int) =
-        let buf = Array.zeroCreate<byte>(len)
-        x.ReadBytes(buf) |> ignore
-        buf
-    /// Write a Guid to bytestream. 
-    member x.WriteGuid( id: Guid ) = 
-        x.WriteBytes( id.ToByteArray() )
-    /// Read a Guid from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any bytes are read), the remainder of Guid will be
-    /// fillled with zero.  
-    member x.ReadGuid() = 
-        let buf = Array.zeroCreate<byte>(16)
-        x.ReadBytes(buf) |> ignore
-        Guid( buf )
-    /// Attempt to read the remainder of the bytestream as a single bytearray. 
-    member x.ReadBytesToEnd() = 
-        let buf = Array.zeroCreate<byte> (int ( x.Length - x.Position ))
-        if buf.Length>0 then 
-            x.Read( buf, 0, buf.Length ) |> ignore
-        buf
-    /// Write a uint16 to bytestream.  
-    member x.WriteUInt16( b:uint16 ) = 
-        x.WriteBytes( BitConverter.GetBytes( b ) )
-    /// Read a uint16 from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any bytes are read), the high order bytes of uint16 will be
-    /// fillled with zero.  
-    member x.ReadUInt16( ) = 
-        x.ReadBytesWithOffset( x.ValBuf, 0, sizeof<uint16> ) |> ignore
-        BitConverter.ToUInt16( x.ValBuf, 0 )
-    /// Write a int16 to bytestream. 
-    member x.WriteInt16( b:int16 ) = 
-        x.WriteBytes( BitConverter.GetBytes( b ) )
-    /// Read a int16 from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any 
-    /// bytes are read), the high order bytes of int16 will be fillled with zero.  
-    member x.ReadInt16( ) = 
-        x.ReadBytesWithOffset( x.ValBuf, 0, sizeof<uint16> ) |> ignore
-        BitConverter.ToInt16( x.ValBuf, 0 )
-    /// Write a uint32 to bytestream. 
-    member x.WriteUInt32( b:uint32 ) = 
-        x.WriteBytes( BitConverter.GetBytes( b ) )
-    /// Read a uint32 from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any 
-    /// bytes are read), the high order bytes of uint32 will be fillled with zero. 
-    member x.ReadUInt32( ) = 
-        x.ReadBytesWithOffset( x.ValBuf, 0, sizeof<uint32> ) |> ignore
-        BitConverter.ToUInt32( x.ValBuf, 0 )
-    /// Write a int32 to bytestream. 
-    member x.WriteInt32( b:int32 ) = 
-        x.WriteBytes( BitConverter.GetBytes( b ) )
-    /// Read a int32 from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any 
-    /// bytes are read), the high order bytes of uint32 will be fillled with zero.
-    member x.ReadInt32( ) = 
-        x.ReadBytesWithOffset( x.ValBuf, 0, sizeof<int32> ) |> ignore
-        BitConverter.ToInt32( x.ValBuf, 0 )
-    /// Write a int32 to bytestream with variable length coding (VLC). 
-    /// For value between -127..+127 -> one byte is used to encode the int32
-    /// For other value              -> 0x80 + 4Byte (5 bytes are used to encode the int32)
-    member x.WriteVInt32( b:int32 ) =
-        match b with 
-        | v when -127<=v && v<=127 -> 
-            x.WriteByte( byte v ) 
-        | _ ->
-            x.WriteByte( 0x80uy )
-            x.WriteInt32( b )
-    /// Read a int32 from bytestream with variable length coding (VLC). 
-    /// For value between -127..+127 -> one byte is used to encode the int32
-    /// For other value              -> 0x80 + 4Byte (5 bytes are used to encode the int32)
-    /// If the end of the stream has been reached at the moment of read, ReadVInt32() will return 0. 
-    /// If at least one byte is read, but the number of bytes that is currently available is less (or if the end of the stream is reached before any 
-    /// bytes are read), the high order bytes of int32 will be fillled with zero.
-    member x.ReadVInt32( ) =
-        let b = x.ReadByte()
-        match b with 
-        | v when v<>128 -> 
-            if v <= -1 then 0 else if v<128 then v else int( sbyte v)
-        | _ ->
-            x.ReadInt32()
-    /// Write a boolean into bytestream, with 1uy represents true and 0uy represents false
-    member x.WriteBoolean( b:bool ) = 
-        x.WriteByte( if b then 1uy else 0uy )
-    /// Read a boolean from bytestream. If the end of the stream is reached, the function will return true.
-    member x.ReadBoolean( ) = 
-        x.ReadByte() <> 0
-    /// Write a uint64 to bytestream.     
-    member x.WriteUInt64( b:uint64 ) = 
-        x.WriteBytes( BitConverter.GetBytes( b ) )
-    /// Read a uint64 from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any 
-    /// bytes are read), the high order bytes of uint64 will be fillled with zero.
-    member x.ReadUInt64( ) = 
-        x.ReadBytesWithOffset( x.ValBuf, 0, sizeof<uint64> ) |> ignore
-        BitConverter.ToUInt64( x.ValBuf, 0 )
-    /// Write a int64 to bytestream.     
-    member x.WriteInt64( b:int64 ) = 
-        x.WriteBytes( BitConverter.GetBytes( b ) )
-    /// Read a int64 from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any 
-    /// bytes are read), the high order bytes of int64 will be fillled with zero.
-    member x.ReadInt64( ) = 
-        x.ReadBytesWithOffset( x.ValBuf, 0, sizeof<int64> ) |> ignore
-        BitConverter.ToInt64( x.ValBuf, 0 )
-    /// Write a double float value to bytestream.     
-    member x.WriteDouble( b: float ) =
-        x.WriteBytes( BitConverter.GetBytes( b ) )
-    /// Read a double float value from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any 
-    /// bytes are read), the late read bytes of double will be fillled with zero.
-    member x.ReadDouble( ) = 
-        // in f# Core.double -> System.double AND Core.float -> System.double, Core.float32 -> System.single
-        x.ReadBytesWithOffset( x.ValBuf, 0, sizeof<System.Double> ) |> ignore
-        BitConverter.ToDouble( x.ValBuf, 0 )
-    /// Write a single float value to bytestream.
-    member x.WriteSingle( b: float32 ) =
-        x.WriteBytes( BitConverter.GetBytes( b ) )
-    /// Read a single float value from bytestream. If the number of bytes that is currently available is less (or if the end of the stream is reached before any 
-    /// bytes are read), the late read bytes of single will be fillled with zero.
-    member x.ReadSingle( ) = 
-        x.ReadBytesWithOffset( x.ValBuf, 0, sizeof<System.Single> ) |> ignore
-        BitConverter.ToSingle( x.ValBuf, 0 )
-    /// Write a bytearray to bytestream and prefix with length of the bytearray. 
-    member x.WriteBytesWLen( buf:byte[] ) = 
-        if Utils.IsNull buf then
-            x.WriteInt32( 0 )
-        else
-            x.WriteInt32( buf.Length )
-            x.WriteBytes( buf )
-    /// Read a bytearray from bytestream that is prefixed with length of the bytearray. If the bytestream is truncated prematurely, the returned bytearray will be a bytearray of 
-    /// remainder of the bytestram. 
-    member x.ReadBytesWLen( ) = 
-        let len = x.ReadInt32()
-        if len <= 0 then 
-            Array.zeroCreate<_> 0 
-        else
-            let remaining = x.Length - x.Position
-            if remaining >= int64 len then 
-                let buf = Array.zeroCreate<byte> len
-                x.ReadBytes( buf ) |> ignore
-                buf
-            else
-                let buf = Array.zeroCreate<byte> (int remaining) 
-                if remaining > 0L then 
-                    x.ReadBytes( buf ) |> ignore
-                buf
-    /// Write a bytearray to bytestream and prefix with a length (VLC coded) of the bytearray. 
-    /// If the bytearray is null, the bytestream is written to indicate that is a bytearray of size 0. 
-    member x.WriteBytesWVLen( buf:byte[] ) = 
-        if Utils.IsNull buf then
-            x.WriteVInt32( 0 )
-        else
-            x.WriteVInt32( buf.Length )
-            x.WriteBytes( buf )
-    /// Read a bytearray from bytestream that is prefixed with length of the bytearray. If the bytestream is truncated prematurely, the returned bytearray will be a bytearray of 
-    /// remainder of the bytestram. 
-    member x.ReadBytesWVLen( ) = 
-        let len = x.ReadVInt32()
-        if len <= 0 then 
-            Array.zeroCreate<_> 0 
-        else
-            let remaining = x.Length - x.Position
-            if remaining >= int64 len then 
-                let buf = Array.zeroCreate<byte> len
-                x.ReadBytes( buf ) |> ignore
-                buf    
-            else
-                let buf = Array.zeroCreate<byte> (int remaining) 
-                x.ReadBytes( buf ) |> ignore
-                buf
-    /// Write a string (UTF8Encoded) to bytestream and prefix with a length (VLC coded) of the bytearray. 
-    /// If the string is null, the bytestream is written to indicate that is a string of length 0. 
-    member x.WriteStringV( s: string ) =
-        let enc = new System.Text.UTF8Encoding()
-        if Utils.IsNotNull s then 
-            x.WriteBytesWVLen( enc.GetBytes( s ) )
-        else
-            x.WriteBytesWVLen( null )
-    /// Read a string (UTF8Encoded) from bytestream with prefix (VLC coded) of the bytearray. 
-    /// If the bytestream is truncated prematurely, the returned string will be ""  
-    member x.ReadStringV() = 
-        let buf = x.ReadBytesWVLen()
-        let enc = new System.Text.UTF8Encoding()
-        enc.GetString( buf )
-    /// Write a string (UTF8Encoded) to bytestream and prefix with a length of the bytearray. 
-    /// If the string is null, the bytestream is written to indicate that is a string of length 0. 
-    member x.WriteString( s: string ) =
-        let enc = new System.Text.UTF8Encoding()
-        if Utils.IsNotNull s then 
-            x.WriteBytesWLen( enc.GetBytes( s ) )
-        else
-            x.WriteBytesWLen( enc.GetBytes( "" ) )
-    /// Read a string (UTF8Encoded) from bytestream with prefix of the bytearray. 
-    /// If the bytestream is truncated prematurely, the returned string will be ""  
-    member x.ReadString() = 
-        let buf = x.ReadBytesWLen()
-        let enc = new System.Text.UTF8Encoding()
-        enc.GetString( buf )
 
     member internal x.WriteUInt128( data: UInt128 ) = 
         x.WriteUInt64( data.Low )
@@ -633,14 +536,14 @@ type internal StreamReader<'T>(_bls : StreamBase<'T>, _bufPos : int64, _maxLen :
     member x.Reset(_bufPos : int64) =
         x.Reset(_bufPos, Int64.MaxValue)
 
-    member x.GetMoreBufferPart() : RefCntBuf<'T>*int*int =
+    member x.GetMoreBufferPart() : RBufPart<'T> =
         if (maxLen > 0L) then
-            let (rbuf, pos, cnt) = bls.GetMoreBufferPart(&elemPos, &bufPos)
-            let retCnt = Math.Min(int64 cnt, maxLen)
+            use rbuf = bls.GetMoreBufferPart(&elemPos, &bufPos)
+            let retCnt = Math.Min(int64 rbuf.Count, maxLen)
             maxLen <- maxLen - retCnt
-            (rbuf, pos, int retCnt)
+            new RBufPart<'T>(rbuf, rbuf.Offset, int retCnt)
         else
-            (null, 0, 0)
+            null
 
     member x.GetMoreBuffer() : 'T[]*int*int =
         if (maxLen > 0L) then
@@ -715,9 +618,9 @@ type StreamBaseByte =
             pos <- x.Length
             (x.GetBuffer(), int origPos, int(x.Length-origPos))
 
-    override x.GetMoreBufferPart(elemPos : int byref, pos : int64 byref) : RefCntBuf<byte>*int*int =
+    override x.GetMoreBufferPart(elemPos : int byref, pos : int64 byref) : RBufPart<byte> =
         let (buf, pos, cnt) = x.GetMoreBuffer(&elemPos, &pos)
-        ((new RefCntBuf<byte>(buf)), pos, cnt)
+        new RBufPart<byte>(buf, pos, cnt)
 
     override x.GetTotalBuffer() =
         x.GetBuffer()
@@ -728,8 +631,8 @@ type StreamBaseByte =
     override x.AppendNoCopy(sb : StreamBase<byte>, offset : int64, count : int64) =
         x.Append(sb, offset, count)
 
-    override x.AppendNoCopy(b : RefCntBuf<byte>, offset : int64, count : int64) =
-        x.Write(b.Buffer, int offset, int count)
+    override x.AppendNoCopy(b : RBufPart<byte>, offset : int64, count : int64) =
+        x.Write(b.Elem.Buffer, int offset, int count)
 
     override x.Replicate() =
         let ms = new StreamBaseByte(x.GetBuffer(), 0, int x.Length, false, true)
@@ -755,8 +658,9 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
             defaultBufSize
         else
             64000
-    let mutable getNewWriteBuffer : unit->RefCntBuf<'T> = (fun _ ->
-        new RefCntBuf<'T>(defaultBufferSize)
+    let mutable getNewWriteBuffer : unit->RBufPart<'T> = (fun _ ->
+        let buf = Array.zeroCreate<'T>(defaultBufferSize)
+        new RBufPart<'T>(buf, 0, 0)
     )
     let bufList = new List<RBufPart<'T>>(8)
     let mutable rbufPart : RBufPart<'T> = null
@@ -789,7 +693,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         new BufferListStream<'T>()
         then
             x.SimpleBuffer <- true
-            x.AddBuffer(new RefCntBuf<'T>(buf), index, count)
+            x.AddBuffer(new RBufPart<'T>(buf, index, count))
             x.SetDefaults()
 
     new(bls : BufferListStream<'T>, offset : int64, count : int64) as x =
@@ -815,29 +719,31 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     override x.GetNew(size) =
         new BufferListStream<'T>(size) :> StreamBase<'T>
 
-    // not supported
     override x.GetNew(buf : 'T[], offset : int, count : int, a : bool, b : bool) =
         new BufferListStream<'T>(buf, offset, count) :> StreamBase<'T>
 
     member x.Id with get() = id
 
     // static memory pool
-    static member val internal MemStack = new SharedStack<RefCntBuf<'T>>(1024*8, RefCntBuf<'T>.AllocBuffer 64000 BufferListStream<'T>.ReleaseStackElem, "Memory Stream") with get
-    //static member val internal MemStack = new SharedMemoryPool<RefCntBuf<'T>,'T>(1024*8, -1, 64000, (fun _ -> ()), "Memory Stream") with get
+    static member InitFunc (e : RefCntBuf<'T>) =
+        // override the release function
+        e.RC.Release <- BufferListStream<'T>.ReleaseStackElem
+
+    static member val internal MemStack = new SharedMemoryPool<RefCntBuf<'T>,'T>(1024*8, -1, 64000, BufferListStream<'T>.InitFunc, "Memory Stream") with get
 
     member internal x.GetStackElem() =
-        let (event, buf) = BufferListStream<'T>.MemStack.GetElem()
+        let (event, buf) = RBufPart<'T>.GetFromPool("RBufPart", BufferListStream<'T>.MemStack,
+                                                    fun () -> new RBufPart<'T>(false) :> SafeRefCnt<RefCntBuf<'T>>)
         //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Use Element %d for stream %d" buf.Id x.Id)
-        buf.UserToken <- box(x)
-        buf.Reset()
-        buf
+        buf.Elem.UserToken <- box(x)
+        buf :?> RBufPart<'T>
 
-    static member internal ReleaseStackElem : RefCntBuf<'T>->unit = (fun e ->
-        let stack = BufferListStream<'T>.MemStack
+    static member internal ReleaseStackElem : IRefCounter->unit = (fun e ->
+        let e = e :?> RefCntBuf<'T>
         let x = e.UserToken :?> BufferListStream<'T>
         //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Release Element %d for stream %d" e.Id x.Id)
         //Console.WriteLine("Release Elemement {0}", e.Id)
-        stack.ReleaseElem(e)
+        BufferListStream<'T>.MemStack.Release(e)
     )
 
     // return is in units of bytes
@@ -887,7 +793,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
 
     override x.GetTotalBuffer() =
         if (bSimpleBuffer && elemLen = 1) then
-            bufList.[0].Buf.Buffer
+            bufList.[0].Elem.Buffer
         else
             // bad to do this
             let arr = Array.zeroCreate<'T>(int length)
@@ -896,7 +802,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
                 let off1 = l.Offset*sizeof<'T>
                 let off2 =  offset*sizeof<'T>
                 let len = Math.Min(l.Count*sizeof<'T>, (int32) length - off2)
-                Buffer.BlockCopy(l.Buf.Buffer, off1, arr,off2, len)
+                Buffer.BlockCopy(l.Elem.Buffer, off1, arr,off2, len)
                 offset <- offset + l.Count
             arr
 
@@ -916,27 +822,26 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         x.GetBuffer(Array.zeroCreate<byte>(int(length)*sizeof<'T>), 0L, length)
 
     // get more buffer
-    override x.GetMoreBufferPart(elemPos : int byref, pos : int64 byref) : RefCntBuf<'T>*int*int =
+    override x.GetMoreBufferPart(elemPos : int byref, pos : int64 byref) : RBufPart<'T> =
         if (pos >= length) then
-            (null, 0, 0)
+            null
         else
             if (pos < bufList.[elemPos].StreamPos) then
                 elemPos <- 0
             while (bufList.[elemPos].StreamPos + int64 bufList.[elemPos].Count <= pos) do
                 elemPos <- elemPos + 1
-            let part = bufList.[elemPos].Buf
             let offset = int(pos - bufList.[elemPos].StreamPos)
             let cnt = bufList.[elemPos].Count - offset
             pos <- pos + int64 cnt
             let totalOffset = bufList.[elemPos].Offset + offset
-            (part, totalOffset, cnt)
+            new RBufPart<'T>(bufList.[elemPos], totalOffset, cnt)
 
     override x.GetMoreBuffer(elemPos : int byref, pos : int64 byref) : 'T[]*int*int =
         if (pos >= length) then
             (null, 0, 0)
         else
-            let (part, offset, cnt) = x.GetMoreBufferPart(&elemPos, &pos)
-            (part.Buffer, offset, cnt)
+            use part = x.GetMoreBufferPart(&elemPos, &pos)
+            (part.Elem.Buffer, part.Offset, part.Count)
 
     override val CanRead = true with get
     override val CanSeek = true with get
@@ -965,14 +870,16 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
 
     // add new buffer to pool
     member x.AddNewBuffer() =
-        let rbufPartNew = new RBufPart<'T>(getNewWriteBuffer(), 0, 0)
+        let rbufPartNew = getNewWriteBuffer()
         rbufPartNew.StreamPos <- position
         bufList.Add(rbufPartNew)
-        capacity <- capacity + int64 rbufPartNew.Buf.Buffer.Length
+        capacity <- capacity + int64 rbufPartNew.Elem.Buffer.Length
         elemLen <- elemLen + 1
 
     // add existing buffer to pool
-    member x.AddBuffer(rbuf : RefCntBuf<'T>, offset : int, count : int) =
+    member x.AddBuffer(rbuf : RBufPart<'T>) =
+        let offset = rbuf.Offset
+        let count = rbuf.Count
         // if use linked list instead of list, then theoretically could insert if bufRemWrite = 0 also
         // then condition would be if (position <> length && bufRemWrite <> 0) then
         if (position <> length) then
@@ -1000,7 +907,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
             rbufPart <- bufList.[i]
             elemPos <- i + 1
             finalWriteElem <- Math.Max(finalWriteElem, elemPos)
-            rbuf <- rbufPart.Buf
+            rbuf <- rbufPart.Elem
             bufBeginPos <- rbufPart.Offset
             bufPos <- rbufPart.Offset
             bufRem <- rbufPart.Count
@@ -1010,7 +917,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
                 rbufPart.StreamPos <- bufList.[i-1].StreamPos + int64 bufList.[i-1].Count
             // allow writing at end of last buffer
             if (rbufPart.StreamPos + int64 rbufPart.Count >= length) then
-                bufRemWrite <- rbufPart.Buf.Buffer.Length - rbufPart.Offset
+                bufRemWrite <- rbufPart.Elem.Buffer.Length - rbufPart.Offset
             else
                 // if already written buffer, then don't extend count
                 bufRemWrite <- rbufPart.Count
@@ -1102,9 +1009,9 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         position
 
     // write functions
-    member x.WriteRBufNoCopy(rbuf : RefCntBuf<'T>, offset : int, count : int) =
-        x.AddBuffer(rbuf, offset, count)
-        position <- position + int64 count
+    member x.WriteRBufNoCopy(rbuf : RBufPart<'T>) =
+        x.AddBuffer(rbuf)
+        position <- position + int64 rbuf.Count
         elemPos <- elemPos + 1
         length <- Math.Max(length, position)
         finalWriteElem <- Math.Max(finalWriteElem, elemPos)
@@ -1137,7 +1044,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         x.WriteArr(wrbuf.Buffer, offset, count)
 
     member x.WriteRBufPart(wrbufPart : RBufPart<'TS>) =
-        x.WriteArr<'TS>(wrbufPart.Buf.Buffer, rbufPart.Offset, rbufPart.Count)
+        x.WriteArr<'TS>(wrbufPart.Elem.Buffer, rbufPart.Offset, rbufPart.Count)
 
     override x.Write(buf, offset, count) =
         x.WriteArr<byte>(buf, offset, count)
@@ -1221,15 +1128,15 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         use sr = new StreamReader<'T>(strmList, offset, count)
         let mutable bDone = false
         while (not bDone) do
-            let (rbuf, pos, cnt) = sr.GetMoreBufferPart()
+            use rbuf = sr.GetMoreBufferPart()
             if (Utils.IsNotNull rbuf) then
-                x.WriteRBufNoCopy(rbuf, pos, cnt)
+                x.WriteRBufNoCopy(rbuf)
             else
                 bDone <- true
 
-    override x.AppendNoCopy(b : RefCntBuf<'T>, offset : int64, count : int64) =
-        x.WriteRBufNoCopy(b, int offset, int count)
-
+    override x.AppendNoCopy(rbuf : RBufPart<'T>, offset : int64, count : int64) =
+        let rbufAdd = new RBufPart<'T>(rbuf, int offset, int count)
+        x.WriteRBufNoCopy(rbufAdd)
 
 // MemoryStream which is essentially a collection of RefCntBuf
 // Not GetBuffer is not supported by this as it is not useful
@@ -1252,7 +1159,7 @@ type internal MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
         new MemoryStreamB()
         then
             x.SimpleBuffer <- true
-            x.AddBuffer(new RefCntBuf<byte>(buf), index, count)
+            x.AddBuffer(new RBufPart<byte>(buf, index, count))
 
     new(buf : byte[]) =
         new MemoryStreamB(buf, 0, buf.Length)

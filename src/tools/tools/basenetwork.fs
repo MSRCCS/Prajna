@@ -593,7 +593,8 @@ type Network() =
                     x.InitConn(conn, sock, state)
                     conn
                 with e->
-                    null                 
+                    null 
+                                    
     static member internal SrcDstBlkCopy(src : byte[], srcOffset : int byref, srcLen : int byref,
                                          dst : byte[], dstOffset : int byref, dstLen : int byref) =
         let toCopy = Math.Min(srcLen, dstLen)
@@ -605,6 +606,7 @@ type Network() =
             srcLen <- srcLen - toCopy
             dstOffset <- dstOffset + toCopy
             dstLen <- dstLen - toCopy
+
     // dst is memstream
     static member internal SrcDstBlkCopy(src : byte[], srcOffset : int byref, srcLen : int byref,
                                          dst : StreamBase<byte>, dstLen : int byref) =
@@ -617,7 +619,7 @@ type Network() =
         toCopy
 
     // dst is memstream
-    static member internal SrcDstBlkNoCopy(src : RefCntBuf<byte>, srcOffset : int byref, srcLen : int byref,
+    static member internal SrcDstBlkNoCopy(src : RBufPart<byte>, srcOffset : int byref, srcLen : int byref,
                                            dst : StreamBase<byte>, dstLen : int byref) =
         let toCopy = Math.Min(srcLen, dstLen)
         if (toCopy > 0) then

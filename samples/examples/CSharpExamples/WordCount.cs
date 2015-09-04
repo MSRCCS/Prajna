@@ -1,4 +1,4 @@
-//---------------------------------------------------------------------------
+﻿//---------------------------------------------------------------------------
 //    Copyright 2013 Microsoft
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,10 +14,10 @@
 //    limitations under the License.                                                      
 //
 //    File: 
-//        MatchWord.cs
+//        WordCount.cs
 //
 //    Description: 
-//        Match a word from a text file       
+//        Count words of a text file           
 // ---------------------------------------------------------------------------
 
 namespace Prajna.Examples.CSharp
@@ -33,38 +33,33 @@ namespace Prajna.Examples.CSharp
     using Prajna.Examples.Common;
 
     /// <summary>
-    /// Example on matching a word from a document
+    /// Count the number of words in a document
     /// </summary>
-    public class MatchWord : IExample
+    public class WordCount : IExample
     {
         private string Book = Path.Combine(Utility.GetExecutingDir(), "pg1661.txt");
 
         private static string[] SplitWords(string line)
         {
-            return line.Split(new char[] {' '}, StringSplitOptions.RemoveEmptyEntries);
+            return line.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         }
 
-        private bool Match(Cluster cluster, string matchWord)
+        private bool Count(Cluster cluster)
         {
             var name = "Sherlock-Holmes-" + Guid.NewGuid().ToString("D");
             var corpus = File.ReadAllLines(Book);
 
-            // Store the file to the cluster
-            var dset = new DSet<string> { Name = name, Cluster = cluster };
-            dset.Store(corpus);
-
-            var corpusLines = dset.LoadSource();
             var count1 =
-                corpusLines.SelectMany(SplitWords)
-                    .Where(w => w == matchWord)
-                    .Count();
-            Console.WriteLine("Counted with DSet: The word {0} occurs {1} times", matchWord, count1);
+                (new DSet<string> { Name = name, Cluster = cluster })
+                .Distribute(corpus)
+                .SelectMany(SplitWords)
+                .Count();
 
-            var count2 =
-                corpus.SelectMany(SplitWords)
-                  .Where(w => w == matchWord)
-                  .Count();
-            Console.WriteLine("Counted locally: The word {0} occurs {1} times", matchWord, count2);
+            Console.WriteLine("Counted with DSet: there are {0} words", count1);
+
+            var count2 = corpus.SelectMany(SplitWords).Count();
+
+            Console.WriteLine("Counted locally: there are {0} words", count2);
             return count1 == count2;
         }
 
@@ -75,7 +70,7 @@ namespace Prajna.Examples.CSharp
         {
             get
             {
-                return "Count the occurrences of a word (case-sensitive) in an book";
+                return "Count the number of words in an book";
             }
         }
 
@@ -84,7 +79,7 @@ namespace Prajna.Examples.CSharp
         /// </summary>
         public bool Run(Cluster cluster)
         {
-            return Match(cluster, "Sherlock");
+            return Count(cluster);
         }
     }
 }

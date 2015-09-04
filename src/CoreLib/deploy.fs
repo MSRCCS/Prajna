@@ -410,6 +410,9 @@ type DeploymentSettings() =
     /// The time interval that the container will wait for a analytical job to complete
     static member val internal ContainerMaxWaitForJobToFinish = TimeSpan.FromSeconds(5.0) with get
 
+    /// The wait time for unload an appdomain that is hosting a daemon or container.
+    static member val internal AppDomainUnloadWaitTime = TimeSpan.FromSeconds(1.0) with get
+
 
 (*---------------------------------------------------------------------------
     05/31/2014, Jin Li

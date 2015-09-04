@@ -340,14 +340,14 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             x.MyExchangeRSA <- onet.MyExchangeRSA
             // receiver q is fixed size to limit # of unprocessed commands (not taken out by ToReceive)
             let xcRecv : Component<NetworkCommand> = x.CompRecv
-            xcRecv.Q <- FixedLenQ(100, 100)
+            xcRecv.Q <- FixedLenQ(DeploymentSettings.NetworkCmdRecvQSize, DeploymentSettings.NetworkCmdRecvQSize)
             x.RecvCmdQ <- xcRecv.Q :?> FixedLenQ<NetworkCommand>
             let xcSend : Component<NetworkCommand> = x.CompSend
             xcSend.Q <- FixedSizeQ(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
             x.SendCmdQ <- xcSend.Q :?> FixedSizeQ<NetworkCommand>
             let cmdQ : FixedSizeQ<NetworkCommand> = x.SendCmdQ
-            x.SendCmdQ.MaxLen <- 100
-            x.SendCmdQ.DesiredLen <- 100
+            x.SendCmdQ.MaxLen <- DeploymentSettings.NetworkCmdSendQSize
+            x.SendCmdQ.DesiredLen <- DeploymentSettings.NetworkCmdSendQSize
 
     /// 1. Constructor used when accepting a new connection
     new ( soc : Socket, onet : NetworkConnections ) as x = 
@@ -938,6 +938,9 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
             Logger.LogStackTrace(LogLevel.MildVerbose)
             Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo))
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" BufferListStream<byte>.MemStack.StackSize BufferListStream<byte>.MemStack.GetStack.Size)
             xCSend.SelfClose()
             // manually terminate everything - this will do following
             // 1) clear the queues, 2) set the IsTerminated flag, 3) set event being waited upon
@@ -1616,17 +1619,15 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                 maxMemory <- Math.Min(maxMemory, uint64(DeploymentSettings.MaxNetworkStackMemoryPercentage*float DetailedConfig.GetMemorySpace))
             maxMemory <- maxMemory >>> 1 // half for send, recv
             x.MaxMemory <- maxMemory
-            let mutable bufSize = 256000
-            //let mutable bufSize = 64000
+            let mutable bufSize = DeploymentSettings.NetworkSocketAsyncEventArgBufferSize
             let mutable maxNumStackBufs = maxMemory / uint64 bufSize
             if (maxNumStackBufs < 50UL) then
+                // lower the buffer size if not sufficient maximum buffers
                 bufSize <- int(maxMemory / 50UL)
                 maxNumStackBufs <- 50UL
             if (bufSize < 64000) then
                 failwith "Not sufficient memory"
-            //x.InitStack(5, 256000, 10)
-            x.InitStack(Math.Min(1024*8, int maxNumStackBufs), bufSize, int maxNumStackBufs)
-            x.StartMonitor() 
+            x.InitStack(Math.Min(DeploymentSettings.InitNetworkSocketAsyncEventArgBuffers, int maxNumStackBufs), bufSize, int maxNumStackBufs)
             // for internal queues of SocketAsyncEventArgs in genericnetwork.fs
             // since flow control takes into account NetworkCommand->SocketAsyncEventArgs and reverse conversion
             // no need to control queue size here since unProcessedBytes is representative of bytes:
@@ -1635,11 +1636,15 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             // 3. waiting to be converted from SocketAsyncEventArgs->NetworkCommand
             x.fnQRecv <- (fun() -> 
                 let q = new FixedSizeQ<RBufPart<byte>>(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
-                q.MaxLen <- 100
-                q.DesiredLen <- 100
+                q.MaxLen <- DeploymentSettings.NetworkSARecvQSize
+                q.DesiredLen <- DeploymentSettings.NetworkSARecvQSize
                 q :> BaseQ<RBufPart<byte>>
             )
-            x.fnQSend <- Some(fun() -> new FixedLenQ<RBufPart<byte>>(100, 100) :> BaseQ<RBufPart<byte>>)
+            x.fnQSend <- Some(fun() -> new FixedLenQ<RBufPart<byte>>(DeploymentSettings.NetworkSASendQSize, DeploymentSettings.NetworkSASendQSize) :> BaseQ<RBufPart<byte>>)
+            // initialize shared memory pool for fast memory stream
+            BufferListStream<byte>.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
+            // start the monitoring
+            x.StartMonitor() 
 
     member val TotalSARecvSize = ref 0L with get
     member val TotalSASendSize = ref 0L with get

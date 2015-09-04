@@ -51,6 +51,8 @@ type [<AllowNullLiteral>] internal SharedPool<'T when 'T :> IRefCounter and 'T:(
     let mutable stack : SharedStack<'T> = null
 
     member private x.Stack with get() = stack and set(v) = stack <- v
+    member x.GetStack with get() = stack
+    member x.StackSize with get() = stack.Count()
 
     abstract InitStack : int*int*string -> unit
     default x.InitStack(initSize : int, maxSize : int, infoStr : string) =
@@ -650,6 +652,9 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
 
     static let g_id = ref -1
 
+    static let mutable memStack : SharedMemoryPool<RefCntBuf<'T>,'T> = null
+    static let memStackInit = ref 0
+
     let refCount = ref 1 // constructor automatically increments ref count
     let bReleased = ref 0
 
@@ -729,7 +734,10 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         // override the release function
         e.RC.Release <- BufferListStream<'T>.ReleaseStackElem
 
-    static member val internal MemStack = new SharedMemoryPool<RefCntBuf<'T>,'T>(1024*8, -1, 64000, BufferListStream<'T>.InitFunc, "Memory Stream") with get
+    static member internal MemStack with get() = memStack
+    static member internal InitMemStack(numBufs : int, bufSize : int) =
+        if (Interlocked.CompareExchange(memStackInit, 1, 0)=0) then
+            memStack <- new SharedMemoryPool<RefCntBuf<'T>,'T>(numBufs, -1, bufSize, BufferListStream<'T>.InitFunc, "Memory Stream")
 
     member internal x.GetStackElem() =
         let (event, buf) = RBufPart<'T>.GetFromPool("RBufPart", BufferListStream<'T>.MemStack,

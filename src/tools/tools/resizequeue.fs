@@ -846,6 +846,7 @@ type internal SharedStack<'T when 'T : (new : unit -> 'T)>(initSize : int, alloc
 
     let isEmpty = (fun _ -> stack.IsEmpty)
     member x.Count() = stack.Count
+    member x.Size with get() = size
     /// The maximum stack size as count of number of elements
     member val MaxStackSize = Int32.MaxValue with get, set
 

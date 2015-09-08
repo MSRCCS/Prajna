@@ -955,14 +955,16 @@ and [<AllowNullLiteral; Serializable>]
         let readFunc (jbInfo:JobInformation) ( meta, ms:StreamBase<byte> ) = 
             if Utils.IsNotNull ms then 
                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
-                let msWire = new MemStream( int ms.Length + 1024 )
+                //let msWire = new MemStream( int ms.Length + 1024 )
+                let msWire = ms.GetNew()
                 msWire.WriteString( dset.Name )
                 msWire.WriteInt64( dset.Version.Ticks )
                 msWire.WriteVInt32( meta.Partition )
                 msWire.WriteInt64( meta.Serial )
                 msWire.WriteVInt32( meta.NumElems )
                 //msWire.Write( ms.GetBuffer(), int ms.Position, int ms.Length - int ms.Position )
-                msWire.Append(ms, ms.Position, ms.Length-ms.Position)
+                msWire.AppendNoCopy(ms, ms.Position, ms.Length-ms.Position)
+                ms.DecRef()
                 let cmd = ControllerCommand( ControllerVerb.Write, ControllerNoun.DSet )
                 let bSendout = ref false
 //                        while Utils.IsNotNull queue && not queue.Shutdown && not !bSendout do
@@ -972,10 +974,11 @@ and [<AllowNullLiteral; Serializable>]
                 while not jbInfo.HostShutDown && not !bSendout do
                     if jbInfo.bAvailableToSend( dset.SendingQueueLimit ) then 
                         jbInfo.ToSendHost( cmd, msWire ) 
+                        msWire.DecRef()
                         bSendout := true
                     else
                         // Flow control kick in
-                        Threading.Thread.Sleep(5)                                                                           
+                        Threading.Thread.Sleep(5)
                 if jbInfo.HostShutDown then 
                     // Attempt to cancel jobs 
                     x.CancellationToken.Cancel() 
@@ -1045,6 +1048,8 @@ and [<AllowNullLiteral; Serializable>]
             else
                 (!dStreamToSendSyncClose).SyncSendCloseDStreamToAll()
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All ReadToNetwork tasks completed for job %s:%s DSet %s:%s, send SyncClose, DStream to all peers !" x.Name x.VersionString dset.Name dset.VersionString))
+            for i=0 to x.NumBlobs-1 do
+                x.Blobs.[i].Stream.DecRef()
 
         x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci
             beginJob finalJob           
@@ -1074,6 +1079,8 @@ and [<AllowNullLiteral; Serializable>]
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All aggregate fold completed for job %s:%s DSet %s:%s, send WriteGV,DSet to client!" x.Name x.VersionString dset.Name dset.VersionString))
             jbInfo.ToSendHost( ControllerCommand( ControllerVerb.WriteGV, ControllerNoun.DSet ), msSend )
             ms.DecRef()
+            for i=0 to x.NumBlobs-1 do
+                x.Blobs.[i].Stream.DecRef()
 
         x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) ) beginJob finalJob
 
@@ -1961,7 +1968,7 @@ and [<AllowNullLiteral; Serializable>]
                         else
                             if bExist then 
                                 let buf, pos, count = stream.GetBufferPosLength()
-                                blob.Stream <- new MemStream()
+                                blob.Stream <- buf.GetNew()
                                 blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
                                 //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
                                 blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
@@ -2035,7 +2042,7 @@ and [<AllowNullLiteral; Serializable>]
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd Write, Blob %d from peer %s" blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
         if not (blob.IsAllocated) then 
             let buf, pos, count = ms.GetBufferPosLength()
-            blob.Stream <- new MemStream()
+            blob.Stream <- buf.GetNew()
             blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
             //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
             blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore

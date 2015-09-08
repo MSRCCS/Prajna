@@ -1338,7 +1338,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// <param name="command">The controller command</param>
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional argument - unused for now</param>
-    member x.ToForward( endPoint:IPEndPoint, command:ControllerCommand, sendStream:MemStream, ?bExpediateSend ) = 
+    member x.ToForward( endPoint:IPEndPoint, command:ControllerCommand, sendStream:StreamBase<byte>, ?bExpediateSend ) = 
         let bExpediate = defaultArg bExpediateSend false
         let forwardHeader = new MemStream( 128 )
         forwardHeader.WriteVInt32( 1 )
@@ -1355,7 +1355,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// <param name="command">The controller command</param>
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional argument - unused for now</param>
-    member x.ToForward( endPoints:IPEndPoint[], command:ControllerCommand, sendStream:MemStream, ?bExpediateSend ) = 
+    member x.ToForward( endPoints:IPEndPoint[], command:ControllerCommand, sendStream:StreamBase<byte>, ?bExpediateSend ) = 
         let bExpediate = defaultArg bExpediateSend false
         let forwardHeader = new MemStream( 128 )
         forwardHeader.WriteVInt32( endPoints.Length )

@@ -919,7 +919,9 @@ and [<AllowNullLiteral>]
                             let blockedTime = ( (PerfADateTime.UtcNow()).Subtract(!peerQueue.flowcontrol_lastack) ).TotalMilliseconds
                             if blockedTime >= 1000. && peerQueue.CanSend &&  peerQueue.RcvdCommandSerial <> !peerQueue.flowcontrol_lastRcvdCommandSerial then
                                 Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Send cmd to peer %s has been blocked for %f ms, send an unknown cmd to prevent deadlock, lastRcvdCommandSerial: %d, peerQueue.RcvdCommandSerial: %d" (LocalDNS.GetShowInfo(peerQueue.RemoteEndPoint)) blockedTime !peerQueue.flowcontrol_lastRcvdCommandSerial peerQueue.RcvdCommandSerial))
-                                peerQueue.ToSend( new ControllerCommand(ControllerVerb.Unknown,ControllerNoun.Unknown), new MemoryStreamB() )
+                                let msSend = new MemoryStreamB()
+                                peerQueue.ToSend( new ControllerCommand(ControllerVerb.Unknown,ControllerNoun.Unknown), msSend )
+                                msSend.DecRef()
                                 //bForceSend <- true
                                 peerQueue.flowcontrol_lastack := (PerfADateTime.UtcNow())
                                 peerQueue.flowcontrol_lastRcvdCommandSerial := peerQueue.RcvdCommandSerial

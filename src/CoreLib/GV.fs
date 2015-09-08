@@ -378,7 +378,7 @@ type JobInformation internal () =
     member val internal ForwardEndPoint : Net.IPEndPoint = null with get, set  
     member val internal FoldState = ConcurrentDictionary<int, Object>() with get  
     member val internal JobReady : ManualResetEvent = null with get, set
-    member internal x.ToSendHost( cmd, ms ) = 
+    member internal x.ToSendHost( cmd, ms : StreamBase<byte> ) = 
         if Utils.IsNotNull x.HostQueue && not x.HostQueue.Shutdown then 
             // Feedback to host are not subject to flow control, we assume that the information in feedback is small
             if Utils.IsNotNull x.ForwardEndPoint then 
@@ -391,7 +391,8 @@ type JobInformation internal () =
         ms.WriteString( msg ) 
         x.ToSendHost( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), ms )
     member internal x.HostShutDown with get() = Utils.IsNull x.HostQueue || x.HostQueue.Shutdown
-    member internal x.bAvailableToSend( queueLimit:int ) = x.HostQueue.CanSend && x.HostQueue.SendQueueLength<5 && x.HostQueue.UnProcessedCmdInBytes < int64 queueLimit
+    //member internal x.bAvailableToSend( queueLimit:int ) = x.HostQueue.CanSend && x.HostQueue.SendQueueLength<5 && x.HostQueue.UnProcessedCmdInBytes < int64 queueLimit
+    member internal x.bAvailableToSend( queueLimit:int ) = x.HostQueue.CanSend
 
 /// Used for Async Traverse, 
 /// A AsyncTaskQueue wraps a series of Async Tasks, which is executed one after another, garantted in order.  

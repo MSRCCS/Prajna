@@ -2475,6 +2475,7 @@ and [<Serializable; AllowNullLiteral>]
                             // networkStream -> SendOverNetwork -> DecodeTo will merge to childDSet on iterateExecuteDownstream
                             let encMeta, encStream = currentFunc.Encode( newMeta, newElemObject )
                             networkStream.SyncExecuteDownstream jbInfo encMeta.Partition encMeta (encStream :> Object)
+                            encStream.DecRef()
             else
                 // Encounter the end, MapFunc is called with keyArray being null only once in the execution
                 let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )

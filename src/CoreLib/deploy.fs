@@ -265,6 +265,7 @@ type DeploymentSettings() =
     static member val NetworkSocketAsyncEventArgBufferSize = 128000 with get, set
     /// The initial # of buffers in SocketAsyncEventArg stack
     static member val InitNetworkSocketAsyncEventArgBuffers = 128 with get, set
+    //static member val InitNetworkSocketAsyncEventArgBuffers = 8*1024 // for sort benchmark
     /// The size of network command queue for sending
     static member val NetworkCmdSendQSize = 100 with get, set
     /// The size of network command queue for receiving
@@ -273,7 +274,6 @@ type DeploymentSettings() =
     static member val NetworkSASendQSize = 100 with get, set
     /// The size of network socket async event args queue for receiving
     static member val NetworkSARecvQSize = 100 with get, set
-    //static member val InitNetworkSocketAsyncEventArgBuffers = 8*1024 // for sort benchmark
     /// The initial # of buffers for shared memory pool used by BufferListStream
     static member val InitBufferListNumBuffers = 128 with get, set
     // static member val InitBufferListBuffers = 8*1024 with get, set // for sort benchmark

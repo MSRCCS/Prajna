@@ -218,6 +218,7 @@ and [<AllowNullLiteral>]
     member x.IsAllocated with get() = Utils.IsNotNull x.Stream
     member x.Release() = 
         if x.IsAllocated then
+            x.Stream.DecRef()
             x.Stream.Dispose()
             x.Stream <- null
     /// Index of the array in the specific Blob type. 

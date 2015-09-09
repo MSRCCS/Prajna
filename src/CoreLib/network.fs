@@ -1026,10 +1026,12 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             body.DecRef()
             // form a memory stream using this buffer01
             let ms = new MemStream(decryptBuf, 8, bufLen-8)
+            ms.Info <- sprintf "Cmd:%A:" command
             curRecvCmd <- new NetworkCommand(command, ms)
         else
             if (Utils.IsNotNull body) then
                 body.Seek(0L, SeekOrigin.Begin) |> ignore
+            body.Info <- sprintf "Info:%A:" command
             curRecvCmd <- new NetworkCommand(command, body)
             //x.TraceCurRecvCommand(fun _ -> sprintf "Built bodyLen:%d eRem: %d" body.Length xgc.ERecvRem)
         curStateRecv <- ReceivingMode.EnqueuingCommand

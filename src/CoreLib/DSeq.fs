@@ -752,6 +752,7 @@ and [<AllowNullLiteral>]
     member internal x.SyncPackageToSend (meta:BlobMetadata) (streamObject:Object) = 
         //let metaStream = new MemStream( 128 ) 
         let metaStream = new MemoryStreamB()
+        metaStream.Info <- sprintf "SyncPackageToSend"
         metaStream.WriteString( x.Name )
         metaStream.WriteInt64( x.Version.Ticks ) 
         meta.Pack( metaStream ) 
@@ -920,6 +921,7 @@ and [<AllowNullLiteral>]
                             if blockedTime >= 1000. && peerQueue.CanSend &&  peerQueue.RcvdCommandSerial <> !peerQueue.flowcontrol_lastRcvdCommandSerial then
                                 Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Send cmd to peer %s has been blocked for %f ms, send an unknown cmd to prevent deadlock, lastRcvdCommandSerial: %d, peerQueue.RcvdCommandSerial: %d" (LocalDNS.GetShowInfo(peerQueue.RemoteEndPoint)) blockedTime !peerQueue.flowcontrol_lastRcvdCommandSerial peerQueue.RcvdCommandSerial))
                                 let msSend = new MemoryStreamB()
+                                msSend.Info <- "Nothing"
                                 peerQueue.ToSend( new ControllerCommand(ControllerVerb.Unknown,ControllerNoun.Unknown), msSend )
                                 msSend.DecRef()
                                 //bForceSend <- true

@@ -68,7 +68,8 @@ type internal BlobStatus =
 /// The BlobFactory class implements cache that avoid instantiation of multiple Blob class, and save memory. 
 type internal BlobFactory() = 
     static member val Current = BlobFactory() with get
-    static member val InactiveSecondsToEvictBlob = 600L with get, set
+    //static member val InactiveSecondsToEvictBlob = 600L with get, set
+    static member val InactiveSecondsToEvictBlob = 10L with get, set
     member val Collection = ConcurrentDictionary<_,(_*_*_*_)>(BytesCompare()) with get
     /// Register object with a trigger function that will be executed when the object arrives. 
     member x.Register( id:byte[], triggerFunc:(StreamBase<byte>*int64->unit), epSignature:int64 ) = 

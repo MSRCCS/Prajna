@@ -957,6 +957,7 @@ and [<AllowNullLiteral; Serializable>]
                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
                 //let msWire = new MemStream( int ms.Length + 1024 )
                 let msWire = ms.GetNew()
+                msWire.Info <- "msWire DSetReadAsSeparateApp"
                 msWire.WriteString( dset.Name )
                 msWire.WriteInt64( dset.Version.Ticks )
                 msWire.WriteVInt32( meta.Partition )
@@ -987,9 +988,19 @@ and [<AllowNullLiteral; Serializable>]
                 Task.ClosePartition jbInfo dset meta
 //        let asyncJobs jbInfo parti = 
 //            dset.AsyncEncode jbInfo parti ( readFunc jbInfo)
+
         let syncJobs jbInfo parti ()= 
             dset.SyncEncode jbInfo parti ( readFunc jbInfo)
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) ( fun _ -> () )
+
+        let finalJob (jbInfo:JobInformation) =
+            for i=0 to x.NumBlobs-1 do
+                if (Utils.IsNotNull x.Blobs.[i]) then
+                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
+                        BlobFactory.remove x.Blobs.[i].Hash
+                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
+                        x.Blobs.[i].Stream.DecRef()
+
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) finalJob
             
 /// ReadToNetwork, Job (DSet) 
     member x.DSetReadToNetworkAsSeparateAppSync( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
@@ -1049,10 +1060,15 @@ and [<AllowNullLiteral; Serializable>]
                 (!dStreamToSendSyncClose).SyncSendCloseDStreamToAll()
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All ReadToNetwork tasks completed for job %s:%s DSet %s:%s, send SyncClose, DStream to all peers !" x.Name x.VersionString dset.Name dset.VersionString))
             for i=0 to x.NumBlobs-1 do
-                x.Blobs.[i].Stream.DecRef()
+                if (Utils.IsNotNull x.Blobs.[i]) then
+                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
+                        BlobFactory.remove x.Blobs.[i].Hash
+                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
+                        x.Blobs.[i].Stream.DecRef()
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
 
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci
-            beginJob finalJob           
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci beginJob finalJob           
 
 /// Fold, Job (DSet) 
     member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object, ms : StreamBase<byte> ) = 
@@ -1078,9 +1094,16 @@ and [<AllowNullLiteral; Serializable>]
             let msSend = serializeFunc.SerializeFunc msWire finalState
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All aggregate fold completed for job %s:%s DSet %s:%s, send WriteGV,DSet to client!" x.Name x.VersionString dset.Name dset.VersionString))
             jbInfo.ToSendHost( ControllerCommand( ControllerVerb.WriteGV, ControllerNoun.DSet ), msSend )
-            ms.DecRef()
+            if (Utils.IsNotNull ms) then
+                ms.DecRef()
             for i=0 to x.NumBlobs-1 do
-                x.Blobs.[i].Stream.DecRef()
+                if (Utils.IsNotNull x.Blobs.[i]) then
+                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
+                        BlobFactory.remove x.Blobs.[i].Hash
+                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
+                        x.Blobs.[i].Stream.DecRef()
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
 
         x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) ) beginJob finalJob
 
@@ -1472,6 +1495,7 @@ and [<AllowNullLiteral; Serializable>]
                                     else 
                                         // Start pos will not be the end of stream, garanteed by state not null 
                                         let ms = new MemoryStreamB()
+                                        ms.Info <- "Replicated stream"
                                         ms.AppendNoCopy(buf, pos, length) // this is a write operation, position moves forward
                                         ms.Seek(0L, SeekOrigin.Begin) |> ignore
                                         ms
@@ -1927,6 +1951,7 @@ and [<AllowNullLiteral; Serializable>]
                             if bExist then 
                                 let buf, pos, count = stream.GetBufferPosLength()
                                 blob.Stream <- stream.GetNew()
+                                blob.Stream.Info <- "BlobKind.PassthroughDSetMetaData"
                                 blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
                                 blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
                                 match availFuncOpt with 
@@ -1969,6 +1994,7 @@ and [<AllowNullLiteral; Serializable>]
                             if bExist then 
                                 let buf, pos, count = stream.GetBufferPosLength()
                                 blob.Stream <- buf.GetNew()
+                                blob.Stream.Info <- "BlobKind.DStream"
                                 blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
                                 //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
                                 blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
@@ -2016,6 +2042,7 @@ and [<AllowNullLiteral; Serializable>]
         if not (blob.IsAllocated) then 
             let buf, pos, count = ms.GetBufferPosLength()
             blob.Stream <- ms.GetNew()
+            blob.Stream.Info <- "ReceiveBlob"
             blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
             blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
             x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
@@ -2043,6 +2070,7 @@ and [<AllowNullLiteral; Serializable>]
         if not (blob.IsAllocated) then 
             let buf, pos, count = ms.GetBufferPosLength()
             blob.Stream <- buf.GetNew()
+            blob.Stream.Info <- "ReceiveBlobNoFeedback"
             blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
             //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
             blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore

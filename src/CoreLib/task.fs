@@ -999,6 +999,11 @@ and [<AllowNullLiteral; Serializable>]
                         BlobFactory.remove x.Blobs.[i].Hash
                     if (Utils.IsNotNull x.Blobs.[i].Stream) then
                         x.Blobs.[i].Stream.DecRef()
+            if (Utils.IsNotNull x.MetadataStream) then
+                x.MetadataStream.DecRef()
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
+            BufferListStream<byte>.DumpStreamsInUse()
 
         x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) finalJob
             
@@ -1065,8 +1070,11 @@ and [<AllowNullLiteral; Serializable>]
                         BlobFactory.remove x.Blobs.[i].Hash
                     if (Utils.IsNotNull x.Blobs.[i].Stream) then
                         x.Blobs.[i].Stream.DecRef()
+            if (Utils.IsNotNull x.MetadataStream) then
+                x.MetadataStream.DecRef()
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
+            BufferListStream<byte>.DumpStreamsInUse()
 
         x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci beginJob finalJob           
 
@@ -1102,8 +1110,11 @@ and [<AllowNullLiteral; Serializable>]
                         BlobFactory.remove x.Blobs.[i].Hash
                     if (Utils.IsNotNull x.Blobs.[i].Stream) then
                         x.Blobs.[i].Stream.DecRef()
+            if (Utils.IsNotNull x.MetadataStream) then
+                x.MetadataStream.DecRef()
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
+            BufferListStream<byte>.DumpStreamsInUse()
 
         x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) ) beginJob finalJob
 
@@ -1216,6 +1227,8 @@ and [<AllowNullLiteral; Serializable>]
                                     (bTerminateJob : bool ref)
                                     (command : ControllerCommand)
                                     (ms : StreamBase<byte>) =
+        if (Utils.IsNotNull !task) then
+            ms.Info <- ms.Info + ":ParseQueueCommand:Task:" + (!task).Name
         match (command.Verb, command.Noun ) with
         | ( ControllerVerb.Open, ControllerNoun.Connection ) ->
             let queueSignature = ms.ReadInt64()
@@ -2378,6 +2391,7 @@ and [<AllowNullLiteral; Serializable>]
         let msSend = new MemStream( 1024 )
         msSend.WriteString( x.Name )
         msSend.WriteInt64( x.Version.Ticks )
+        ms.Info <- ms.Info + ":Task:" + x.Name
         match (cmd.Verb, cmd.Noun) with 
         | ControllerVerb.Unknown, _ -> 
             Some( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )  
@@ -2807,6 +2821,7 @@ and internal TaskQueue() =
         let mutable fullname = null
         let mutable cb = null
         let mutable callbackItem = null
+        ms.Info <- ms.Info + ":ParseCommand:" + queue.EPInfo
         // The command that will be processed by this callback. 
         match (cmd.Verb,cmd.Noun) with 
         // Set, Job (name is not parsed)

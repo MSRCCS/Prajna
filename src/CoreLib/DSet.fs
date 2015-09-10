@@ -1328,6 +1328,7 @@ and [<Serializable; AllowNullLiteral>]
             if not bAllCloseDSetSent then 
                 // Wait for input command. 
                 Threading.Thread.Sleep(10)
+        msSend.DecRef()
         let remainingWait = Math.Max( 0., timeToWait - (PerfDateTime.UtcNow()).Subtract(t1).TotalSeconds )
         x.GracefulWaitForReprot(remainingWait)
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Closing for DSet Write %A" x.Name))
@@ -1779,6 +1780,7 @@ and [<Serializable; AllowNullLiteral>]
                 let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo ) 
                 // Expediate delivery of Cluster Information to the receiver
                 q.ToSend( cmd, msSend, true ) 
+                msSend.DecRef()
             | ( ControllerVerb.Duplicate, ControllerNoun.DSet ) 
             | ( ControllerVerb.Echo2, ControllerNoun.DSet ) ->
                 let parti = msRcvd.ReadVInt32()
@@ -2950,6 +2952,8 @@ and [<Serializable; AllowNullLiteral>]
                 maxWait <- clock_start
 
             Threading.Thread.Sleep( 5 )
+
+        msSend.DecRef()
 
         // by setting bMetaDataSet, we stop update metadata, all further peer response with different DSet version will be considered as a failed peer. 
         curDSet.PeerDSet <- null

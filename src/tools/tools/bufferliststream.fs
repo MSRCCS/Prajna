@@ -371,7 +371,7 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
     [<DefaultValue>] val mutable Writable : bool
     [<DefaultValue>] val mutable Visible : bool
     [<DefaultValue>] val mutable Id : int
-    [<DefaultValue>] val mutable info : string
+    [<DefaultValue>] val mutable private info : string
 
     new() as x = 
         { inherit MemoryStream() }
@@ -485,6 +485,7 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
         x.ValBuf <- Array.zeroCreate<byte>(32)
         x.Writable <- true
         x.Visible <- true
+        x.info <- ""
 
     member x.ComputeSHA512(offset : int64, len : int64) =
         use sha512 = new Security.Cryptography.SHA512Managed() // has dispose
@@ -724,6 +725,8 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     let refCount = ref 1 // constructor automatically increments ref count
     let bReleased = ref 0
 
+    let mutable stackTrace = ""
+
     let mutable defaultBufferSize =
         if (defaultBufSize > 0) then
             defaultBufSize
@@ -790,12 +793,24 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
 
     override x.Info
         with get() =
-            x.info
+            base.Info
         and set(v) =
-            if not (x.info.Equals("")) then
-                streamsInUse.TryRemove(x.info) |> ignore
-            x.info <- v + ":" + x.Id.ToString()
-            streamsInUse.[x.info] <- x
+            if not (base.Info.Equals("")) then
+                streamsInUse.TryRemove(base.Info) |> ignore
+            // for extra debugging info, can include stack trace of memstream info
+            //base.Info <- v + ":" + x.Id.ToString() + Environment.StackTrace
+            base.Info <- v + ":" + x.Id.ToString()
+            streamsInUse.[base.Info] <- x
+
+    static member DumpStreamsInUse() =
+        Logger.LogF (LogLevel.MildVerbose, fun _ ->
+            let sb = new System.Text.StringBuilder()
+            sb.AppendLine(sprintf "Num streams in use: %d" streamsInUse.Count) |> ignore
+            for s in streamsInUse do
+                let (key, value) = (s.Key, s.Value)
+                sb.AppendLine(sprintf "%s : %s" s.Key s.Value.Info) |> ignore
+            sb.ToString()
+        )
 
     // static memory pool
     static member InitFunc (e : RefCntBuf<'T>) =
@@ -806,6 +821,8 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     static member internal InitMemStack(numBufs : int, bufSize : int) =
         if (Interlocked.CompareExchange(memStackInit, 1, 0)=0) then
             memStack <- new SharedMemoryPool<RefCntBuf<'T>,'T>(numBufs, -1, bufSize, BufferListStream<'T>.InitFunc, "Memory Stream")
+            // start monitor timer
+            PoolTimer.AddTimer(BufferListStream<'T>.DumpStreamsInUse, 10000L, 10000L)
 
     member internal x.GetStackElem() =
         let (event, buf) = RBufPart<'T>.GetFromPool(x.GetInfoId()+":RBufPart", BufferListStream<'T>.MemStack,
@@ -839,11 +856,11 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
 
     member private x.Release(bFromFinalize : bool) =
         if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
-            //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "List release for id %d %A finalize: %b" x.Id (Array.init bufList.Count (fun index -> bufList.[index].Buf.Id)) bFromFinalize)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].Elem.Id)) bFromFinalize streamsInUse.Count)
             for l in bufList do
                 l.Release()
-            if not (x.info.Equals("")) then
-                streamsInUse.TryRemove(x.info) |> ignore
+            if not (base.Info.Equals("")) then
+                streamsInUse.TryRemove(base.Info) |> ignore
 
     override x.AddRef() =
         Interlocked.Increment(refCount) |> ignore

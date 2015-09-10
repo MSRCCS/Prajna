@@ -455,6 +455,7 @@ and [<AllowNullLiteral>]
                 streamPartWrite.Write( BitConverter.GetBytes( outputLen ), 0, 4 )
                 //streamPartWrite.Write( writeBuf, writepos, writecount )
                 writeMs.ReadToStream(streamPartWrite, int64 writepos, int64 writecount)
+                writeMs.DecRef()
                 if x.ConfirmDelivery then 
                     streamPartWrite.Write( resHash, 0, resHash.Length )
                 Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Write out to stream %s:%s parti %d a blob of %dB %s" x.Name x.VersionString parti outputLen (meta.ToString()) ))
@@ -682,6 +683,7 @@ and [<AllowNullLiteral>]
                 msClose.WriteInt64( x.Version.Ticks )
                 peerQueue.ToSend( ControllerCommand( ControllerVerb.SyncClose, ControllerNoun.DStream), msClose )
                 Logger.Log( LogLevel.MildVerbose, ( sprintf "DStream %s:%s, SyncClose, DStream send to peer %d" x.Name x.VersionString peeri )    )
+                msClose.DecRef()
             else
                 let msg = sprintf "DStream.SyncClose, DStream %s:%s, attempt to send SyncClose, DStream to peer %d, but the peer queue has already been shutdown" 
                             x.Name x.VersionString peeri 
@@ -750,23 +752,22 @@ and [<AllowNullLiteral>]
         else
             ControllerCommand( ControllerVerb.ClosePartition, ControllerNoun.DStream), metaStream 
     member internal x.SyncPackageToSend (meta:BlobMetadata) (streamObject:Object) = 
-        //let metaStream = new MemStream( 128 ) 
-        let metaStream = new MemoryStreamB()
-        metaStream.Info <- sprintf "SyncPackageToSend"
-        metaStream.WriteString( x.Name )
-        metaStream.WriteInt64( x.Version.Ticks ) 
-        meta.Pack( metaStream ) 
         if Utils.IsNotNull streamObject then 
             match streamObject with 
             | :? StreamBase<byte> as ms -> 
+                let metaStream = ms.GetNew()
+                metaStream.Info <- sprintf "SyncPackageToSend"
+                metaStream.WriteString( x.Name )
+                metaStream.WriteInt64( x.Version.Ticks ) 
+                meta.Pack( metaStream ) 
                 ms.InsertBefore( metaStream ) |> ignore
                 let msSend = metaStream
-                ms.DecRef() // done with this now, metaStream contains 
+                ms.DecRef() // done with this now, metaStream contains  information
                 ControllerCommand( ControllerVerb.SyncWrite, ControllerNoun.DStream), msSend 
             | _ -> 
                 Logger.Fail( sprintf "DStream.SyncPackageToSend, object pushed is of unknonw type %A, %A" (streamObject.GetType()) streamObject )
         else
-            ControllerCommand( ControllerVerb.SyncClosePartition, ControllerNoun.DStream), metaStream 
+            ControllerCommand( ControllerVerb.SyncClosePartition, ControllerNoun.DStream), null 
     member internal x.UnpackageFromReceive (bClose) (ms:MemStream)  = 
         let meta = BlobMetadata.Unpack( ms )
         if ( bClose ) then 
@@ -807,6 +808,7 @@ and [<AllowNullLiteral>]
                         let msError = new MemStream( 1024 )
                         msError.WriteString( msg )
                         jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+                        msError.DecRef()
                 
             x.CheckAllPeerClosed()
             if Utils.IsNotNull queuePeer then 
@@ -816,6 +818,7 @@ and [<AllowNullLiteral>]
                 msConfirmClose.WriteInt64( x.Version.Ticks ) 
                 queuePeer.ToSend( ControllerCommand( ControllerVerb.ConfirmClose, ControllerNoun.DStream ), msConfirmClose )
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "DStream %s:%s Send ConfirmClose, DStream to peer %d" x.Name x.VersionString peeri ))
+                msConfirmClose.DecRef()
         else
              Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "DStream %s:%s Rcvd SyncClose, DStream from peer %d, but status variable indicated SyncClose has been received from the peer, no action is done" x.Name x.VersionString peeri ))
     member internal x.CanFlush() = 
@@ -1033,10 +1036,14 @@ and [<AllowNullLiteral>]
 //            | :? MemStream as ms -> 
                 let ms = streamObject
                 // Add serial and numElems as prefix. 
-                let msPrefix = new MemStream( 128 )
+                //let msPrefix = new MemStream( 128 )
+                let msPrefix = ms.GetNew()
                 msPrefix.WriteInt64( meta.Serial )
                 msPrefix.WriteVInt32( meta.NumElems ) 
-                let msCombine = ms.InsertBefore( msPrefix )
+                //let msCombine = ms.InsertBefore( msPrefix )
+                ms.InsertBefore(msPrefix) |> ignore
+                ms.DecRef()
+                let msCombine = msPrefix
                 let writeMeta = x.CountFunc.GetMetadataForPartition( meta, parti, meta.NumElems )
                 x.SyncWriteChunk jbInfo parti writeMeta msCombine
 //            | _ -> 

@@ -1375,6 +1375,7 @@ and
     /// Deserialize Job description to Blob, 
     member x.UnpackToBlob( ms:StreamBase<byte> ) = 
         x.MetadataStream <- ms.Replicate()
+        x.MetadataStream.Info <- sprintf "ReplicatedStream:%s" ms.Info
         let blobList = List<_>()
         x.Name <- ms.ReadString( ) 
         x.Version <- DateTime( ms.ReadInt64() )
@@ -2443,6 +2444,7 @@ and
                                             peerAvail.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
                                             Logger.LogF(DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Send Blob %d (%s) to peer %d, mark the blob as available %A" blobi (x.Blobs.[blobi].Name ) peeri peerAvail) )
                                             bIOActivity <- true
+                                            stream.DecRef()
                                         else
                                             // Exceeding limit, need to wait. 
                                             bAllSent <- false
@@ -2540,6 +2542,7 @@ and
     member x.JobCallback( cmd, inClusterPeeri, ms, name, verNumber, cluster ) = 
         let queue = cluster.Queue(inClusterPeeri)
         try
+            ms.Info <- ms.Info + ":Job:" + x.Name
             let peeri = x.OutgoingQueuesToPeerNumber.Item(queue)
             match (cmd.Verb, cmd.Noun) with 
             | ControllerVerb.Unknown, _ -> 

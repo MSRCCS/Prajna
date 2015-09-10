@@ -269,7 +269,7 @@ type internal MetaFunction<'U>() as x =
                 Logger.Log( LogLevel.Warning, msg )            
            // let ms = new MemStream() :> StreamBase<byte>
             let ms = new MemoryStreamB() :> StreamBase<byte>
-            ms.Info <- sprintf "EncodeFunc"
+            ms.Info <- sprintf "EncodeFunc:"
             let orgpos = ms.Position // Position 0, 
             Strm.SerializeFrom( ms, elemArray )
 //            if Utils.IsNotNull valueArray then 

@@ -1031,7 +1031,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         else
             if (Utils.IsNotNull body) then
                 body.Seek(0L, SeekOrigin.Begin) |> ignore
-            body.Info <- sprintf "Info:%A:" command
+                body.Info <- sprintf "Info:%A:" command
             curRecvCmd <- new NetworkCommand(command, body)
             //x.TraceCurRecvCommand(fun _ -> sprintf "Built bodyLen:%d eRem: %d" body.Length xgc.ERecvRem)
         curStateRecv <- ReceivingMode.EnqueuingCommand

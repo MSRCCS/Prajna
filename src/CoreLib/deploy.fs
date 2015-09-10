@@ -318,8 +318,6 @@ type DeploymentSettings() =
     static member val internal TimeOutJobPortReservation = 1800. with get, set // in second
     /// Timeout to wait for DefaultJobInfo in DStream to be filled (in milliseconds) 
     static member val internal TimeOutWaitDefaultJobInfo = 1000. with get, set 
-    /// Minimum Interval between parsing of acknoledgement in a cluster (in microsecond ) 
-    static member val internal MicrosecondBetweenParseCommand = 10 with get, set
     /// Maximum time to wait before the a job start in the current peer (in second)
     static member val internal WarningJobStartTimeSkewAmongPeers = 30. with get, set
     /// Maximum time to wait before the a job start in the current peer (in second)

@@ -2078,6 +2078,9 @@ and [<AllowNullLiteral; Serializable>]
                 msFeedback.DecRef()
         else
             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Receive Blob %A %d from peer %s, but blob has already been allocated" blob.TypeOf blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
+        // once allocated, the input stream is no longer useful
+        //ms.DecRef()
+
     member x.ReceiveBlobNoFeedback blobi blob (ms, epSignature) = 
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd Write, Blob %d from peer %s" blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
         if not (blob.IsAllocated) then 
@@ -2092,6 +2095,8 @@ and [<AllowNullLiteral; Serializable>]
             let bSuccess = x.ClientReceiveBlob( blobi, false ) 
             if not bSuccess then 
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Fail to decode Blob %d from peer %s" blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
+        // once allocated, the input stream is no longer useful
+        //ms.DecRef()
 
     /// Load all Assemblies
     member x.LoadAllAssemblies() = 

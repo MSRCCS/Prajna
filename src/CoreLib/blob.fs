@@ -101,6 +101,7 @@ type internal BlobFactory() =
         while epQueue.TryDequeue( refValue ) do 
             let triggerFunc = !refValue
             triggerFunc( ms, epSignature )
+        ms.DecRef() // triggers complete
     /// Retrieve object info from the Factory class. 
     member x.Retrieve( id ) = 
         let bExist, tuple = x.Collection.TryGetValue( id )
@@ -125,6 +126,7 @@ type internal BlobFactory() =
             while epQueue.TryDequeue( refValue ) do 
                 let triggerFunc = !refValue
                 triggerFunc( !refMS, epSignature )
+            ms.DecRef() // triggers complete
             true
         else
             false

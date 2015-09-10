@@ -182,6 +182,10 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
             else
                 elem
 
+    member x.ElemNoCheck
+        with get() =
+            elem
+
     member x.Id with get() = id
 
 type [<AbstractClass>] [<AllowNullLiteral>] RefCountBase() =
@@ -856,7 +860,10 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
 
     member private x.Release(bFromFinalize : bool) =
         if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].Elem.Id)) bFromFinalize streamsInUse.Count)
+            if (bFromFinalize) then
+                Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].ElemNoCheck.Id)) bFromFinalize streamsInUse.Count)
+            else
+                Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].Elem.Id)) bFromFinalize streamsInUse.Count)
             for l in bufList do
                 l.Release()
             if not (base.Info.Equals("")) then

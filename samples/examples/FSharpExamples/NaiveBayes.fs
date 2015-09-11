@@ -26,14 +26,13 @@ open System.Collections.Generic
 open System.Diagnostics
 open System.IO
 
-open Prajna.Core
 open Prajna.Tools
+open Prajna.Core
 open Prajna.Tools.FSharp
 open Prajna.Api.FSharp
 
 open Prajna.Examples.Common
 
-open Prajna.Tools
 
 /// A Counts object holds word counts for a single class
 /// A counts: Count[] holds counts for class k in in counts.[k]
@@ -53,7 +52,7 @@ type NaiveBayes() =
 
     // A tiny fraction of 20 Newsgroups dataset data (http://archive.ics.uci.edu/ml/datasets/Twenty+Newsgroups)
     // slightly processed to have one example per line and eliminite newlines in example
-    let data = Path.Combine(Utility.GetExecutingDir(), "20news-featurized2-tiny.txt")
+    let data = Path.Combine(Utility.GetExecutingDir(), "20news-featurized2-train.txt")
 
     let split (c: char) (str:string) = str.Split([|c|], StringSplitOptions.RemoveEmptyEntries)
 
@@ -103,7 +102,7 @@ type NaiveBayes() =
     let naiveBayesMapReduce (name: string) (cluster: Cluster) (trainSet: string seq) =
         let sparseCounts = 
             DSet<string>(Name = name, Cluster = cluster)
-            |> DSet.distributeN 8 trainSet
+            |> DSet.distribute trainSet
             |> DSet.choose chooseLine
             |> DSet.mapReduce 
                 (fun (words,label) -> seq { for w in words -> w,label } )
@@ -130,17 +129,40 @@ type NaiveBayes() =
         ret |> Array.iteri (fun i cs -> if cs = null then ret.[i] <- Counts())
         ret
 
+    let trainAndTime (cluster: Cluster) (dsetName: string) (formatterName: string) (trainSet: string[]) =
+        let sw = Stopwatch.StartNew()
+        sw.Restart()
+        let dsetCounts = 
+            DSet<string>(Name = dsetName, Cluster = cluster)
+            |> DSet.distribute trainSet
+            |> DSet.choose chooseLine
+            |> DSet.fold (addWords numClasses) addCounts null
+        printfn "DSet train (%s) took: %A" formatterName (sw.Stop(); sw.Elapsed)
+
+        sw.Restart()
+        let mapReduceCounts = naiveBayesMapReduce (dsetName + "-MapReduce") cluster trainSet
+        printfn "MapReduce train (%s) took: %A" formatterName (sw.Stop(); sw.Elapsed)
+
+        dsetCounts, mapReduceCounts
+
+    let setGenericSerializer (newFormatterGuid: Guid) (cluster: Cluster) = 
+        printf "Switching formatter... "
+        GenericSerialization.DefaultFormatterGuid <- newFormatterGuid
+        DSet<unit>(Name = "foo", Cluster = cluster)
+        |> DSet.distribute (Array.zeroCreate cluster.NumNodes : unit[])
+        |> DSet.iter (fun _ -> GenericSerialization.DefaultFormatterGuid <- newFormatterGuid)
+        printfn "done."
+
     let run (cluster: Cluster) = 
 
         // We take only the first 200 lines for speed, since this is run as a unit test with build
-        let trainSet, testSet = 
-            let all = 
-                data 
-                |> File.ReadLines 
-                |> Seq.take 300
-                |> Seq.toArray
-            let numTrain = 200
-            all |> Seq.take numTrain |> Seq.toArray, all |> Seq.skip numTrain |> Seq.toArray
+        // To make timings significant (above noise), set numTrain to something larger, like 5000
+        let numTrain = 200
+        let trainSet = 
+            data 
+            |> File.ReadLines 
+            |> Seq.take numTrain
+            |> Seq.toArray
 
         // Both the Seq and DSet versions have the same structure: throw away a few badly formatted
         // lines then make a single call to fold...
@@ -149,38 +171,38 @@ type NaiveBayes() =
             trainSet
             |> Seq.choose chooseLine
             |> Seq.fold (addWords numClasses) null 
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Seq train took: %A" (sw.Stop(); sw.Elapsed))
+        printfn "Seq train took: %A" (sw.Stop(); sw.Elapsed)
 
         // ...only difference is that the DSet version needs a second "reducer" function
         // to do sum up intermediate per-partition results.
         // DSet.distributeN will create N partitions per node.
         let name = "20News-TinyTest-" + Guid.NewGuid().ToString("D")
-        sw.Restart()
-        let dsetCounts = 
-            DSet<string>(Name = name, Cluster = cluster)
-            |> DSet.distribute trainSet
-            |> DSet.choose chooseLine
-            |> DSet.fold (addWords numClasses) addCounts null
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "DSet train took: %A" (sw.Stop(); sw.Elapsed))
 
-        sw.Restart()
-        let mapReduceCounts = naiveBayesMapReduce name cluster trainSet
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "MapReduce train took: %A" (sw.Stop(); sw.Elapsed))
+        let foldPrajna, mapReducePrajna = trainAndTime cluster name "Prajna formatter" trainSet
+
+        do setGenericSerializer GenericSerialization.BinaryFormatterGuid cluster
+        let foldDotNet, mapReduceDotNet = trainAndTime cluster (name + "-BinaryFormatter") "Binary formatter" trainSet
 
         // All versions should yield the exact same result.
         // As can be seen above, even though the algorithm *can* be expressed as map-reduce,
         // it is simpler and more natural as a fold.
         let areEqual = // true
             let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
-            Seq.zip3 seqCounts dsetCounts mapReduceCounts
-            |> Seq.map (fun (seqLabelCounts, dsetLabelCounts, mapReduceLabelCounts) -> 
-                let seqMap = dictToMap seqLabelCounts
-                let dsetMap = dictToMap dsetLabelCounts
-                let mrMap = dictToMap mapReduceLabelCounts
-                seqMap = dsetMap && dsetMap = mrMap)
+            let transpose (xs: 'a[][]) =
+                let numCols = xs.[0].Length
+                [| for j in 0..(numCols-1) -> Array.init xs.Length (fun i -> xs.[i].[j]) |]
+            
+            [| foldPrajna; mapReducePrajna; foldDotNet; mapReduceDotNet |]
+            |> transpose
+            |> Seq.map (fun (counts: Counts[]) -> 
+                async {
+                    let firstMap = dictToMap counts.[0]
+                    return (counts.[1..] |> Array.forall (dictToMap >> (=) firstMap))
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
             |> Seq.forall id
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Model comparison result: %s" (if areEqual then "Equal" else "Different"))
-
+        printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
         areEqual
             
     // Call this to test prediction accuracy on large dataset, but not during unit test
@@ -232,42 +254,45 @@ type NaiveBayes() =
     let timeSerialization (seqCounts: Dictionary<string,int>[]) =
         let sw = new Stopwatch()
  
-        let stream = new MemoryStream()
+//        let stream = new MemoryStream()
+        let stream = new MemStream()
+        let serializer = new BinarySerializer() :> System.Runtime.Serialization.IFormatter
         sw.Restart()
-        BinarySerializer().Serialize(stream, seqCounts)
+//        stream.SerializeFrom seqCounts
+        serializer.Serialize(stream, seqCounts)
         let timeSer = sw.Stop(); sw.Elapsed
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Serializing took: %A" timeSer)
+        printfn "Serializing took: %A" timeSer
 
         stream.Position <- 0L
         sw.Restart()
-        let newCounts = BinarySerializer().Deserialize(stream) :?> Counts[]
+//        let newCounts = stream.DeserializeTo<Counts[]>()
+        let newCounts = serializer.Deserialize(stream) :?> Counts[]
         let timeDeser = sw.Stop(); sw.Elapsed
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Deserializing took: %A" timeDeser)
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Total: %A" (timeSer + timeDeser))
+        printfn "Deserializing took: %A" timeDeser
+        printfn "Total: %A" (timeSer + timeDeser)
 
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "----------------------------------")
+        printfn "----------------------------------"
 
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Using standard .NET BinaryFormatter:")
-        let newStream = new MemoryStream()
-        let bf = new System.Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+        printfn "Using standard .NET BinaryFormatter:"
+        let newStream = new MemStream()
         sw.Restart()
-        bf.Serialize(newStream, seqCounts)
+        newStream.SerializeFrom seqCounts
         let timeSer2 = sw.Stop(); sw.Elapsed
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Serializing took: %A" timeSer2)
+        printfn "Serializing took: %A" timeSer2
         newStream.Position <- 0L
         sw.Restart()
-        let newCounts2 = bf.Deserialize(newStream)
+        let newCounts2 = newStream.DeserializeTo<Counts[]>()
         let timeDeser2 = sw.Stop(); sw.Elapsed
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Deserializing took: %A" timeDeser2)
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Total: %A" (timeSer2 + timeDeser2))
+        printfn "Deserializing took: %A" timeDeser2
+        printfn "Total: %A" (timeSer2 + timeDeser2)
 
-        Logger.LogF (LogLevel.Info, fun _ -> "")
+        printfn ""
         let serRatio = (timeSer.TotalMilliseconds / timeSer2.TotalMilliseconds)
         let deserRatio = (timeDeser.TotalMilliseconds / timeDeser2.TotalMilliseconds)
         let totalRatio = (timeSer + timeDeser).TotalMilliseconds / (timeSer2 + timeDeser2).TotalMilliseconds
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Ser Ratio: %f (%fx)" serRatio (1.0 / serRatio))
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Deser Ratio: %f (%fx)" deserRatio (1.0 / deserRatio))
-        Logger.LogF (LogLevel.Info, fun _ -> sprintf "Total Ratio: %f (%fx)" totalRatio (1.0 / totalRatio))
+        printfn "Ser Ratio: %f (%fx)" serRatio (1.0 / serRatio)
+        printfn "Deser Ratio: %f (%fx)" deserRatio (1.0 / deserRatio)
+        printfn "Total Ratio: %f (%fx)" totalRatio (1.0 / totalRatio)
 
         let areEqual = 
             let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq

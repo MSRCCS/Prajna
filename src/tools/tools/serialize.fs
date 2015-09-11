@@ -315,11 +315,11 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
     let writeMemoryBlittableArray (elType: Type, arrObj: Array, memStream: MemoryStream) =
         let sizeInBytes = arrObj.Length * Marshal.SizeOf(elType)
         let curPos = int memStream.Position
-        while memStream.Capacity <= curPos + sizeInBytes do
-            memStream.Capacity <- memStream.Capacity * 2
+        let newLen = int64 (curPos + sizeInBytes)
+        memStream.SetLength newLen
         let buffer = memStream.GetBuffer()
         Buffer.BlockCopy(arrObj, 0, buffer, curPos, sizeInBytes)
-        memStream.Position <- int64 (curPos + sizeInBytes)
+        memStream.Position <- newLen
 
     let writePrimitiveArray : Type * Array -> unit = 
         let writePrimitiveArrayOneByOne(elType: Type, arrObj: Array) = 
@@ -404,12 +404,14 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         surrogate.GetObjectData(obj, serInfo, Serialize.theContext)
         this.WriteMembers serInfo
 
+    member val private stringTypeInfo = typeSerializer.GetSerTypeInfo typeof<string> with get
+
     member this.WriteObject (obj: obj) =
         if obj = null then
             stream.Write(byte ReferenceType.Null)
         else
             let objType = obj.GetType()
-            let surrogate = surrogateSelector.GetSurrogate(objType, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
+            let surrogate = if surrogateSelector = null then null else surrogateSelector.GetSurrogate(objType, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
             if surrogate <> null || objType.IsSerializable then
                 match marked.TryGetValue(obj) with
                 | true, position -> 
@@ -427,11 +429,6 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
                         | :? Type as typeObj -> 
                             marked.Add(obj, marked.Count)
                             stream.Write typeObj.AssemblyQualifiedName
-                        | :? MethodInfo as mi -> 
-                            marked.Add(obj, marked.Count)
-                            this.WriteObject mi.DeclaringType
-                            this.WriteObject mi.Name
-                            this.WriteArray(typeof<Type[]>, mi.GetParameters() |> Array.map (fun pi -> pi.ParameterType))
                         | :? Array as arrObj -> 
                             marked.Add(obj, marked.Count)
                             this.WriteArray(objType, arrObj)
@@ -594,13 +591,13 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
             | _ -> obj
         | ReferenceType.InlineObject ->
             let serType = typeSerializer.Deserialize(reader)
-            let surrogate = surrogateSelector.GetSurrogate(serType.Type, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
+            let surrogate = if surrogateSelector = null then null else surrogateSelector.GetSurrogate(serType.Type, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
             if surrogate <> null then
                 let mutable newObj = FormatterServices.GetUninitializedObject(serType.Type)
                 if newObj = null then
                     failwith <| sprintf "Failed to create unintialized instance of %A." serType.Type
                 marked.Add newObj
-                this.ReadSurrogateSerializedObject(surrogate, serType.Type, ref newObj)
+                this.ReadSurrogateSerializedObject(surrogate, serType.Type, newObj)
                 newObj
             else
                 match serType.Type with
@@ -615,15 +612,6 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                     marked.Add newArr
                     do this.ReadArray(elType, newArr)
                     upcast newArr
-                | typeRuntypeMethod when typeof<MethodInfo>.IsAssignableFrom(typeRuntypeMethod) -> 
-                    let declaringType = this.ReadObject(reader, marked) :?> Type
-                    let name = this.ReadObject(reader, marked) :?> string
-                    let len = reader.ReadInt32()
-                    let paramTypes = Array.zeroCreate len
-                    do this.ReadArray(typeof<Type>, paramTypes)
-                    let mi = declaringType.GetMethod(name, Serialize.AllInstance ||| BindingFlags.Static, null, paramTypes, null)
-                    marked.Add mi
-                    upcast mi
                 | typeType when typeof<Type>.IsAssignableFrom(typeType) -> 
                     let typeName = reader.ReadString()
                     let ``type`` = Type.GetType(typeName)
@@ -662,19 +650,34 @@ type internal ReferenceComparer() =
 
 type BinarySerializer() =
 
-    member val SurrogateSelector: ISurrogateSelector = null with get, set
+    interface IFormatter with
+        
+        member val SurrogateSelector: ISurrogateSelector = null with get, set
 
-    member this.Serialize(stream: Stream, graph: obj): unit = 
-        assert (this.SurrogateSelector <> null)
-        let writer = new BinaryWriter(stream, Text.UTF8Encoding.UTF8)
-        let marked = new Dictionary<obj, int>(ReferenceComparer())
-        let ser = new Serializer(writer, marked, new TypeSerializer(), this.SurrogateSelector)
-        do ser.WriteObject(graph)
+        member x.Binder
+            with get (): SerializationBinder = 
+                failwith "Not implemented yet"
+            and set (v: SerializationBinder): unit = 
+                failwith "Not implemented yet"
+        
+        member x.Context
+            with get (): StreamingContext = 
+                failwith "Not implemented yet"
+            and set (v: StreamingContext): unit = 
+                failwith "Not implemented yet"
+        
+        member x.Deserialize (stream: Stream) : obj = 
+    //        assert (this.SurrogateSelector <> null)
+            let reader = new BinaryReader(stream, Text.UTF8Encoding.UTF8)
+            let marked = new List<obj>()
+            let deser = new Deserializer(reader, marked, new TypeSerializer(), (x :> IFormatter).SurrogateSelector)
+            let ret = deser.ReadObject()
+            ret
+        
+        member x.Serialize(stream: Stream, graph: obj): unit = 
+    //        assert (this.SurrogateSelector <> null)
+            let writer = new BinaryWriter(stream, Text.UTF8Encoding.UTF8)
+            let marked = new Dictionary<obj, int>(ReferenceComparer())
+            let ser = new Serializer(writer, marked, new TypeSerializer(), (x :> IFormatter).SurrogateSelector)
+            do ser.WriteObject(graph)
     
-    member this.Deserialize (stream: Stream) : obj = 
-        assert (this.SurrogateSelector <> null)
-        let reader = new BinaryReader(stream, Text.UTF8Encoding.UTF8)
-        let marked = new List<obj>()
-        let deser = new Deserializer(reader, marked, new TypeSerializer(), this.SurrogateSelector)
-        let ret = deser.ReadObject()
-        ret

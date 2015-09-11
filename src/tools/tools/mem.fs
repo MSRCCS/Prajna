@@ -31,13 +31,13 @@ namespace Prajna.Tools
 
 open System
 open System.IO
-open System.Collections.Generic
+open System.Runtime.Serialization
 open System.Collections.Concurrent
 open System.Reflection
 open System.Runtime.Serialization
 
 open Prajna.Tools
-
+open Prajna.Tools.Utils
 
 module internal NodeConfig =
     [<Measure>] 
@@ -71,16 +71,6 @@ type internal NullObjectForSerialization() =
     class
     end
 
-[<StructuralEquality; StructuralComparison>]
-type internal UInt128 = 
-    struct 
-        val High : uint64
-        val Low : uint64
-        new ( high: uint64, low: uint64 ) = { High = high; Low = low }
-        new ( value:byte[] ) = { High = BitConverter.ToUInt64( value, 0 ); Low = BitConverter.ToUInt64( value, 8) }
-        override x.ToString() = x.High.ToString("X16")+x.Low.ToString("X16")
-    end
-    
 /// ExpandableBuffer wraps around a bytearray object that can be extended in both direction, front & back
 /// The valid bytes in the Buffer is between Head & Tail. 
 /// The current implementation of expandableBuffer is not threadsafe, and should not be used in multiple thread environment. 
@@ -188,23 +178,75 @@ type ExpandableBuffer internal ( initialBuffer:byte[], posAtZero:int ) =
         x.ReadStream( readStream, ExpandableBuffer.DefaultReadStreamBlockLength)
         x.GetBufferTuple()
 
-// For C# lambda, C# compiler generates a display class that is not marked as "Serializable"
-// To be able to serialize C# lambdas that is supplied to Prajna functions, use serialization surrogate
 
-// The serialization surrogate for C# compiler generated display class. It implements ISerializationSurrogate
-type private CSharpDisplayClassSerializationSurrogate () =
-    let getInstanceFields (obj : obj) =
-        obj.GetType().GetFields(BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic)
+[<AllowNullLiteral>]
+type internal CircularBuffer<'a> (size: int) =
+    member val buffer = Array.zeroCreate<'a> size with get, set
+    member val bufferSize = size with get,set
+    member val readPtr = 0 with get,set
+    member val writePtr = 0 with get,set
+    member x.length = (x.writePtr + x.bufferSize - x.readPtr) % x.bufferSize
+    member x.freeSize = (x.readPtr-1-x.writePtr + x.bufferSize)% x.bufferSize
+    member x.readPtrToEnd = x.bufferSize - x.readPtr
+    member x.writePtrToEnd = x.bufferSize - x.writePtr
 
-    interface ISerializationSurrogate with
-        member x.GetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext): unit = 
-            getInstanceFields obj |> Array.iter (fun f -> info.AddValue(f.Name, f.GetValue(obj)))
+    member x.MoveReadPtr (len:int) =
+        if len > x.length then
+            failwith "Cannot move readptr in Circular buffer"
+        x.readPtr <- (x.readPtr + len)
+        if x.readPtr >= x.bufferSize then
+            x.readPtr <- x.readPtr - x.bufferSize
+    member x.MoveWritePtr (len:int) =
+        if len > x.freeSize then
+            failwith "Cannot move writeptr in Circular buffer"
+        x.writePtr <- (x.writePtr + len)
+        if x.writePtr >= x.bufferSize then
+            x.writePtr <- x.writePtr - x.bufferSize
         
-        member x.SetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext, selector: ISurrogateSelector): obj = 
-            getInstanceFields obj |> Array.iter (fun f -> f.SetValue(obj, info.GetValue(f.Name, f.FieldType)))
-            obj
 
-          
+    member x.Write(src:'a) =
+        if x.freeSize < 1 then
+            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
+        x.buffer.[x.writePtr] <- src
+        x.MoveWritePtr(1)
+        
+    member x.Write(writePtr:int, src:'a) =
+        if x.freeSize < 1 then
+            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
+        x.buffer.[writePtr] <- src
+
+
+    member x.Write(src:byte[],posi:int, len:int) =
+        if len > x.freeSize then
+            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
+        if len <= x.writePtrToEnd then
+            Buffer.BlockCopy( src, posi, x.buffer, x.writePtr, len )
+        else 
+            Buffer.BlockCopy( src, posi, x.buffer, x.writePtr, x.writePtrToEnd )
+            Buffer.BlockCopy( src, posi, x.buffer, 0, len - x.writePtrToEnd )
+        x.MoveWritePtr(len)
+
+    member x.Write(writePtr:int,src:byte[],posi:int, len:int) =
+        if len > x.freeSize then
+            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
+        if len <= x.RelativePtrToEnd(writePtr) then
+            Buffer.BlockCopy( src, posi, x.buffer, writePtr, len )
+        else 
+            Buffer.BlockCopy( src, posi, x.buffer, writePtr, x.RelativePtrToEnd(writePtr) )
+            Buffer.BlockCopy( src, posi, x.buffer, 0, len - x.RelativePtrToEnd(writePtr) )
+
+
+    member x.RelativeLength (readPosition:int) =   
+        (x.writePtr + x.bufferSize - readPosition) % x.bufferSize
+
+    member x.RelativeReadPtrToEnd (readPosition:int) = x.bufferSize - readPosition
+    member x.RelativePtrToEnd (posi:int) = x.bufferSize - posi
+
+    member x.MovePtr (ptr:int, len:int) =
+        let mutable tptr = (ptr + len)
+        while tptr >= x.bufferSize do
+            tptr <- tptr - x.bufferSize
+        tptr
 
 /// <summary>
 /// Prajna allows user to implement customized memory manager. The corresponding class 'Type implement a 
@@ -241,6 +283,160 @@ type internal CustomizedMemoryManager() =
             failwith (sprintf "Can't find customized memory manager for type %s" typeof<'Type>.FullName )
 
 
+/// <summary>
+/// MemStream is similar to MemoryStream and provide a number of function to ease the read and write object
+/// This class is used if you need to implement customized serializer and deserializer. 
+/// </summary>
+type [<AllowNullLiteral>]
+    MemStream = 
+    inherit MemoryStream
+
+    /// Initializes a new instance of the MemStream class with an expandable capacity initialized to zero.
+    new () = { inherit MemoryStream() }
+    /// Initializes a new instance of the MemStream class with an expandable capacity initialized as specified.
+    new (size:int) = { inherit MemoryStream(size) }
+    /// Initializes a new non-resizable instance of the MemoryStream class that is not writable, and can use GetBuffer to access the underlyingbyte array.
+    new (buf:byte[]) = { inherit MemoryStream(buf, 0, buf.Length, false, true) }
+    /// <summary>
+    /// Initializes a new non-resizable instance of the MemStream class based on the specified byte array with the CanWrite property set as specified.
+    /// </summary>
+    /// <param name="buf"> byte array used </param>
+    /// <param name="writable"> CanWrite property </param>
+    new (buf, writable) = { inherit MemoryStream( buf, writable)  }
+    /// <summary>
+    /// Initializes a new non-resizable instance of the MemStream class based on the specified region (index) of a byte array.
+    /// </summary> 
+    /// <param name="buffer"> byte array used </param>
+    /// <param name="index"> The index into buffer at which the steram begins. </param>
+    /// <param name="count"> The length of the stream in bytes. </param>
+    new (buffer, index, count ) = { inherit MemoryStream( buffer, index, count) }
+    /// <summary>
+    /// Initializes a new non-resizable instance of the MemStream class based on the specified region of a byte array, with the CanWrite property set as specified.
+    /// </summary>
+    /// <param name="buffer"> byte array used </param>
+    /// <param name="index"> The index into buffer at which the steram begins. </param>
+    /// <param name="count"> The length of the stream in bytes. </param>
+    /// <param name="writable"> CanWrite property </param>
+    new (buffer, index, count, writable ) = { inherit MemoryStream( buffer, index, count, writable)  }
+    /// <summary>
+    /// Initializes a new instance of the MemStream class based on the specified region of a byte array, with the CanWrite property set as specified, and the ability to call GetBuffer set as specified.
+    /// </summary> 
+    /// <param name="buffer"> byte array used </param>
+    /// <param name="index"> The index into buffer at which the steram begins. </param>
+    /// <param name="count"> The length of the stream in bytes. </param>
+    /// <param name="writable"> CanWrite property </param>
+    /// <param name="publiclyVisible"> true to enable GetBuffer, which returns the unsigned byte array from which the stream was created; otherwise, false.  </param>
+    new (buffer, index, count, writable, publiclyVisible ) = { inherit MemoryStream( buffer, index, count, writable, publiclyVisible)  }
+    /// <summary> 
+    /// Initializes a new instance of the MemStream class based on a prior instance of MemStream. The resultant MemStream is not writable. 
+    /// </summary>
+    new (ms:MemStream) = 
+        { inherit MemoryStream( ms.GetBuffer(), int ms.Position, ms.GetBuffer().Length - (int ms.Position), false, true ) } 
+    /// <summary> 
+    /// Initializes a new instance of the MemStream class based on a prior instance of MemStream, with initial position to be set at offset. The resultant MemStream is not writable. 
+    /// </summary>
+    new (ms:MemStream, offset) as x = 
+        { inherit MemoryStream( ms.GetBuffer(), 0, ms.GetBuffer().Length, false, true ) } 
+        then 
+            x.Seek( offset, SeekOrigin.Begin ) |> ignore 
+    member internal  x.GetValidBuffer() =
+        Array.sub (x.GetBuffer()) 0 (int x.Length)
+
+    // ToDo: Reimplement MemStream to allow this operation to be done without a memory copy operation. 
+    /// Insert a second MemStream before the current MemStream, and return the resultant MemStream
+    member x.InsertBefore( mem2:MemStream ) = 
+        let xbuf = x.GetBuffer()
+        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
+        if mem2.Position < mem2.Length then mem2.Seek( 0L, SeekOrigin.End ) |> ignore
+        mem2.Write( xbuf, xpos, xlen )
+        mem2
+    /// <summary>
+    /// Return the buffer, position, count as a tuple that captures the state of the current MemStream. 
+    /// buffer: bytearray of the underlying bytestream. 
+    /// position: the current position if need to write out the bytestream. 
+    /// count: number of bytes if need to write out the bytestream. 
+    /// </summary>
+    member x.GetBufferPosLength() = 
+        let xbuf = x.GetBuffer()
+        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
+        xbuf, xpos, xlen        
+    // Write a MemStream at the end of the current MemStream, return the current MemStream after the write
+    member x.WriteMemStream( mem2: MemStream ) = 
+        let xbuf, xpos, xlen = mem2.GetBufferPosLength()
+        x.WriteInt32( xlen )
+        x.Write( xbuf, xpos, xlen)
+        x
+    // Read a MemStream out of the current MemStream
+    member x.ReadMemStream() = 
+        let xbuf = x.GetBuffer()
+        let xlen = x.ReadInt32()
+        let xpos = x.Seek( 0L, SeekOrigin.Current )
+        x.Seek( int64 xlen, SeekOrigin.Current ) |> ignore 
+        new MemStream( xbuf, int xpos, xlen, false, true )
+    //    override x.Dispose( bFinalizing ) = 
+    /// For a writable MemStream, convert bytes from 0..Positoin to a bytearray
+    member internal x.ForWriteConvertToByteArray() = 
+        let xbuf = x.GetBuffer()
+        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
+        let bytearray = Array.zeroCreate<byte> xlen
+        Buffer.BlockCopy( xbuf, xpos, bytearray, 0, xlen )
+        bytearray      
+
+    // ToDo: Reimplement MemStream to allow this operation to be done without a memory copy operation. 
+    /// Insert a bytearray (buf) before the current MemStream, and return the resultant MemStream
+    member internal x.InsertBytesBefore( buf:byte[] ) = 
+        let xbuf = x.GetBuffer()
+        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
+        let y = new MemStream( buf.Length + xlen )
+        y.WriteBytes( buf ) 
+        y.Write( xbuf, xpos, xlen ) 
+        y
+//  JinL: 05/02/2014 MemoryStream is purely mnanaged code, add Finalize() just degrades performance. 
+//    /// Finalize
+//    override x.Finalize() = 
+//        x.Dispose( true )  
+        
+/// MemBitStream Will potentially read & write bits
+//type internal MemBitStream = 
+//    inherit MemStream
+//    /// 0..7 current bits to be written 
+//    val mutable BitPnt : int 
+//    [<DefaultValue>]
+//    val mutable CurBytePos : int64 
+//    new () = { inherit MemStream(); BitPnt = 8 }
+//    new (size:int) = { inherit MemStream(size); BitPnt = 8 }
+//    new (buf:byte[]) = { inherit MemStream(buf); BitPnt = 8 }
+//    new (buf:byte[], b) = { inherit MemStream( buf, b); BitPnt = 8  }
+//    new (buf, p1, p2 ) = { inherit MemStream( buf, p1, p2); BitPnt = 8 }
+//    new (buf, p1, p2, b1 ) = { inherit MemStream( buf, p1, p2, b1); BitPnt = 8 }
+//    new (buf, p1, p2, b1, b2 ) = { inherit MemStream( buf, p1, p2, b1, b2); BitPnt = 8 }
+//    new (ms:MemBitStream ) = { inherit MemStream( ms ); BitPnt = 8 }
+//    new (ms:MemBitStream, offset ) = { inherit MemStream( ms, offset ); BitPnt = 8 }
+//    member x.WriteBits( v, nbit ) = 
+//        if x.BitPnt<0 || x.BitPnt>=8 then 
+//            x.BitPnt <- 0 
+//            x.CurBytePos <- x.Position
+//            x.WriteByte(0uy)
+//    member x.ReadBits( nbit ) = 
+//        ()
+
+
+// For C# lambda, C# compiler generates a display class that is not marked as "Serializable"
+// To be able to serialize C# lambdas that is supplied to Prajna functions, use serialization surrogate
+
+// The serialization surrogate for C# compiler generated display class. It implements ISerializationSurrogate
+type private CSharpDisplayClassSerializationSurrogate () =
+    let getInstanceFields (obj : obj) =
+        obj.GetType().GetFields(BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic)
+
+    interface ISerializationSurrogate with
+        member x.GetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext): unit = 
+            getInstanceFields obj |> Array.iter (fun f -> info.AddValue(f.Name, f.GetValue(obj)))
+        
+        member x.SetObjectData(obj: obj, info: SerializationInfo, context: StreamingContext, selector: ISurrogateSelector): obj = 
+            getInstanceFields obj |> Array.iter (fun f -> f.SetValue(obj, info.GetValue(f.Name, f.FieldType)))
+            obj
+
 /// Programmer will implementation CustomizedSerializerAction of Action<Object*Stream> to customarily serialize an object 
 type CustomizedSerializerAction = Action<Object*Stream>
 /// Programmer will implementation CustomizedSerializerAction of Func<MemStream, Object> to customarily deserialize an object 
@@ -253,8 +449,6 @@ and CustomizedDeserializerFunction = Func<Stream, Object>
 and internal CustomizedSerialization() = 
     /// For null boject
     static member val internal NullObjectGuid = Guid( "45BD7C41-0595-4854-A375-0A1895B10AAD" ) with get
-    /// Use default system serializer
-    static member val internal DefaultSerializerGuid = Guid( "4721F23B-65D3-499D-9750-2D6FE6A6AE54" ) with get
     /// Collection of Customized Serializer by name
     static member val internal EncoderCollectionByName = ConcurrentDictionary<string, Guid>(StringComparer.Ordinal) with get
     /// Collection of Customized Serializer by Guid
@@ -411,69 +605,53 @@ and private CustomizedSerializationSurrogateSelector () =
                 else
                     null
 
-/// <summary>
-/// MemStream is similar to MemoryStream and provide a number of function to ease the read and write object
-/// This class is used if you need to implement customized serializer and deserializer. 
-/// </summary>
-and [<AllowNullLiteral>]
-    MemStream = 
-    inherit MemoryStream
-    /// Initializes a new instance of the MemStream class with an expandable capacity initialized to zero.
-    new () = { inherit MemoryStream() }
-    /// Initializes a new instance of the MemStream class with an expandable capacity initialized as specified.
-    new (size:int) = { inherit MemoryStream(size) }
-    /// Initializes a new non-resizable instance of the MemoryStream class that is not writable, and can use GetBuffer to access the underlyingbyte array.
-    new (buf:byte[]) = { inherit MemoryStream(buf, 0, buf.Length, false, true) }
-    /// <summary>
-    /// Initializes a new non-resizable instance of the MemStream class based on the specified byte array with the CanWrite property set as specified.
-    /// </summary>
-    /// <param name="buf"> byte array used </param>
-    /// <param name="writable"> CanWrite property </param>
-    new (buf, writable) = { inherit MemoryStream( buf, writable)  }
-    /// <summary>
-    /// Initializes a new non-resizable instance of the MemStream class based on the specified region (index) of a byte array.
-    /// </summary> 
-    /// <param name="buffer"> byte array used </param>
-    /// <param name="index"> The index into buffer at which the steram begins. </param>
-    /// <param name="count"> The length of the stream in bytes. </param>
-    new (buffer, index, count ) = { inherit MemoryStream( buffer, index, count) }
-    /// <summary>
-    /// Initializes a new non-resizable instance of the MemStream class based on the specified region of a byte array, with the CanWrite property set as specified.
-    /// </summary>
-    /// <param name="buffer"> byte array used </param>
-    /// <param name="index"> The index into buffer at which the steram begins. </param>
-    /// <param name="count"> The length of the stream in bytes. </param>
-    /// <param name="writable"> CanWrite property </param>
-    new (buffer, index, count, writable ) = { inherit MemoryStream( buffer, index, count, writable)  }
-    /// <summary>
-    /// Initializes a new instance of the MemStream class based on the specified region of a byte array, with the CanWrite property set as specified, and the ability to call GetBuffer set as specified.
-    /// </summary> 
-    /// <param name="buffer"> byte array used </param>
-    /// <param name="index"> The index into buffer at which the steram begins. </param>
-    /// <param name="count"> The length of the stream in bytes. </param>
-    /// <param name="writable"> CanWrite property </param>
-    /// <param name="publiclyVisible"> true to enable GetBuffer, which returns the unsigned byte array from which the stream was created; otherwise, false.  </param>
-    new (buffer, index, count, writable, publiclyVisible ) = { inherit MemoryStream( buffer, index, count, writable, publiclyVisible)  }
-    /// <summary> 
-    /// Initializes a new instance of the MemStream class based on a prior instance of MemStream. The resultant MemStream is not writable. 
-    /// </summary>
-    new (ms:MemStream) = 
-        { inherit MemoryStream( ms.GetBuffer(), int ms.Position, ms.GetBuffer().Length - (int ms.Position), false, true ) } 
-    /// <summary> 
-    /// Initializes a new instance of the MemStream class based on a prior instance of MemStream, with initial position to be set at offset. The resultant MemStream is not writable. 
-    /// </summary>
-    new (ms:MemStream, offset) as x = 
-        { inherit MemoryStream( ms.GetBuffer(), 0, ms.GetBuffer().Length, false, true ) } 
-        then 
-            x.Seek( offset, SeekOrigin.Begin ) |> ignore 
-    member internal  x.GetValidBuffer() =
-        Array.sub (x.GetBuffer()) 0 (int x.Length)
+module GenericSerialization = 
+    
+    let private raiseAlreadyPresent =
+        Func<Guid, (unit -> IFormatter), (unit -> IFormatter)>(fun _ _ -> 
+            raise <| ArgumentException("Formatter with same Guid already present."))
+
+    /// Default generic serializer (standard .Net BinaryFormatter)
+    let BinaryFormatterGuid = Guid( "4721F23B-65D3-499D-9750-2D6FE6A6AE54" )
+    
+    /// New generic serializer (our BinarySerializer)
+    let PrajnaFormatterGuid = Guid("99CB89AA-A823-41D5-B817-8E582DE8E086")
+
+    let mutable DefaultFormatterGuid = PrajnaFormatterGuid
+
+    let internal FormatterMap : ConcurrentDictionary<Guid, unit -> IFormatter> = 
+        let selector() = CustomizedSerializationSurrogateSelector() :> ISurrogateSelector
+        let stdFormatter() = Formatters.Binary.BinaryFormatter(SurrogateSelector = selector()) :> IFormatter
+        let prajnaFormatter() = 
+            let ser = BinarySerializer() :> IFormatter
+            ser.SurrogateSelector <- selector()
+            ser
+        let fmtMap = ConcurrentDictionary<_,_>()
+        fmtMap.AddOrUpdate( BinaryFormatterGuid, stdFormatter, raiseAlreadyPresent ) |> ignore
+        fmtMap.AddOrUpdate( PrajnaFormatterGuid, prajnaFormatter, raiseAlreadyPresent) |> ignore
+        fmtMap
+
+    let GetFormatter(guid: Guid) = FormatterMap.[guid]()
+
+    let AddFormatter(guid: Guid, fmt: unit -> IFormatter) = 
+        FormatterMap.AddOrUpdate(guid, Func<Guid, (unit -> IFormatter)>(fun _ -> fmt),  raiseAlreadyPresent )
+
+    let GetDefaultFormatter() = GetFormatter DefaultFormatterGuid
+
+
+/// <summary> 
+/// Adds serialization related methods to MemStream, which allows us to break dependency cycles between
+/// MemStream and CustomizedSerialization stuff.
+/// Usage only looks nice from F#, which is ok since MemStream will be internal.
+/// If/when we MemStream goes public, we'll need the to use [<Extension>] methods for C# clients.
+/// </summary> 
+type MemStream with 
+
     member private x.GetBinaryFormatter() =
-//      Uncomment to use new BinarySerializer
-//        let fmt = new BinarySerializer()
-        let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+        let fmt = GenericSerialization.GetFormatter(GenericSerialization.BinaryFormatterGuid)
         fmt.SurrogateSelector <- CustomizedSerializationSurrogateSelector()
         fmt
+
     /// Serialize an object to bytestream with BinaryFormatter, support serialization of null. 
     member internal x.Serialize( obj )=
         let fmt = x.GetBinaryFormatter()
@@ -493,8 +671,7 @@ and [<AllowNullLiteral>]
     /// <summary> 
     /// Serialize a particular object to bytestream using BinaryFormatter, support serialization of null.  
     /// </summary>
-    member private x.BinaryFormatterSerializeFromTypeName( obj: 'U, fullname:string )=
-            let fmt = x.GetBinaryFormatter()
+    member private x.FormatterSerializeFromTypeName( obj: 'U, fullname:string, fmt: IFormatter )=
             if Utils.IsNull obj then 
                 fmt.Serialize( x, NullObjectForSerialization() )
             else
@@ -508,8 +685,7 @@ and [<AllowNullLiteral>]
     /// <summary> 
     /// Deserialize a particular object from bytestream using BinaryFormatter, support serialization of null.
     /// </summary>
-    member private x.BinaryFormatterDeserializeToTypeName(fullname:string) =
-            let fmt = x.GetBinaryFormatter()
+    member private x.FormatterDeserializeToTypeName(fullname:string, fmt: IFormatter) =
             let o = fmt.Deserialize( x )
             match o with 
             | :? NullObjectForSerialization -> 
@@ -522,6 +698,7 @@ and [<AllowNullLiteral>]
                                                                     (o.GetType().FullName) )     
 #endif
                 o 
+
     /// <summary> 
     /// Serialize a particular object to bytestream, allow use of customizable serializer if installed. 
     /// If obj is null, it is serialized to a specific reserved NullObjectGuid for null. 
@@ -544,10 +721,11 @@ and [<AllowNullLiteral>]
                     encodeFunc( obj, x ) 
                     bCustomized <- true
         if not bCustomized then 
-            x.WriteBytes( CustomizedSerialization.DefaultSerializerGuid.ToByteArray() )
-            x.BinaryFormatterSerializeFromTypeName( obj, fullname )
+            x.WriteBytes( GenericSerialization.DefaultFormatterGuid.ToByteArray() )
+            let fmt = GenericSerialization.GetDefaultFormatter()
+            x.FormatterSerializeFromTypeName( obj, fullname, fmt )
     /// <summary> 
-    /// Peak next 16B (GUID), and check if the result is null.
+    /// Peek next 16B (GUID), and check if the result is null.
     /// </summary>
     /// <returns> true if null has been serialized </returns>
     member x.PeekIfNull() = 
@@ -573,22 +751,22 @@ and [<AllowNullLiteral>]
         let buf = Array.zeroCreate<_> 16 
         let pos = x.Position
         x.ReadBytes( buf ) |> ignore
-        let typeGuid = Guid( buf ) 
-        if typeGuid = CustomizedSerialization.NullObjectGuid then 
+        let markerGuid = Guid( buf ) 
+        if markerGuid = CustomizedSerialization.NullObjectGuid then 
             null 
-        elif typeGuid <> CustomizedSerialization.DefaultSerializerGuid then 
-            let bE, decodeFunc = CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( typeGuid ) 
-            if bE then 
-                decodeFunc( x ) 
-            else
-                // This move back is added for compatible reason, old Serializer don't add a Guid, so if we can't figure out the guid in the beginning of
-                // bytestream, we just move back 
-                x.Seek( pos, SeekOrigin.Begin ) |> ignore
-                // Can't parse the guid, using the default serializer
-                x.BinaryFormatterDeserializeToTypeName( fullname ) 
-                // failwith (sprintf "Customized deserializable for typeGuid %A has not been installed" typeGuid ) 
         else
-            x.BinaryFormatterDeserializeToTypeName( fullname ) 
+            match CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( markerGuid ) with
+            | true, decodeFunc -> decodeFunc x
+            | _ -> 
+                match GenericSerialization.FormatterMap.TryGetValue( markerGuid ) with
+                | true, fmt -> x.FormatterDeserializeToTypeName( fullname, fmt() ) 
+                | _ -> 
+                    // This move back is added for compatible reason, old Serializer don't add a Guid, so if we can't figure out the guid in the beginning of
+                    // bytestream, we just move back 
+                    x.Seek( pos, SeekOrigin.Begin ) |> ignore
+                    // Can't parse the guid, using the default serializer
+                    x.FormatterDeserializeToTypeName( fullname, GenericSerialization.GetFormatter GenericSerialization.BinaryFormatterGuid) 
+
     /// Serialize a particular object to bytestream, allow use of customizable serializer if one is installed. 
     /// The customized serializer is of typeof<'U>.FullName, even the object passed in is of a derivative type. 
     member x.SerializeFromWithTypeName( obj: 'U )=
@@ -616,172 +794,4 @@ and [<AllowNullLiteral>]
             Unchecked.defaultof<_>
         else
             obj :?> 'U
-    /// Write IPEndPoint to bytestream 
-    member x.WriteIPEndPoint( addr: Net.IPEndPoint ) =
-//        x.WriteVInt32( int addr.AddressFamily )       
-        x.WriteBytesWLen( addr.Address.GetAddressBytes() )
-        x.WriteInt32( addr.Port )
-    /// Read IPEndPoint from bytestream, if the bytestream is truncated prematurely, the later IPAddress and port information will be 0. 
-    member x.ReadIPEndPoint( ) = 
-//        let addrFamily = x.ReadVInt32()
-        let buf = x.ReadBytesWLen()
-        let port = x.ReadInt32() 
-        Net.IPEndPoint( Net.IPAddress( buf ), port )
-    // ToDo: Reimplement MemStream to allow this operation to be done without a memory copy operation. 
-    /// Insert a bytearray (buf) before the current MemStream, and return the resultant MemStream
-    member x.InsertBytesBefore( buf:byte[] ) = 
-        let xbuf = x.GetBuffer()
-        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
-        let y = new MemStream( buf.Length + xlen )
-        y.WriteBytes( buf ) 
-        y.Write( xbuf, xpos, xlen ) 
-        y
-    // ToDo: Reimplement MemStream to allow this operation to be done without a memory copy operation. 
-    /// Insert a second MemStream before the current MemStream, and return the resultant MemStream
-    member x.InsertBefore( mem2:MemStream ) = 
-        let xbuf = x.GetBuffer()
-        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
-        if mem2.Position < mem2.Length then mem2.Seek( 0L, SeekOrigin.End ) |> ignore
-        mem2.Write( xbuf, xpos, xlen )
-        mem2
-    /// <summary>
-    /// Return the buffer, position, count as a tuple that captures the state of the current MemStream. 
-    /// buffer: bytearray of the underlying bytestream. 
-    /// position: the current position if need to write out the bytestream. 
-    /// count: number of bytes if need to write out the bytestream. 
-    /// </summary>
-    member x.GetBufferPosLength() = 
-        let xbuf = x.GetBuffer()
-        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
-        xbuf, xpos, xlen        
-    // Write a MemStream at the end of the current MemStream, return the current MemStream after the write
-    member x.WriteMemStream( mem2: MemStream ) = 
-        let xbuf, xpos, xlen = mem2.GetBufferPosLength()
-        x.WriteInt32( xlen )
-        x.Write( xbuf, xpos, xlen)
-        x
-    // Read a MemStream out of the current MemStream
-    member x.ReadMemStream() = 
-        let xbuf = x.GetBuffer()
-        let xlen = x.ReadInt32()
-        let xpos = x.Seek( 0L, SeekOrigin.Current )
-        x.Seek( int64 xlen, SeekOrigin.Current ) |> ignore 
-        new MemStream( xbuf, int xpos, xlen, false, true )
-    //    override x.Dispose( bFinalizing ) = 
-    /// For a writable MemStream, convert bytes from 0..Positoin to a bytearray
-    member internal x.ForWriteConvertToByteArray() = 
-        let xbuf = x.GetBuffer()
-        let xpos, xlen = if x.Position = x.Length then 0, int x.Length else int x.Position, int ( x.Length - x.Position )
-        let bytearray = Array.zeroCreate<byte> xlen
-        Buffer.BlockCopy( xbuf, xpos, bytearray, 0, xlen )
-        bytearray      
-    member internal x.WriteUInt128( data: UInt128 ) = 
-        x.WriteUInt64( data.Low )
-        x.WriteUInt64( data.High ) 
-    member internal x.ReadUInt128() = 
-        let low = x.ReadUInt64()
-        let high = x.ReadUInt64()
-        UInt128( high, low )
 
-
-//  JinL: 05/02/2014 MemoryStream is purely mnanaged code, add Finalize() just degrades performance. 
-//    /// Finalize
-//    override x.Finalize() = 
-//        x.Dispose( true )  
-        
-/// MemBitStream Will potentially read & write bits
-//type internal MemBitStream = 
-//    inherit MemStream
-//    /// 0..7 current bits to be written 
-//    val mutable BitPnt : int 
-//    [<DefaultValue>]
-//    val mutable CurBytePos : int64 
-//    new () = { inherit MemStream(); BitPnt = 8 }
-//    new (size:int) = { inherit MemStream(size); BitPnt = 8 }
-//    new (buf:byte[]) = { inherit MemStream(buf); BitPnt = 8 }
-//    new (buf:byte[], b) = { inherit MemStream( buf, b); BitPnt = 8  }
-//    new (buf, p1, p2 ) = { inherit MemStream( buf, p1, p2); BitPnt = 8 }
-//    new (buf, p1, p2, b1 ) = { inherit MemStream( buf, p1, p2, b1); BitPnt = 8 }
-//    new (buf, p1, p2, b1, b2 ) = { inherit MemStream( buf, p1, p2, b1, b2); BitPnt = 8 }
-//    new (ms:MemBitStream ) = { inherit MemStream( ms ); BitPnt = 8 }
-//    new (ms:MemBitStream, offset ) = { inherit MemStream( ms, offset ); BitPnt = 8 }
-//    member x.WriteBits( v, nbit ) = 
-//        if x.BitPnt<0 || x.BitPnt>=8 then 
-//            x.BitPnt <- 0 
-//            x.CurBytePos <- x.Position
-//            x.WriteByte(0uy)
-//    member x.ReadBits( nbit ) = 
-//        ()
-                
-
-        
-        
-
-[<AllowNullLiteral>]
-type internal CircularBuffer<'a> (size: int) =
-    member val buffer = Array.zeroCreate<'a> size with get, set
-    member val bufferSize = size with get,set
-    member val readPtr = 0 with get,set
-    member val writePtr = 0 with get,set
-    member x.length = (x.writePtr + x.bufferSize - x.readPtr) % x.bufferSize
-    member x.freeSize = (x.readPtr-1-x.writePtr + x.bufferSize)% x.bufferSize
-    member x.readPtrToEnd = x.bufferSize - x.readPtr
-    member x.writePtrToEnd = x.bufferSize - x.writePtr
-
-    member x.MoveReadPtr (len:int) =
-        if len > x.length then
-            failwith "Cannot move readptr in Circular buffer"
-        x.readPtr <- (x.readPtr + len)
-        if x.readPtr >= x.bufferSize then
-            x.readPtr <- x.readPtr - x.bufferSize
-    member x.MoveWritePtr (len:int) =
-        if len > x.freeSize then
-            failwith "Cannot move writeptr in Circular buffer"
-        x.writePtr <- (x.writePtr + len)
-        if x.writePtr >= x.bufferSize then
-            x.writePtr <- x.writePtr - x.bufferSize
-        
-
-    member x.Write(src:'a) =
-        if x.freeSize < 1 then
-            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
-        x.buffer.[x.writePtr] <- src
-        x.MoveWritePtr(1)
-        
-    member x.Write(writePtr:int, src:'a) =
-        if x.freeSize < 1 then
-            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
-        x.buffer.[writePtr] <- src
-
-
-    member x.Write(src:byte[],posi:int, len:int) =
-        if len > x.freeSize then
-            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
-        if len <= x.writePtrToEnd then
-            Buffer.BlockCopy( src, posi, x.buffer, x.writePtr, len )
-        else 
-            Buffer.BlockCopy( src, posi, x.buffer, x.writePtr, x.writePtrToEnd )
-            Buffer.BlockCopy( src, posi, x.buffer, 0, len - x.writePtrToEnd )
-        x.MoveWritePtr(len)
-
-    member x.Write(writePtr:int,src:byte[],posi:int, len:int) =
-        if len > x.freeSize then
-            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
-        if len <= x.RelativePtrToEnd(writePtr) then
-            Buffer.BlockCopy( src, posi, x.buffer, writePtr, len )
-        else 
-            Buffer.BlockCopy( src, posi, x.buffer, writePtr, x.RelativePtrToEnd(writePtr) )
-            Buffer.BlockCopy( src, posi, x.buffer, 0, len - x.RelativePtrToEnd(writePtr) )
-
-
-    member x.RelativeLength (readPosition:int) =   
-        (x.writePtr + x.bufferSize - readPosition) % x.bufferSize
-
-    member x.RelativeReadPtrToEnd (readPosition:int) = x.bufferSize - readPosition
-    member x.RelativePtrToEnd (posi:int) = x.bufferSize - posi
-
-    member x.MovePtr (ptr:int, len:int) =
-        let mutable tptr = (ptr + len)
-        while tptr >= x.bufferSize do
-            tptr <- tptr - x.bufferSize
-        tptr

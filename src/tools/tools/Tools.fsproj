@@ -49,6 +49,8 @@
     <Compile Include="basenetwork.fs" />
     <Compile Include="genericnetwork.fs" />
     <Compile Include="crypt.fs" />
+    <None Include="Scripts\load-references.fsx" />
+    <None Include="Scripts\load-project.fsx" />
   </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>

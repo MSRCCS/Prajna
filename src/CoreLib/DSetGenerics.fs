@@ -438,7 +438,10 @@ type DSet<'U> () =
         let aggrWrapper (s1 : 'U option) (s2 : 'U option) = 
             reducer s1.Value s2.Value |> Some
         let y = x.MapImpl (fun v -> v |> Some)
-        y.FoldWithCommonStatePerNode(folder, aggrWrapper, None).Value
+        let resultOption = y.FoldWithCommonStatePerNode(folder, aggrWrapper, None)
+        match resultOption with
+        | Some value -> value
+        | None -> failwith ("No result")
 
     /// <summary>
     /// Reduces the elements using the specified 'reducer' function

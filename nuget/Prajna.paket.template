@@ -36,7 +36,10 @@ references
     Prajna.Tools.dll
 frameworkAssemblies
     System
+    System.Configuration
     System.Core
     System.Management
+    System.Xml
+    System.Linq.Xml
 dependencies
     FSharp.Core >= 3.1.2

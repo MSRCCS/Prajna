@@ -30,4 +30,6 @@
 *.fsx eol=lf
 *.sh eol=lf
 *.cmd eol=lf
+*.config eol=lf
+*paket.* eol=lf
 

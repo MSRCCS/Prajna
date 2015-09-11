@@ -327,9 +327,11 @@ and [<AllowNullLiteral>]
                                     if File.Exists masterConfig then
                                         // Also make sure the config file is co-located with the executable
                                         let useConfig = useExeutable + ".config"
-                                        let res, msg = LinkFile useConfig masterConfig
+                                        let res, msg = CopyFile useConfig masterConfig
                                         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Copy %s to %s : %s" useConfig masterConfig msg) )
                                     useExeutable
+                            // Update asm bindings if needed
+                            ta.JobAsmBinding |> ConfigurationUtils.ReplaceAssemblyBindingsForExeIfNeeded newExecutable
                             let startInfo = System.Diagnostics.ProcessStartInfo( newExecutable, cmd_line )
                             if not (Utils.IsNull x.JobDirectory) && x.JobDirectory.Length > 0 then
                                 startInfo.WorkingDirectory <- x.JobDirectory

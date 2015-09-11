@@ -51,6 +51,11 @@ module Utils =
                                                     Runtime.CompilerServices.RuntimeHelpers.GetHashCode(v)
                                             h &&& Int32.MaxValue
 
+/// Runtime related information
+module Runtime =
+    /// Boolean variable to test if the code is running on mono. 
+    let RunningOnMono = try Utils.IsNotNull (System.Type.GetType("Mono.Runtime")) with e -> false
+
 /// Convert System.Func to FSharpFunc
 [<Extension>]
 type internal FuncUtil = 
@@ -90,3 +95,36 @@ type internal FuncUtil =
 
     [<Extension>] 
     static member ToFSharpFunc<'a,'b,'c,'d, 'e, 'f> (func : Func<'a,'b,'c,'d, 'e, 'f>) = fun a b c d e -> func.Invoke(a, b, c, d, e)
+
+// Utilities for directory
+// Note: may move to a different file
+module internal DirUtils =
+    open System.IO
+    open System.Security.AccessControl
+
+    /// Return DirectoryInfo, create the directory if it doesn't exist. 
+    /// The directory created this way will allow access control by everyone to ease use in cluster scenario. 
+    let DirectoryInfoCreateIfNotExists dir =
+        if String.IsNullOrEmpty dir then 
+            null 
+        else
+            let mutable dirInfo = new DirectoryInfo(dir)
+            if not dirInfo.Exists then 
+                try 
+                    Directory.CreateDirectory(dir) |> ignore
+                    if not Runtime.RunningOnMono then
+                        let fSecurity = File.GetAccessControl( dir ) 
+                        fSecurity.AddAccessRule( new FileSystemAccessRule( "everyone", FileSystemRights.FullControl, AccessControlType.Allow ) )
+                        File.SetAccessControl( dir, fSecurity )
+                    dirInfo <- new DirectoryInfo(dir)
+                    if not Runtime.RunningOnMono then
+                        let dSecurity = dirInfo.GetAccessControl()
+                        dSecurity.AddAccessRule( new FileSystemAccessRule( "Everyone", FileSystemRights.FullControl, AccessControlType.Allow ) )
+                        dirInfo.SetAccessControl( dSecurity )
+                with 
+                | e -> 
+                    Threading.Thread.Sleep( 10 )
+                    dirInfo <- new DirectoryInfo(dir)
+                    if not dirInfo.Exists then 
+                        reraise()
+            dirInfo

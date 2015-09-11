@@ -248,7 +248,7 @@ type JobDependencies() =
     /// Additional Environmental setting required by the remote container 
     /// It will be used to set ProcessStartInfo.EnvironmentVariables during the launch of the remote container
     member val EnvVars : List<string*string> = new List<string*string>() with get
-
+    
     /// Job File Dependencies SHA1 Hash
     member internal x.JobDependencySHA256() =
         use ms = new MemStream( ) 

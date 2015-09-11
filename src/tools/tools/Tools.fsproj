@@ -23,7 +23,10 @@
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="System" />
+    <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AssemblyProperties.fs" />
@@ -36,10 +39,10 @@
     <Compile Include="custommemory.fs" />
     <Compile Include="StringTools.fs" />
     <Compile Include="bytes.fs" />
-    <Compile Include="file.fs" />
     <Compile Include="Logger.fs" />
     <Compile Include="LoggerFSharp.fs" />
     <Compile Include="LoggerCSharp.fs" />
+    <Compile Include="file.fs" />
     <Compile Include="process.fs" />
     <Compile Include="serialize.fs" />
     <Compile Include="resizequeue.fs" />
@@ -52,6 +55,7 @@
     <Compile Include="basenetwork.fs" />
     <Compile Include="genericnetwork.fs" />
     <Compile Include="crypt.fs" />
+    <Compile Include="configuration.fs" />
   </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>

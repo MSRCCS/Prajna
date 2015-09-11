@@ -651,6 +651,8 @@ and
     member val RemoteMappingDirectory = "" with get, set
     /// Environment Variables for the job
     member val JobEnvVars = new List<string*string>() with get
+    /// Assembly bindings for the job
+    member val JobAsmBinding : AssemblyBinding option = None with get, set
     /// Start Blob Serial Number that will define this 
     member val BlobStartSerial = 0L with get, set
     /// Blobs associated with the current job
@@ -1268,6 +1270,9 @@ and
                 ms.WriteString(fst x.JobEnvVars.[vari])
                 ms.WriteString(snd x.JobEnvVars.[vari])
 
+            // Add asm bindings
+            x.JobAsmBinding |> ConfigurationUtils.PackAsmBinding ms
+
             // Send job port
             ms.WriteUInt16( x.JobPort )
 
@@ -1454,6 +1459,9 @@ and
                 let result = ReplaceString value DeploymentSettings.EnvStringGetJobDirectory x.JobDirectory StringComparison.OrdinalIgnoreCase
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Set Environment Variable %s to %s [(%s)]" envvar result value))
                 x.JobEnvVars.Add((envvar, result))
+            
+            x.JobAsmBinding <- ConfigurationUtils.UnpackAsmBinding ms
+            
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Try to use directory %s for Job %s:%s" x.JobDirectory x.Name x.VersionString ))
             // Create Job Directory if not exist
             FileTools.DirectoryInfoCreateIfNotExists x.JobDirectory |> ignore 
@@ -2027,6 +2035,10 @@ and
             x.JobEnvVars.Clear()
             for vari = 0 to curJob.EnvVars.Count-1 do
                 x.JobEnvVars.Add(curJob.EnvVars.[vari])
+
+            // Get the current exe's asm binding information
+            x.JobAsmBinding <- ConfigurationUtils.GetAssemblyBindingsForCurrentExe()
+
             // JinL: This logic of computing Job Directory needs to change & include assemblies. 
             // add remaining assemblies that are not in job dependencies
             let jobDirectory = if StringTools.IsNullOrEmpty curJob.JobDirectory then 

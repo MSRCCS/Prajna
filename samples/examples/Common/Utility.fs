@@ -52,6 +52,14 @@ module Utility =
         |> Array.filter(fun x -> t.IsAssignableFrom(x) && not x.IsInterface && not x.IsAbstract)
         |> Array.map(fun x -> (Activator.CreateInstance(x)) :?> IExample)    
     
+    let GetUnitTestableExamplesFromAssembly (assembly : Assembly) =
+        let t = typeof<IExample>
+        assembly.GetTypes()
+        |> Array.filter(fun x -> t.IsAssignableFrom(x) && not x.IsInterface && not x.IsAbstract)
+        |> Array.filter(fun x -> let attr = Attribute.GetCustomAttribute(x, typeof<SkipUnitTest>)
+                                 Utils.IsNull(attr))
+        |> Array.map(fun x -> (Activator.CreateInstance(x)) :?> IExample)    
+
     let private PrintExample (example : IExample) =
         let name = example.GetType().Name
         printfn "    %s : %s" name example.Description
@@ -76,7 +84,8 @@ module Utility =
         Command line arguments:\n\
         -list          list examples, if specified, all other arguments are ignored \n\
         -cluster       Prajna cluster file, if not specified, use a local cluster with 2 nodes \n\
-        -examples      specify examples to run via a comma seperated string, if not specified, run all examples \n\
+        -examples      Specify examples to run via a comma seperated string, if not specified, run all examples \n\
+        -useproc       Use process mode instead of app-domain mode for local cluster. Effective only if '-cluster' is not specified \n\
         "
 
     /// Parse the arguments from "-examples"
@@ -112,6 +121,7 @@ module Utility =
         let shouldList = parser.ParseBoolean("-list", false)
         let clusterArg = parser.ParseString("-cluster", null)
         let examplesArg = parser.ParseString("-examples", null)
+        let useProcArg = parser.ParseBoolean("-useproc", false)
     
         let allParsed = parser.AllParsed CommandLineUsage
         
@@ -139,8 +149,29 @@ module Utility =
                     let cluster =  
                         if Utils.IsNotNull clusterArg then
                             Cluster(clusterArg)
-                        else 
+                        elif useProcArg then
+                            // Process mode of local cluster: start both daemon and container using processes
+                            let curDir = __SOURCE_DIRECTORY__
+                            // Root is three-level up
+                            let rootDir = Directory.GetParent(Directory.GetParent(Directory.GetParent(curDir).FullName).FullName).FullName
+                            let flavor = 
+#if DEBUG
+                                "Debugx64"
+#else
+                                "Releasex64"
+#endif
+                            let clientPath = Path.Combine([| rootDir; "bin"; flavor; "Client"; "PrajnaClient.exe" |])
                             // use local cluster with 2 nodes
+                            let localClusterCfg = { Name = sprintf "local-%i" 2
+                                                    Version = (DateTime.UtcNow)
+                                                    NumClients = 2
+                                                    ContainerInAppDomain = false
+                                                    ClientPath = clientPath |> Some
+                                                    NumJobPortsPerClient = None
+                                                    PortsRange = None
+                                                  }
+                            Cluster(localClusterCfg)
+                        else
                             Cluster("local[2]")
                 
                     // start a cache service to keep the container alive during the course of running examples

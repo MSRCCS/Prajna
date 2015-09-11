@@ -840,8 +840,7 @@ and [<AllowNullLiteral; Serializable>]
             ()
     member val JobInfoCollections = ConcurrentDictionary<string,JobInformation>() with get
     member val AsyncExecutionEngine = ConcurrentDictionary<string,AsyncExecutionEngine>() with get
-    member val SyncExecutionEngine  = ConcurrentDictionary<string,ThreadPoolWithWaitHandles<int>>() with get
-        
+    member val SyncExecutionEngine  = ConcurrentDictionary<string,ThreadPoolWithWaitHandles<int>>() with get        
 
     member x.BeginAllSync jbInfo ( dset: DSet ) = 
         x.TraverseAllObjects TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset (x.ResetAll jbInfo)
@@ -1597,6 +1596,10 @@ and [<AllowNullLiteral; Serializable>]
             // Unparsed message is fine, it may be picked up by other message parsing pipeline. 
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Unparsed Message@AppDomain: %A, %A" command.Verb command.Noun ))
             ()
+        if (Utils.IsNotNull (!task)) then
+            if (Utils.IsNotNull (!task).MetadataStream) then
+                (!task).MetadataStream.DecRef()
+                (!task).MetadataStream <- null
 
     static member val DefaultJobListener = null with get, set
 
@@ -2814,7 +2817,10 @@ and internal TaskQueue() =
         else
             // Never executed. 
             taskAdd
-    member x.RemoveTask( ta:Task ) = 
+    member x.RemoveTask( ta:Task ) =
+        if (Utils.IsNotNull ta && Utils.IsNotNull ta.MetadataStream) then
+            ta.MetadataStream.DecRef()
+            ta.MetadataStream <- null
         lookupTable.TryRemove( (ta.Name, ta.Version), ref Unchecked.defaultof<_> ) |> ignore
             
     member x.LinkQueueAndTask( ta:Task, queue: NetworkCommandQueue ) = 
@@ -2838,7 +2844,7 @@ and internal TaskQueue() =
         match (cmd.Verb,cmd.Noun) with 
         // Set, Job (name is not parsed)
         | ControllerVerb.Set, ControllerNoun.Job ->
-            let task = Task()
+            let task = new Task()
 //            task.GetIncomingQueueNumber( queue ) |> ignore
             let bRet = task.UnpackToBlob( ms )
             task.ClientAvailability(queue.RemoteEndPointSignature, Some task.ReceiveBlob, Some task.PeekBlobDSet )  

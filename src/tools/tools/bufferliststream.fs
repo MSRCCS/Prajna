@@ -134,8 +134,8 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
             x.Element <- e.Elem // check for released element prior to setting
             x.RC.AddRef()
             x.RC.Info <- infoStr + ":" + id.ToString()
-            let e : 'T = x.Element
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Also using %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
+            //let e : 'T = x.Element
+            //Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "Also using %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
     
     static member internal GetFromPool<'TP when 'TP:null and 'TP:(new:unit->'TP) and 'TP :> IRefCounter<string>>
                            (infoStr : string, pool : SharedPool<string,'TP>, createNew : unit->SafeRefCnt<'T>) : ManualResetEvent*SafeRefCnt<'T> =
@@ -146,7 +146,7 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
             x.Element <- poolElem :> IRefCounter<string> :?> 'T
             x.InitElem()
             x.RC.SetRef(1L)
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Using element %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
+            //Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "Using element %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
             (event, x)
         else
             (event, null)
@@ -160,7 +160,7 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
         if (Interlocked.CompareExchange(bRelease, 1, 0) = 0) then
             if (Utils.IsNotNull elem) then
                 let bFinalize = defaultArg bFinalize false
-                Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Releasing %s with id %d elemId %s finalize %b - refcount %d" infoStr id x.RC.Key bFinalize x.Element.GetRef)
+                //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Releasing %s with id %d elemId %s finalize %b - refcount %d" infoStr id x.RC.Key bFinalize x.Element.GetRef)
                 x.RC.DecRef()
 
     member x.Release(?bFinalize : bool) =
@@ -825,7 +825,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
             streamsInUse.[base.Info] <- x
 
     static member DumpStreamsInUse() =
-        Logger.LogF (LogLevel.MildVerbose, fun _ ->
+        Logger.LogF (LogLevel.WildVerbose, fun _ ->
             let sb = new System.Text.StringBuilder()
             sb.AppendLine(sprintf "Num streams in use: %d" streamsInUse.Count) |> ignore
             for s in streamsInUse do
@@ -879,9 +879,9 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     member private x.Release(bFromFinalize : bool) =
         if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
             if (bFromFinalize) then
-                Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].ElemNoCheck.Id)) bFromFinalize streamsInUse.Count)
+                Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].ElemNoCheck.Id)) bFromFinalize streamsInUse.Count)
             else
-                Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].Elem.Id)) bFromFinalize streamsInUse.Count)
+                Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].Elem.Id)) bFromFinalize streamsInUse.Count)
             for l in bufList do
                 l.Release()
             if not (base.Info.Equals("")) then

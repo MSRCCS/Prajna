@@ -680,4 +680,3 @@ type BinarySerializer() =
             let marked = new Dictionary<obj, int>(ReferenceComparer())
             let ser = new Serializer(writer, marked, new TypeSerializer(), (x :> IFormatter).SurrogateSelector)
             do ser.WriteObject(graph)
-    

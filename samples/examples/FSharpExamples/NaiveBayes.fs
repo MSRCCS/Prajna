@@ -33,7 +33,6 @@ open Prajna.Api.FSharp
 
 open Prajna.Examples.Common
 
-
 /// A Counts object holds word counts for a single class
 /// A counts: Count[] holds counts for class k in in counts.[k]
 type internal Counts = Dictionary<string, int>
@@ -52,7 +51,7 @@ type NaiveBayes() =
 
     // A tiny fraction of 20 Newsgroups dataset data (http://archive.ics.uci.edu/ml/datasets/Twenty+Newsgroups)
     // slightly processed to have one example per line and eliminite newlines in example
-    let data = Path.Combine(Utility.GetExecutingDir(), "20news-featurized2-train.txt")
+    let data = Path.Combine(Utility.GetExecutingDir(), "20news-featurized2-tiny.txt")
 
     let split (c: char) (str:string) = str.Split([|c|], StringSplitOptions.RemoveEmptyEntries)
 
@@ -311,4 +310,3 @@ type NaiveBayes() =
             "Create Naive Bayes model"
         member this.Run(cluster) =
             run cluster        
-        

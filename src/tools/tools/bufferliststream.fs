@@ -40,8 +40,8 @@ open Prajna.Tools.FSharp
 // A basic refcounter interface
 type [<AllowNullLiteral>] IRefCounter<'K> =
     interface   
+        abstract DebugInfo : 'K with get, set
         abstract Key : 'K with get
-        abstract Info : 'K with get, set
         abstract Release : (IRefCounter<'K>->unit) with get, set
         abstract SetRef : int64->unit
         abstract GetRef : int64 with get
@@ -49,15 +49,19 @@ type [<AllowNullLiteral>] IRefCounter<'K> =
         abstract DecRef : unit->unit
     end
 
+#if DEBUG
+type internal BufferListDebugging =
+    static member DebugLeak = false
+#endif
+
 // A shared pool of RefCounters
 //type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter and 'T:(new:unit->'T)> private () =
 type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> and 'T:(new:unit->'T)>() =
     let mutable stack : SharedStack<'T> = null
 
-    let debugLeak = true
     let usedList = 
 #if DEBUG
-        if (debugLeak) then
+        if (BufferListDebugging.DebugLeak) then
             new ConcurrentDictionary<'K,'T>()
         else
 #endif
@@ -85,7 +89,7 @@ type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> a
     default x.Release(elem : IRefCounter<'K>) =
         stack.ReleaseElem(elem :?> 'T)
 #if DEBUG
-        if (debugLeak) then
+        if (BufferListDebugging.DebugLeak) then
             usedList.TryRemove(elem.Key) |> ignore
 #endif
 
@@ -93,8 +97,8 @@ type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> a
     default x.GetElem(info : 'K) =
         let (event, elem) = stack.GetElem()
 #if DEBUG
-        if (debugLeak) then
-            elem.Info <- info
+        if (BufferListDebugging.DebugLeak) then
+            elem.DebugInfo <- info
             usedList.[info] <- elem
 #endif
         (event, elem)
@@ -103,8 +107,8 @@ type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> a
     default x.GetElem (info : 'K, elem : 'T ref) =
         let event = stack.GetElem(elem)
 #if DEBUG
-        if (debugLeak) then
-            (!elem).Info <- info
+        if (BufferListDebugging.DebugLeak) then
+            (!elem).DebugInfo <- info
             usedList.[info] <- !elem
 #endif
         event
@@ -126,14 +130,14 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
             let r : IRefCounter<string> = x.RC
             x.InitElem()
             x.RC.SetRef(1L)
-            x.RC.Info <- infoStr + ":" + id.ToString()
+            x.RC.DebugInfo <- infoStr + ":" + id.ToString()
 
     new(infoStr : string, e : SafeRefCnt<'T>) as x =
         new SafeRefCnt<'T>(infoStr, false)
         then
             x.Element <- e.Elem // check for released element prior to setting
             x.RC.AddRef()
-            x.RC.Info <- infoStr + ":" + id.ToString()
+            x.RC.DebugInfo <- infoStr + ":" + id.ToString()
             //let e : 'T = x.Element
             //Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "Also using %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
     
@@ -202,7 +206,7 @@ type [<AbstractClass>] [<AllowNullLiteral>] RefCountBase() =
 
     interface IRefCounter<string> with
         override x.Key with get() = key
-        override val Info : string = "" with get, set
+        override val DebugInfo : string = "" with get, set
         override val Release : IRefCounter<string>->unit = (fun _ -> ()) with get, set
         override x.SetRef(v) =
             x.RefCount := v
@@ -729,9 +733,7 @@ type StreamBaseByte =
 type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool) =
     inherit StreamBase<'T>()
 
-#if DEBUG
     static let streamsInUse = new ConcurrentDictionary<string, BufferListStream<'T>>()
-#endif
 
     static let mutable memStack : SharedMemoryPool<RefCntBuf<'T>,'T> = null
     static let memStackInit = ref 0
@@ -817,22 +819,34 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         with get() =
             base.Info
         and set(v) =
-            if not (base.Info.Equals("")) then
-                streamsInUse.TryRemove(base.Info) |> ignore
-            // for extra debugging info, can include stack trace of memstream info
-            //base.Info <- v + ":" + x.Id.ToString() + Environment.StackTrace
-            base.Info <- v + ":" + x.Id.ToString()
-            streamsInUse.[base.Info] <- x
+#if DEBUG
+            if (BufferListDebugging.DebugLeak) then
+                if not (base.Info.Equals("")) then
+                    streamsInUse.TryRemove(base.Info) |> ignore
+#endif
+            base.Info <- v
+#if DEBUG
+            if (BufferListDebugging.DebugLeak) then
+                let mutable infoStr = base.Info + ":" + x.Id.ToString()
+                // for extra debugging info, can include stack trace of memstream info
+                //infoStr <- infoStr + Environment.StackTrace
+                streamsInUse.[base.Info] <- x
+#endif
 
     static member DumpStreamsInUse() =
-        Logger.LogF (LogLevel.WildVerbose, fun _ ->
-            let sb = new System.Text.StringBuilder()
-            sb.AppendLine(sprintf "Num streams in use: %d" streamsInUse.Count) |> ignore
-            for s in streamsInUse do
-                let (key, value) = (s.Key, s.Value)
-                sb.AppendLine(sprintf "%s : %s" s.Key s.Value.Info) |> ignore
-            sb.ToString()
-        )
+#if DEBUG
+        if (BufferListDebugging.DebugLeak) then
+            Logger.LogF (LogLevel.MildVerbose, fun _ ->
+                let sb = new System.Text.StringBuilder()
+                sb.AppendLine(sprintf "Num streams in use: %d" streamsInUse.Count) |> ignore
+                for s in streamsInUse do
+                    let (key, value) = (s.Key, s.Value)
+                    let v : List<RBufPart<'T>> = s.Value.BufList
+                    sb.AppendLine(sprintf "%s : %s : NumBuffers:%d" s.Key s.Value.Info s.Value.BufList.Count) |> ignore
+                sb.ToString()
+            )
+#endif
+        ()
 
     // static memory pool
     static member InitFunc (e : RefCntBuf<'T>) =
@@ -843,8 +857,11 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     static member internal InitMemStack(numBufs : int, bufSize : int) =
         if (Interlocked.CompareExchange(memStackInit, 1, 0)=0) then
             memStack <- new SharedMemoryPool<RefCntBuf<'T>,'T>(numBufs, -1, bufSize, BufferListStream<'T>.InitFunc, "Memory Stream")
-            // start monitor timer
-            PoolTimer.AddTimer(BufferListStream<'T>.DumpStreamsInUse, 10000L, 10000L)
+#if DEBUG
+            if (BufferListDebugging.DebugLeak) then
+                // start monitor timer
+                PoolTimer.AddTimer(BufferListStream<'T>.DumpStreamsInUse, 10000L, 10000L)
+#endif
 
     member internal x.GetStackElem() =
         let (event, buf) = RBufPart<'T>.GetFromPool(x.GetInfoId()+":RBufPart", BufferListStream<'T>.MemStack,
@@ -881,7 +898,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
             if (bFromFinalize) then
                 Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].ElemNoCheck.Id)) bFromFinalize streamsInUse.Count)
             else
-                Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].Elem.Id)) bFromFinalize streamsInUse.Count)
+                Logger.LogF(LogLevel.ExtremeVerbose, fun _ -> sprintf "List release for %s with id %d %A finalize: %b remain: %d" x.Info x.Id (Array.init bufList.Count (fun index -> bufList.[index].Elem.Id)) bFromFinalize streamsInUse.Count)                
             for l in bufList do
                 l.Release()
             if not (base.Info.Equals("")) then

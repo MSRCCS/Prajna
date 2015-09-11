@@ -767,7 +767,11 @@ and [<AllowNullLiteral>]
             | _ -> 
                 Logger.Fail( sprintf "DStream.SyncPackageToSend, object pushed is of unknonw type %A, %A" (streamObject.GetType()) streamObject )
         else
-            ControllerCommand( ControllerVerb.SyncClosePartition, ControllerNoun.DStream), null 
+            let metaStream = new MemStream( 128 ) 
+            metaStream.WriteString( x.Name )
+            metaStream.WriteInt64( x.Version.Ticks ) 
+            meta.Pack( metaStream ) 
+            ControllerCommand( ControllerVerb.SyncClosePartition, ControllerNoun.DStream), metaStream :> StreamBase<byte>
     member internal x.UnpackageFromReceive (bClose) (ms:MemStream)  = 
         let meta = BlobMetadata.Unpack( ms )
         if ( bClose ) then 
@@ -910,7 +914,8 @@ and [<AllowNullLiteral>]
 //                                sprintf "QSize current: %d max: %d" qq.CurrentSize qq.MaxSize
 //                            ))
                             peerQueue.ToSend( cmd, ms )
-                            ms.DecRef()
+                            if (Utils.IsNotNull ms) then
+                                ms.DecRef()
                             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Send %A command %A to peer %d with %dB" (meta.ToString()) cmd peeri ms.Length ))
                             bSend := true
                         else
@@ -1006,7 +1011,6 @@ and [<AllowNullLiteral>]
             let peers = mapping.[parti]
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "DStream %s:%s, Multicast to peers %A with blob %A" x.Name x.VersionString peers meta ))
             let ms = o :?> StreamBase<byte>
-            ms.AddRef()
             for peeri in peers do 
                 // Write to local. 
                 if peeri = childStream.CurPeerIndex then 
@@ -1016,6 +1020,7 @@ and [<AllowNullLiteral>]
                         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DStream PassTo.SendTo %s:%s, reach end of SyncExecuteDownstream for parti %d with null object" x.Name x.VersionString parti ))
                 else
                     // Async network queue is used 
+                    ms.AddRef() // syncsendpeer will dec one ref
                     childStream.SyncSendPeer jbInfo parti meta ms peeri
                     // We don't flush network queue (as the network queue are multiplexed), the execution queue will be flushed at close stream. 
                     // x.SendPeer jbInfo parti meta o peeri 

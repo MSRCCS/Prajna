@@ -23,7 +23,7 @@ type ExamplesTests() =
             let examples = 
                 // specifiy one of the types that is defined in the assembly to help find the assembly
                 let asm = Assembly.GetAssembly(t)               
-                Utility.GetExamplesFromAssembly(asm)
+                Utility.GetUnitTestableExamplesFromAssembly(asm)
             for e in examples do
                 yield [| e |]
         |]

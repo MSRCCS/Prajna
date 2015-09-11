@@ -633,11 +633,11 @@ type LocalClusterConfig =
         /// The path to the PrajnaClient executable. If given, the client is started as a process, otherwise, as an AppDomain
         ClientPath : string option
         /// Number of job ports for each client
-        NumJobPortsPerClient : int
+        NumJobPortsPerClient : int option
         /// The inclusive range of ports that the local cluster can use. It has to at least provide 
         ///     NumClients + NumJobPortsPerClient * NumClients
         /// ports
-        PortsRange : int * int
+        PortsRange : (int * int) option
     }
 
 /// Can't add another function to call back without break the function. 
@@ -688,19 +688,26 @@ and
     static let commandCallback = new ConcurrentDictionary<ControllerCommand, ConcurrentDictionary<string*int64, Cluster*NetworkCommandCallback>>()
     
     // The factory method to create a local cluster, to be specified by code defined later
-    static let mutable createLocalCluster : string * DateTime * int * LocalClusterContainerMode * (string option) * int * (int * int) -> ILocalCluster = 
+    static let mutable createLocalCluster : string * DateTime * int * LocalClusterContainerMode * (string option) * int  * (int * int) -> ILocalCluster = 
         (fun (name, version, numClients, containerMode, clientPath, numJobPortsPerClient, portsRange) -> failwith "not initialized, please call Environment.Init when program starts")
     static member internal SetCreateLocalCluster f = createLocalCluster <- f
 
     // Factory methods to create a local cluster
     static member internal CreateLocalCluster(name, version, numClients, containerMode, clientPath, numJobPortsPerClient, portsRange) =
-        let cl = createLocalCluster(name, version, numClients, containerMode, clientPath, numJobPortsPerClient, portsRange)
+        let nJobPortsPerClient = 
+            match numJobPortsPerClient with
+            | Some v -> v
+            | None -> DeploymentSettings.LocalClusterNumJobPortsPerClient
+        let pRange = 
+            match portsRange with
+            | Some v -> v
+            | None ->  (DeploymentSettings.LocalClusterStartingPort, 
+                        DeploymentSettings.LocalClusterStartingPort +  nJobPortsPerClient * numClients + numClients - 1)
+        let cl = createLocalCluster(name, version, numClients, containerMode, clientPath, nJobPortsPerClient, pRange)
         cl
 
     static member internal CreateLocalCluster (name, version, numClients, containerMode, clientPath) =
-        let range = (DeploymentSettings.LocalClusterStartingPort, 
-                     DeploymentSettings.LocalClusterStartingPort + DeploymentSettings.LocalClusterNumJobPortsPerClient * numClients + numClients - 1)
-        Cluster.CreateLocalCluster (name, version, numClients, containerMode, clientPath, DeploymentSettings.LocalClusterNumJobPortsPerClient, range)
+        Cluster.CreateLocalCluster (name, version, numClients, containerMode, clientPath, None, None)
     
     static member internal CreateLocalCluster (name, version, numClients, containerMode) =
         Cluster.CreateLocalCluster (name, version, numClients, containerMode, None)
@@ -714,12 +721,12 @@ and
     // Create a local cluster from a specified config
     static member internal CreateLocalCluster config = 
         Cluster.CreateLocalCluster (config.Name,
-                                          config.Version,
-                                          config.NumClients, 
-                                          (if config.ContainerInAppDomain then LocalClusterContainerMode.AppDomain else LocalClusterContainerMode.Process),
-                                          config.ClientPath,
-                                          config.NumJobPortsPerClient,
-                                          config.PortsRange)
+                                    config.Version,
+                                    config.NumClients, 
+                                    (if config.ContainerInAppDomain then LocalClusterContainerMode.AppDomain else LocalClusterContainerMode.Process),
+                                    config.ClientPath,
+                                    config.NumJobPortsPerClient,
+                                    config.PortsRange)
 
     member val internal MsgToHost=List<(ControllerCommand*MemStream)>() with get
     member internal x.Queues with get() = queues

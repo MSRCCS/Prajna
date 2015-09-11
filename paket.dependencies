@@ -1,6 +1,6 @@
 source https://nuget.org/api/v2
 
-nuget FSharp.Data 2.1.1
+nuget FSharp.Data 2.2.5
 nuget FSharp.Formatting 2.9.1
 nuget FSharpVSPowerTools.Core 1.8.0
 nuget NUnit 

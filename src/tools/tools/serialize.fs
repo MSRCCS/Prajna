@@ -24,11 +24,23 @@ open System.Collections.Generic
 open System.IO
 open System.Runtime.Serialization.Formatters.Binary
 
-type ReferenceType =
-    | Null = 0uy
+// Describes the type of reference of an upcomming object or type
+type internal ReferenceType =
+    // The null object
+    | Null = 0uy 
+    // An inline object. This is used the first time an object appears in the graph,
+    // in depth-first traversal order. If it's a reference type, this is followed by the
+    // the object's actual type. Value types implicitly are of same type as the field. 
+    // In either case, this is followed by the object's (or struct's) fields.
     | InlineObject = 1uy
+    // An object that's already been serialized, represented by its index in the depth-first traversal
     | ObjectPosition = 2uy
+    // Similar to InlineObject, used the first time an object of a given runtime type appears.
+    // The type is represented by it's full AssemblyQualifiedName.
+    // This is used by the deserializer only. Objects of type System.Type are not special, and will
+    // be an InlineObject the first type they appear, as usual.
     | InlineType = 3uy
+    // Similar to ObjectPosition, but reference to a type that appeared previously.
     | TypePosition = 4uy
 
 module internal Serialize =
@@ -185,7 +197,7 @@ module internal Serialize =
     let theConverter = FormatterConverter()
     let theContext = StreamingContext(StreamingContextStates.Remoting)
 
-type SerializationCallback = obj -> StreamingContext -> unit
+type internal SerializationCallback = obj -> StreamingContext -> unit
 
 type internal SerTypeInfo(objType: Type) =
 

@@ -38,10 +38,10 @@
     <Compile Include="mem.fs" />
     <Compile Include="StringTools.fs" />
     <Compile Include="bytes.fs" />
-    <Compile Include="file.fs" />
     <Compile Include="Logger.fs" />
     <Compile Include="LoggerFSharp.fs" />
     <Compile Include="LoggerCSharp.fs" />
+    <Compile Include="file.fs" />
     <Compile Include="process.fs" />
     <Compile Include="ArgumentParser.fs" />
     <Compile Include="Math.fs" />

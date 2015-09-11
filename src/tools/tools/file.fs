@@ -36,6 +36,8 @@ open System.Security.AccessControl
 
 open System.Text
 
+open Prajna.Tools.FSharp
+
 /// <summary>
 /// A set of helper routine for file operations
 /// </summary>
@@ -44,29 +46,7 @@ module  FileTools =
     /// Return DirectoryInfo, create the directory if it doesn't exist. 
     /// The directory created this way will allow access control by everyone to ease use in cluster scenario. 
     let DirectoryInfoCreateIfNotExists dir =
-        if String.IsNullOrEmpty dir then 
-            null 
-        else
-            let mutable dirInfo = new DirectoryInfo(dir)
-            if not dirInfo.Exists then 
-                try 
-                    Directory.CreateDirectory(dir) |> ignore
-                    if not Runtime.RunningOnMono then
-                        let fSecurity = File.GetAccessControl( dir ) 
-                        fSecurity.AddAccessRule( new FileSystemAccessRule( "everyone", FileSystemRights.FullControl, AccessControlType.Allow ) )
-                        File.SetAccessControl( dir, fSecurity )
-                    dirInfo <- new DirectoryInfo(dir)
-                    if not Runtime.RunningOnMono then
-                        let dSecurity = dirInfo.GetAccessControl()
-                        dSecurity.AddAccessRule( new FileSystemAccessRule( "Everyone", FileSystemRights.FullControl, AccessControlType.Allow ) )
-                        dirInfo.SetAccessControl( dSecurity )
-                with 
-                | e -> 
-                    Threading.Thread.Sleep( 10 )
-                    dirInfo <- new DirectoryInfo(dir)
-                    if not dirInfo.Exists then 
-                        reraise()
-            dirInfo
+        DirUtils.DirectoryInfoCreateIfNotExists dir
 
     /// Get drive letter 
     let GetDrive (dir:string) =
@@ -249,6 +229,7 @@ module  FileTools =
         if File.Exists( filename ) then 
             bExist <- true 
             else
+                Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: create and write file '%s'" filename)
                 try 
                     use fileStream = CreateFileStreamForWrite( filename )
                     fileStream.Write( bytes, offset, len )
@@ -257,7 +238,9 @@ module  FileTools =
                 | e -> 
                     message <- e.Message
                     bExist <- true
+                Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: complete create and write file '%s' (exists = %b)" filename bExist)
         if bExist && bComp then 
+            Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: verify file '%s'" filename)
             let mutable nVerified = 0
             let mutable lastTicksRead = (PerfADateTime.UtcNowTicks())
             let maxVerifiedOnce = 1<<<20
@@ -277,8 +260,8 @@ module  FileTools =
                             let curTicks = (PerfADateTime.UtcNowTicks())
                             let secondsElapse = int (( curTicks - lastTicksRead ) / TimeSpan.TicksPerSecond)
                             if secondsElapse > 1 + ( len >>> 20 ) then 
-                                message <- sprintf "WriteBytesToFileConcurrentP: timeout to wait for file %s to be readable (towrite=%dB, wait %d sec)"
-                                                        filename len secondsElapse
+                                message <- sprintf "WriteBytesToFileConcurrentP: timeout to wait for file %s to be readable (towrite=%dB, wait %d sec), last exception is %A"
+                                                        filename len secondsElapse e
                                 nVerified <- -1 
                                 bDone <- true
                             else
@@ -326,6 +309,7 @@ module  FileTools =
                                 nVerified <- -1 
                             else
                                 Threading.Thread.Sleep( 5 )
+            Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: done verify file '%s' (verified = %d), detail: %s" filename nVerified message)
             if nVerified < 0 then 
                 failwith message
 

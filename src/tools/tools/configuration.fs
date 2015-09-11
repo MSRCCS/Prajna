@@ -196,14 +196,18 @@ module internal ConfigurationUtils =
                 None
 
     let ReplaceAssemblyBindingsForExeIfNeeded (exePath : string) (appAsmBinding : AssemblyBinding option) =
-        match appAsmBinding with
-        | Some ab1 ->
-            match getAssemblyBindingsForExe(exePath) with
-            | Some (config, ab2) ->
-                 let ab = mergeAssemblyBindings (ab1 |> Some) ab2
-                 ab.Value |> replaceAssemblyBindingsForExe config
+        try
+            match appAsmBinding with
+            | Some ab1 ->
+                match getAssemblyBindingsForExe(exePath) with
+                | Some (config, ab2) ->
+                     let ab = mergeAssemblyBindings (ab1 |> Some) ab2
+                     ab.Value |> replaceAssemblyBindingsForExe config
+                | None -> ()
             | None -> ()
-        | None -> ()
+        with
+        | :? ConfigurationErrorsException as ex -> Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Fail to replace the configuration for '%s' due to an ConfigurationErrorsException : %A" exePath ex)
+        | ex -> Logger.LogF(LogLevel.Warning, fun _ -> sprintf "Fail to get/parse the configuration for '%s' due to an unexpected exception: %A" exePath ex)
 
     // Pack asm binding
     let PackAsmBinding (ms : MemStream) (a: AssemblyBinding option) =

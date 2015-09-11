@@ -146,7 +146,7 @@ type internal DefaultLogger () =
 
     let AddLogFile (filename:string) = 
         let path = Path.GetDirectoryName( filename )
-        FileTools.DirectoryInfoCreateIfNotExists(path) |> ignore
+        DirUtils.DirectoryInfoCreateIfNotExists(path) |> ignore
         logFileName <- filename
         CreateNewLogFile()
 

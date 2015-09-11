@@ -1937,7 +1937,14 @@ and [<AllowNullLiteral; Serializable>]
                         | _ -> 
                             match registerFuncOpt with 
                             | Some registerFunc -> 
-                                BlobFactory.register( blob.Hash, registerFunc blobi blob, epSignature )
+                                if (Utils.IsNull blob.Stream) then
+                                    BlobFactory.register(blob.Hash, registerFunc blobi blob, epSignature)
+                                blob.Stream
+//                                let msRegistered = BlobFactory.register( blob.Hash, registerFunc blobi blob, epSignature )
+//                                if (Utils.IsNotNull msRegistered) then
+//                                    blob.Stream
+//                                else
+//                                    null
                             | None -> 
                                 null
                     let bExist = not (Utils.IsNull stream)

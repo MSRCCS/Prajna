@@ -44,6 +44,7 @@ type [<AllowNullLiteral>] IRefCounter<'K> =
         abstract Info : 'K with get, set
         abstract Release : (IRefCounter<'K>->unit) with get, set
         abstract SetRef : int64->unit
+        abstract GetRef : int64 with get
         abstract AddRef : unit->unit
         abstract DecRef : unit->unit
     end
@@ -130,9 +131,11 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
     new(infoStr : string, e : SafeRefCnt<'T>) as x =
         new SafeRefCnt<'T>(infoStr, false)
         then
-            x.Element <- e.Element
+            x.Element <- e.Elem // check for released element prior to setting
             x.RC.AddRef()
             x.RC.Info <- infoStr + ":" + id.ToString()
+            let e : 'T = x.Element
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Also using %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
     
     static member internal GetFromPool<'TP when 'TP:null and 'TP:(new:unit->'TP) and 'TP :> IRefCounter<string>>
                            (infoStr : string, pool : SharedPool<string,'TP>, createNew : unit->SafeRefCnt<'T>) : ManualResetEvent*SafeRefCnt<'T> =
@@ -143,6 +146,7 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
             x.Element <- poolElem :> IRefCounter<string> :?> 'T
             x.InitElem()
             x.RC.SetRef(1L)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Using element %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
             (event, x)
         else
             (event, null)
@@ -156,7 +160,7 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
         if (Interlocked.CompareExchange(bRelease, 1, 0) = 0) then
             if (Utils.IsNotNull elem) then
                 let bFinalize = defaultArg bFinalize false
-                //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Releasing %s with id %d finalize %b" infoStr id bFinalize)
+                Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Releasing %s with id %d elemId %s finalize %b - refcount %d" infoStr id x.RC.Key bFinalize x.Element.GetRef)
                 x.RC.DecRef()
 
     member x.Release(?bFinalize : bool) =
@@ -202,13 +206,15 @@ type [<AbstractClass>] [<AllowNullLiteral>] RefCountBase() =
         override val Release : IRefCounter<string>->unit = (fun _ -> ()) with get, set
         override x.SetRef(v) =
             x.RefCount := v
+        override x.GetRef with get() = !x.RefCount
         override x.AddRef() =
             Interlocked.Increment(x.RefCount) |> ignore
         override x.DecRef() =
-            if (Interlocked.Decrement(x.RefCount) <= 0L) then
-                if (!x.RefCount < 0L) then
-                    failwith (sprintf "Illegal ref count of %d" !x.RefCount)
+            let newCount = Interlocked.Decrement(x.RefCount)
+            if (0L = newCount) then
                 x.RC.Release(x :> IRefCounter<string>)
+            else if (newCount < 0L) then
+                failwith (sprintf "RefCount object %s has Illegal ref count of %d" key !x.RefCount)
 
 // ======================================
 
@@ -276,6 +282,7 @@ type [<AllowNullLiteral>] RBufPart<'T> =
     // the beginning element's position in the stream 
     [<DefaultValue>] val mutable StreamPos : int64
 
+    // following is used when getting element from pool
     new(bAlloc : bool) as x =
         { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", bAlloc) }
         then
@@ -290,6 +297,8 @@ type [<AllowNullLiteral>] RBufPart<'T> =
         { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", e) }
         then
             x.Init()
+            x.Offset <- e.Offset
+            x.Count <- e.Count
 
     new(e : RBufPart<'T>, offset : int, count : int) as x =
         { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", e) }
@@ -598,6 +607,7 @@ type internal StreamReader<'T>(_bls : StreamBase<'T>, _bufPos : int64, _maxLen :
     interface IDisposable with
         member x.Dispose() = 
             x.Release()
+            GC.SuppressFinalize(x)
 
     member x.Reset(_bufPos : int64, _maxLen : int64) =
         elemPos <- 0
@@ -763,11 +773,12 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     new() =
         new BufferListStream<'T>(64000)
 
+    // use an existing buffer to initialize
     new(buf : 'T[], index : int, count : int) as x =
         new BufferListStream<'T>()
         then
             x.SimpleBuffer <- true
-            x.AddBuffer(new RBufPart<'T>(buf, index, count))
+            x.AddExistingBuffer(new RBufPart<'T>(buf, index, count))
 
     new(bls : BufferListStream<'T>, offset : int64, count : int64) as x =
         new BufferListStream<'T>()
@@ -785,6 +796,13 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     member private x.SetDefaults() =
         getNewWriteBuffer <- x.GetStackElem
         ()
+
+    override x.Replicate() =
+        let e = new BufferListStream<'T>()
+        for b in x.BufList do
+            e.WriteRBufNoCopy(b)
+        e.Seek(x.Position, SeekOrigin.Begin) |> ignore
+        e :> StreamBase<'T>        
 
     override x.GetNew() =
         new BufferListStream<'T>() :> StreamBase<'T>
@@ -971,7 +989,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     override x.Capacity with get() = int x.Capacity64 and set(v) = x.Capacity64 <- int64 v
 
     // add new buffer to pool
-    member x.AddNewBuffer() =
+    member internal x.AddNewBuffer() =
         let rbufPartNew = getNewWriteBuffer()
         rbufPartNew.StreamPos <- position
         bufList.Add(rbufPartNew)
@@ -979,26 +997,24 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         elemLen <- elemLen + 1
 
     // add existing buffer to pool
-    member x.AddBuffer(rbuf : RBufPart<'T>) =
-        let offset = rbuf.Offset
-        let count = rbuf.Count
+    member internal x.AddExistingBuffer(rbuf : RBufPart<'T>) =
         // if use linked list instead of list, then theoretically could insert if bufRemWrite = 0 also
         // then condition would be if (position <> length && bufRemWrite <> 0) then
         if (position <> length) then
             failwith "Splicing RBuf in middle is not supported"
         else
-            let rbufPartNew = new RBufPart<'T>(rbuf, offset, count)
+            let rbufPartNew = new RBufPart<'T>(rbuf) // make a copy
             rbufPartNew.StreamPos <- position
             bufList.Add(rbufPartNew)
-            length <- length + int64 count
-            capacity <- capacity + int64 count
+            length <- length + int64 rbuf.Count
+            capacity <- capacity + int64 rbuf.Count
             elemLen <- elemLen + 1
             finalWriteElem <- elemLen
             for i = elemPos+1 to elemLen-1 do
                 bufList.[i].StreamPos <- bufList.[i-1].StreamPos + int64 bufList.[i-1].Count
 
     // move to beginning of buffer i
-    member x.MoveToBufferI(bAllowExtend : bool, i : int) =
+    member private x.MoveToBufferI(bAllowExtend : bool, i : int) =
         if (bAllowExtend && i >= elemLen) then
             let mutable j = elemLen
             while (j <= i) do
@@ -1027,14 +1043,14 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         else
             false
 
-    member x.MoveToNextBuffer(bAllowExtend : bool, rem : int) =
+    member private x.MoveToNextBuffer(bAllowExtend : bool, rem : int) =
         if (0 = rem) then
             x.MoveToBufferI(bAllowExtend, elemPos)
         else
             true
 
     // move to end of previous buffer
-    member x.MoveToPreviousBuffer() =
+    member private x.MoveToPreviousBuffer() =
         if (bufBeginPos = bufPos) then
             // elemPos is next buffer, current is elemPos-1
             let ret = x.MoveToBufferI(false, elemPos-2)
@@ -1111,8 +1127,8 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
         position
 
     // write functions
-    member x.WriteRBufNoCopy(rbuf : RBufPart<'T>) =
-        x.AddBuffer(rbuf)
+    member private x.WriteRBufNoCopy(rbuf : RBufPart<'T>) =
+        x.AddExistingBuffer(rbuf)
         position <- position + int64 rbuf.Count
         elemPos <- elemPos + 1
         length <- Math.Max(length, position)
@@ -1140,13 +1156,6 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
 
     member x.WriteArr<'TS>(buf : 'TS[]) =
         x.WriteArr<'TS>(buf, 0, buf.Length)
-
-    // copy in rbuf of differing type
-    member x.WriteRBuf(wrbuf : RefCntBuf<'TS>, offset : int, count : int) =
-        x.WriteArr(wrbuf.Buffer, offset, count)
-
-    member x.WriteRBufPart(wrbufPart : RBufPart<'TS>) =
-        x.WriteArr<'TS>(wrbufPart.Elem.Buffer, rbufPart.Offset, rbufPart.Count)
 
     override x.Write(buf, offset, count) =
         x.WriteArr<byte>(buf, offset, count)
@@ -1261,7 +1270,7 @@ type internal MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
         new MemoryStreamB()
         then
             x.SimpleBuffer <- true
-            x.AddBuffer(new RBufPart<byte>(buf, index, count))
+            x.AddExistingBuffer(new RBufPart<byte>(buf, index, count))
 
     new(buf : byte[]) =
         new MemoryStreamB(buf, 0, buf.Length)

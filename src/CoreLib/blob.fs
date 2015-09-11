@@ -71,6 +71,7 @@ type internal BlobFactory() =
     //static member val InactiveSecondsToEvictBlob = 600L with get, set
     static member val InactiveSecondsToEvictBlob = 10L with get, set
     member val Collection = ConcurrentDictionary<_,(_*_*_*_)>(BytesCompare()) with get
+
     /// Register object with a trigger function that will be executed when the object arrives. 
     member x.Register( id:byte[], triggerFunc:(StreamBase<byte>*int64->unit), epSignature:int64 ) = 
         let addFunc _ = 
@@ -79,11 +80,17 @@ type internal BlobFactory() =
         let refMS, refTicks, epQueue, epDic = tuple 
         refTicks := (PerfDateTime.UtcNowTicks())
         epDic.GetOrAdd( epSignature, true ) |> ignore
-        if Utils.IsNull !refMS then 
-            epQueue.Enqueue( triggerFunc )
-            null
-        else
-            !refMS
+        // enqueue the trigger function
+        epQueue.Enqueue(triggerFunc)
+        // run trigger immediately if stream already available
+        if (Utils.IsNotNull !refMS) then
+            let refValue = ref Unchecked.defaultof<_>
+            while epQueue.TryDequeue( refValue ) do 
+                let triggerFunc = !refValue
+                triggerFunc( !refMS, epSignature )
+            (!refMS).DecRef() // done with stream now, triggerFunc keeps copy of stream
+        refMS := null
+
     /// Store object info into the Factory class, apply trigger if there are any function waiting to be executed. 
     member x.Store( id:byte[], ms: StreamBase<byte>, epSignature:int64 ) = 
         let addFunc _ = 
@@ -102,6 +109,8 @@ type internal BlobFactory() =
             let triggerFunc = !refValue
             triggerFunc( ms, epSignature )
         ms.DecRef() // triggers complete
+        refMS := null
+
     /// Retrieve object info from the Factory class. 
     member x.Retrieve( id ) = 
         let bExist, tuple = x.Collection.TryGetValue( id )
@@ -111,6 +120,7 @@ type internal BlobFactory() =
             !blob
         else
             null
+
     /// Cache Information, used the existing object in Factory if it is there already
     member x.ReceiveWriteBlob( id, ms: StreamBase<byte>, epSignature ) = 
         let bExist, tuple = x.Collection.TryGetValue( id )
@@ -127,9 +137,11 @@ type internal BlobFactory() =
                 let triggerFunc = !refValue
                 triggerFunc( !refMS, epSignature )
             ms.DecRef() // triggers complete
+            refMS := null
             true
         else
             false
+
     /// Evict object that hasn't been visited within the specified seconds
     member x.Evict( elapseSeconds ) = 
         let t1 = (PerfDateTime.UtcNowTicks()) - TimeSpan.TicksPerSecond * elapseSeconds

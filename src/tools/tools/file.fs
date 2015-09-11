@@ -228,17 +228,17 @@ module  FileTools =
         let mutable message = ""
         if File.Exists( filename ) then 
             bExist <- true 
-            else
-                Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: create and write file '%s'" filename)
-                try 
-                    use fileStream = CreateFileStreamForWrite( filename )
-                    fileStream.Write( bytes, offset, len )
-                    fileStream.Close() 
-                with 
-                | e -> 
-                    message <- e.Message
-                    bExist <- true
-                Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: complete create and write file '%s' (exists = %b)" filename bExist)
+        else
+            Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: create and write file '%s'" filename)
+            try 
+                use fileStream = CreateFileStreamForWrite( filename )
+                fileStream.Write( bytes, offset, len )
+                fileStream.Close() 
+            with 
+            | e -> 
+                message <- e.Message
+                bExist <- true
+            //Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: complete create and write file '%s' (exists = %b)" filename bExist)
         if bExist && bComp then 
             Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: verify file '%s'" filename)
             let mutable nVerified = 0
@@ -309,7 +309,7 @@ module  FileTools =
                                 nVerified <- -1 
                             else
                                 Threading.Thread.Sleep( 5 )
-            Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: done verify file '%s' (verified = %d), detail: %s" filename nVerified message)
+            //Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: done verify file '%s' (verified = %d), detail: %s" filename nVerified message)
             if nVerified < 0 then 
                 failwith message
 

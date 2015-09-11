@@ -244,7 +244,7 @@ module internal ConfigurationUtils =
                 )
 
     // Unpack asm binding information
-    let UnpackAsmBinding (ms : MemStream) =
+    let UnpackAsmBinding (ms : StreamBase<byte>) =
         let daCount = ms.ReadInt32()
         if daCount = 0 then
             None

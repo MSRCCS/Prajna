@@ -85,7 +85,19 @@ type internal LocalCluster (name, version, numClients, containerMode, clientPath
     // If client path is not given, start the client as appdomain, otherwise, start the client as a single process
     let startClient clientPath (client : ClientInfo) = 
         match clientPath with
-        | Some(p) ->  Process.Start(p, String.Join(" ", (generateClientArgs client))) |> ignore
+        | Some(p) ->  // Start client as process
+                      if containerMode = LocalClusterContainerMode.AppDomain then
+                          // container will be started as appdomain as part of the daemon
+                          // need to merge the configuration of the app to the client's configuration
+                          let appAsmBinding = ConfigurationUtils.GetAssemblyBindingsForCurrentExe()
+                          appAsmBinding |> ConfigurationUtils.ReplaceAssemblyBindingsForExeIfNeeded p
+                      use proc = new Process()
+                      proc.StartInfo.RedirectStandardOutput <- true
+                      proc.StartInfo.UseShellExecute <- false
+                      proc.StartInfo.CreateNoWindow <- true
+                      proc.StartInfo.FileName <- p
+                      proc.StartInfo.Arguments <- String.Join(" ", (generateClientArgs client))
+                      proc.Start() |> ignore
         | None -> ClientLauncher.StartAppDomain client.MachineName (client.MachinePort) (generateClientArgs client)       
         if DeploymentSettings.RunningOnMono then
             // Mono Note: When we try to start two clients for a local culster as appdomains on Mono, 

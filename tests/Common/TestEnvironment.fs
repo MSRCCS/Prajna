@@ -69,8 +69,8 @@ type TestEnvironment private () =
                                         NumClients = clusterSize
                                         ContainerInAppDomain = false
                                         ClientPath = "PrajnaClient.exe" |> Some // Note: put the path of PrajnaClient here
-                                        NumJobPortsPerClient = 5
-                                        PortsRange = (20000, 20011)
+                                        NumJobPortsPerClient = 5 |> Some
+                                        PortsRange = (20000, 20011) |> Some
                                       }
                 Cluster(localClusterCfg)
         reportProcessStatistics("After local cluster is created")

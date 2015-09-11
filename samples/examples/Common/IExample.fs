@@ -21,8 +21,14 @@
 ---------------------------------------------------------------------------*)
 namespace Prajna.Examples.Common
 
+open System
+
 /// The interface that every example should implement
 type IExample =
     abstract member Description : string
     abstract member Run : Prajna.Core.Cluster -> bool
-    
+
+/// The attribute that identify an example that should not be ran as part of unit test suite
+[<AttributeUsage(AttributeTargets.Class)>]
+type SkipUnitTest ()=
+    inherit Attribute()

@@ -37,11 +37,6 @@ open Microsoft.FSharp.NativeInterop
 
 #nowarn "9"
 
-/// Runtime related information
-module Runtime =
-    /// Boolean variable to test if the code is running on mono. 
-    let RunningOnMono = try Utils.IsNotNull (System.Type.GetType("Mono.Runtime")) with e -> false
-
 /// Hold Interop Win32 system call 
 module internal InteropWithKernel32 =
     /// Creates a symbolic link.

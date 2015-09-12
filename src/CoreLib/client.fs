@@ -129,10 +129,15 @@ type internal ClientLauncher() =
         let ramCounter = new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes")
         // Find usable RAM space, leave 512MB, and use all. 
         let usableRAM =( (int64 (ramCounter.NextValue())) - 512L ) <<< 20
-        if IntPtr.Size = 4 then 
-            System.Diagnostics.Process.GetCurrentProcess().MaxWorkingSet <- nativeint (Math.Min( usableRAM, 1300L<<<20 ))
-        else
-            System.Diagnostics.Process.GetCurrentProcess().MaxWorkingSet <- nativeint usableRAM
+        if usableRAM > 0L then
+            let maxWorkingSet = 
+                if IntPtr.Size = 4 then 
+                    nativeint (Math.Min( usableRAM, 1300L<<<20 ))
+                else
+                    nativeint usableRAM
+            if maxWorkingSet > System.Diagnostics.Process.GetCurrentProcess().MinWorkingSet then
+                System.Diagnostics.Process.GetCurrentProcess().MaxWorkingSet <- maxWorkingSet
+
         if nTotalJob > 0 then 
             DeploymentSettings.TotalJobLimit <- nTotalJob
             DeploymentSettings.ExeJobLimit <- nTotalJob

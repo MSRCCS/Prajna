@@ -63,7 +63,7 @@ let solutionFile  = "Prajna.sln"
 // Pattern specifying assemblies to be tested using NUnit
 let testAssemblies = "tests/**/bin/{0}/*Tests*.dll"
 
-let curDir = Directory.GetCurrentDirectory()
+let curDir = __SOURCE_DIRECTORY__
 
 // --------------------------------------------------------------------------------------
 // Git helpers
@@ -136,6 +136,13 @@ Target "PrintBuildMachineConfiguration" ( fun _ ->
 #endif
 )
 
+// Replace a file's CRLF with LF
+let replaceCrLfWithLf file =
+   let content = File.ReadAllText(file);
+   let newContent = content.Replace("\r\n", "\n");
+   if String.Compare(content, newContent, StringComparison.InvariantCulture) <> 0 then
+       File.WriteAllText(file, newContent)
+
 // Generate assembly info files with the right version & up-to-date information
 Target "AssemblyInfo" (fun _ ->
     let getAssemblyInfoAttributes projectName =
@@ -160,11 +167,35 @@ Target "AssemblyInfo" (fun _ ->
     !! "src/**/*.??proj"
     |> Seq.map getProjectDetails
     |> Seq.iter (fun (projFileName, projectName, folderName, attributes) ->
-        match projFileName with
-        | Fsproj -> CreateFSharpAssemblyInfo (folderName @@ "AssemblyInfo.fs") attributes
-        | Csproj -> CreateCSharpAssemblyInfo ((folderName @@ "Properties") @@ "AssemblyInfo.cs") attributes
-        | Vbproj -> CreateVisualBasicAssemblyInfo ((folderName @@ "My Project") @@ "AssemblyInfo.vb") attributes
+        let createAssemblyInfoFunc, asmInfoFile =
+            match projFileName with
+            | Fsproj -> CreateFSharpAssemblyInfo, (folderName @@ "AssemblyInfo.fs")
+            | Csproj -> CreateCSharpAssemblyInfo, ((folderName @@ "Properties") @@ "AssemblyInfo.cs")
+            | Vbproj -> CreateVisualBasicAssemblyInfo, ((folderName @@ "My Project") @@ "AssemblyInfo.vb")
+        createAssemblyInfoFunc asmInfoFile attributes
+        replaceCrLfWithLf asmInfoFile
         )
+)
+
+Target "SearchCrLf" (fun _ ->
+    let excludedExts = set [ ".dll"; ".exe"; ".pdb" ; ".png"; ".jpg"; ".doc"; ".docm"; ".docx"; ".pdf" ]
+    let excludedDirs = set [ ".git"; ".paket"; "packages"; "paket-files" ; ".fake" ] 
+    let dirs = Directory.GetDirectories(curDir, "*", SearchOption.TopDirectoryOnly)
+               |> Seq.filter (fun d -> 
+                     let di = DirectoryInfo(d)
+                     not (excludedDirs.Contains(di.Name))
+                  )
+    let files = dirs 
+                |> Seq.collect (fun d -> Directory.GetFiles((curDir @@ d), "*", SearchOption.AllDirectories))
+                |> Seq.filter (fun f ->
+                       if not (excludedExts.Contains(Path.GetExtension(f))) then 
+                           File.ReadAllText(f).Contains("\r\n")
+                       else false)
+    
+    if not (Seq.isEmpty files) then
+        traceImportant "Found files that uses CRLF: "
+        files 
+        |> Seq.iter( fun f -> trace (sprintf "    %s" f))
 )
 
 // Copies binaries from default VS location to expected bin folder
@@ -599,6 +630,9 @@ Target "Debug" DoNothing  // Default, clean build of Debug
 Target "Release" DoNothing // Clean build of Release
 Target "D" DoNothing // Incremental build of Debug
 Target "R" DoNothing // Incremental build of Release
+
+"Clean" 
+  ==> "SearchCrLf"
 
 "Build" // incremental build of debug
   ==> "CheckXmlDocsD"

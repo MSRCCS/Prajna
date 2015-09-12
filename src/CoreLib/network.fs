@@ -942,6 +942,9 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" BufferListStream<byte>.MemStack.StackSize BufferListStream<byte>.MemStack.GetStack.Size)
             BufferListStream<byte>.DumpStreamsInUse()
+            BufferListStream<byte>.MemStack.DumpInUse(LogLevel.MildVerbose)
+            x.ONet.BufStackRecv.DumpInUse(LogLevel.MildVerbose)
+            x.ONet.BufStackSend.DumpInUse(LogLevel.MildVerbose)
             xCSend.SelfClose()
             // manually terminate everything - this will do following
             // 1) clear the queues, 2) set the IsTerminated flag, 3) set event being waited upon

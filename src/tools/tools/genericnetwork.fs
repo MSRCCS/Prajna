@@ -542,7 +542,6 @@ and [<AllowNullLiteral>] GenericConn() as x =
             if (0 = curBufRecvRem) then
                 event <- furtherProcess()
         if (0 = eRecvRem && Utils.IsNull event) then
-            //x.Net.bufStackRecv.ReleaseElem(e)
             rb.Release()
             (true, null)
         else
@@ -574,7 +573,6 @@ and [<AllowNullLiteral>] GenericConn() as x =
             if (0 = curBufRecvRem) then
                 event <- furtherProcess()
         if (0 = eRecvRem && Utils.IsNull event) then
-            //x.Net.bufStackRecv.ReleaseElem(e)
             rb.Release()
             (true, null)
         else

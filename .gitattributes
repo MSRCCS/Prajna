@@ -1,35 +1,59 @@
-# Auto detect text files
-* text=auto 
+# Text files that should be normalized to LF
+*.cs       text diff=csharp
+*.fs       text diff=csharp
+*.fsi      text diff=csharp
+*.fsx      text diff=csharp
+*.cpp      text diff=cpp
+*.h        text diff=cpp
+*.hpp      text diff=cpp
+*.md       text 
+*.sh       text
+*.ps1      text
+*.cmd      text
+*.bat      text
+*.markdown text
+*.msbuild  text
+*.config   text
+*.html     text
+*.cshtml   text
+*.xml      text
+*.yml      text
+*.json     text
+*.txt      text
+*.css      text
+*.rc       text
+paket.*    text
+*.paket.*  text
+.gitattributes text
+.gitignore     text
 
-# Custom for Visual Studio
-*.cs diff=csharp text=auto eol=lf
-*.fs diff=csharp text=auto eol=lf
-*.fsi diff=csharp text=auto eol=lf
-*.fsx diff=csharp text=auto eol=lf
-*.sln text eol=crlf merge=union
-*.csproj merge=union
-*.vbproj merge=union
-*.fsproj merge=union
-*.dbproj merge=union
+## vs files
+*.sln      text merge=union
+*.csproj   text merge=union
+*.vbproj   text merge=union
+*.fsproj   text merge=union
+*.dbproj   text merge=union
+*.vcxproj  text merge=union
 
-# Standard to msysgit
-*.doc diff=astextplain
-*.DOC diff=astextplain
-*.docx diff=astextplain
-*.DOCX diff=astextplain
-*.dot diff=astextplain
-*.DOT diff=astextplain
-*.pdf diff=astextplain
-*.PDF diff=astextplain
-*.rtf diff=astextplain
-*.RTF diff=astextplain
+# binary files
+*.png    binary
+*.jpg    binary
+*.gif    binary
+*.ico    binary
 
-# Use LF in the working directory by default. Override with core.autocrlf=true.
-*.cs eol=lf
-*.fs eol=lf
-*.fsx eol=lf
-*.sh eol=lf
-*.cmd eol=lf
-*.config eol=lf
-*paket.* eol=lf
+*.pfx    binary
+*.snk    binary
+*.dll    binary
+*.exe    binary
+*.lib    binary
+*.exp    binary
+*.pdb    binary
+*.sdf    binary
+*.7z     binary
+*.pdf    binary
+*.doc    binary
+*.docx   binary
+*.docm   binary
 
+# Catch all for anything we forgot. Add rules if you get CRLF -> LF warnings.
+* text=auto

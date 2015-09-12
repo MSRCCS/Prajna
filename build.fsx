@@ -401,7 +401,7 @@ let runTests (target:string) =
                                        |> NUnit (fun p ->
                                            { p with
                                                DisableShadowCopy = true
-                                               TimeOut = TimeSpan.FromMinutes 20.
+                                               TimeOut = TimeSpan.FromMinutes 10.
                                                OutputFile = sprintf "TestResults_%s_%d.xml" target i})
                     )
 #else
@@ -410,7 +410,7 @@ let runTests (target:string) =
                 DisableShadowCopy = true
                 ProcessModel = SeparateProcessModel
                 Domain = SingleDomainModel
-                TimeOut = TimeSpan.FromMinutes 20.
+                TimeOut = TimeSpan.FromMinutes 10.
                 OutputFile = sprintf "TestResults_%s.xml" target})    
 #endif
     finally

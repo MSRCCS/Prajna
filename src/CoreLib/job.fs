@@ -2736,18 +2736,18 @@ and
                         yield sprintf "%d:%s" peeri (Job.PeerQueueString( status ))
             }
         "PeerQueue Status : " + ( peerQueueStatusSeq |> String.concat ", " )
-    /// Return a string explaining the status of the job
-    member x.JobStatusString() = 
+    /// Return a (status, string) explaining the status of the job
+    member x.JobStatus() = 
         if bFailureToGetSrcMetadata then 
-            "Job fails as source metadata is outdated." + Environment.NewLine + x.BlobPeerStatusString( Blob.AllSourceStatus ) + Environment.NewLine + x.PeerQueueStatusString() 
+            false, "Job fails as source metadata is outdated." + Environment.NewLine + x.BlobPeerStatusString( Blob.AllSourceStatus ) + Environment.NewLine + x.PeerQueueStatusString() 
         elif not bAllSrcAvailable then 
-            "Job fails as some source is not available." + Environment.NewLine + x.BlobPeerStatusString( Blob.AllSourceStatus ) + Environment.NewLine + x.PeerQueueStatusString() 
+            false, "Job fails as some source is not available." + Environment.NewLine + x.BlobPeerStatusString( Blob.AllSourceStatus ) + Environment.NewLine + x.PeerQueueStatusString() 
         elif not bAllSynced then 
-            "Job fails as some peer fails to complete the sync operation." + Environment.NewLine + x.BlobPeerStatusString( Blob.AllStatus ) + Environment.NewLine + x.PeerQueueStatusString() 
+            false, "Job fails as some peer fails to complete the sync operation." + Environment.NewLine + x.BlobPeerStatusString( Blob.AllStatus ) + Environment.NewLine + x.PeerQueueStatusString() 
         elif not bReady then 
-            "Job fails as some peer fails to confirm job start." + Environment.NewLine + x.PeerQueueStatusString() 
+            false, "Job fails as some peer fails to confirm job start." + Environment.NewLine + x.PeerQueueStatusString() 
         else 
-            "Job is ready to execute."
+            true, "Job is ready to execute."
     /// Is all metadata available for execution
     member x.AllAvailable with get() = 
                                 if Utils.IsNull x.AvailThis then 

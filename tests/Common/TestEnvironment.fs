@@ -60,6 +60,8 @@ type TestEnvironment private () =
         let sw = Stopwatch()
         sw.Start()
         DeploymentSettings.LocalClusterTraceLevel <- LogLevel.MediumVerbose
+        // Sometimes the AppVeyor build VM is really slow on IO and need more time to establish the container
+        DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit <- 120L
         let cl =
             if useAppDomainForDaemonsAndContainers then
                 Cluster(sprintf "local[%i]" clusterSize)

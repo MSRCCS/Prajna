@@ -461,7 +461,7 @@ type internal DSetFoldAction<'U, 'State >()=
         match x.InitialParam with 
         | Some param -> 
             if not (Object.ReferenceEquals( param, Unchecked.defaultof<'State>) ) then 
-                msPayload.CustomizableSerializeFromTypeName( param, stateTypeName ) 
+                Strm.CustomizableSerializeFromTypeName( msPayload, param, stateTypeName ) 
             else
                 ()
         | None _ ->
@@ -481,7 +481,7 @@ type internal DSetFoldAction<'U, 'State >()=
                         let parti = msRcvd.ReadVInt32()
                         partitionArray.[i] <- parti
                         curDSet.ProcessedPartition( peeri, parti, 0 )
-                    let s = msRcvd.DeserializeTo<'State>() 
+                    let s = Strm.DeserializeTo<'State>(msRcvd) 
                     Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Receive %A from peer %d with partition %A" s peeri partitionArray )    )
 //                    let s = o :?> 'State
                     // Merge Result

@@ -207,7 +207,7 @@ type ServiceInstance<'Request, 'Reply>() =
 /// Action to serialize the collection of service 
 type EncodeCollectionAction = Action<seq<ServiceInstanceBasic>*MemStream>
 /// Action to deserialize the collection of service 
-type DecodeCollectionFunction = Func< MemStream, seq<ServiceInstanceBasic> >
+type DecodeCollectionFunction = Func< StreamBase<byte>, seq<ServiceInstanceBasic> >
    
 /// <summary>
 /// This class contains the parameter used to start the back end service. The class (and if you have derived from the class, any additional information) 
@@ -254,7 +254,7 @@ type BackEndOnStartFunction<'StartParamType> = Func< 'StartParamType, bool>
 /// Additional message from backend to front end 
 type FormMsgToFrontEndFunction = Func< unit, seq< ControllerCommand * MemStream > >
 /// Network parser for the backend 
-type BackEndParseFunction = Func< (NetworkCommandQueue * NetworkPerformance * ControllerCommand * MemStream),( bool * ManualResetEvent ) >
+type BackEndParseFunction = Func< (NetworkCommandQueue * NetworkPerformance * ControllerCommand * StreamBase<byte>),( bool * ManualResetEvent ) >
 
 /// <summary>
 /// This class represent a backend query instance. The developer needs to extend BackEndInstance class, to implement the missing functions.
@@ -477,10 +477,10 @@ type BackEndInstance< 'StartParamType
                                         let procItem = (
                                             fun (cmd : NetworkCommand) -> 
                                                 if not x.bTerminate then 
-                                                    x.ParseFrontEndRequest queue cmd.cmd (cmd.MemStream())
+                                                    x.ParseFrontEndRequest queue cmd.cmd (cmd.ms)
                                                 null
                                         )
-                                        queue.GetOrAddRecvProc( "ParseFrontEnd", procItem ) |> ignore
+                                        queue.AddRecvProc( procItem ) |> ignore
                                         queue.Initialize()
 
                     with 
@@ -507,7 +507,8 @@ type BackEndInstance< 'StartParamType
                     let t1 = (PerfADateTime.UtcNowTicks())
                     let msSend = new MemStream( int ms.Length + 128 ) 
                     health.WriteHeader( msSend ) 
-                    msSend.WriteBytesWithOffset( ms.GetBufferPosLength() )
+                    let buf, pos, length = ms.GetBufferPosLength()
+                    msSend.Append(buf, int64 pos, int64 length)
                     health.WriteEndMark( msSend ) 
                     let t2 = (PerfADateTime.UtcNowTicks())
                     queue.ToSend( cmd, msSend )
@@ -587,7 +588,7 @@ type BackEndInstance< 'StartParamType
                     let reqID = Guid( buf ) 
                     ms.ReadBytes( buf ) |> ignore
                     let serviceID = Guid( buf ) 
-                    let requestObject = ms.DeserializeObjectWithTypeName()
+                    let requestObject = Strm.DeserializeObjectWithTypeName(ms)
                     Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "from %s received request %A %dB, Rtt = %f ms." 
                                                                            (LocalDNS.GetShowInfo( queue.RemoteEndPoint )) 
                                                                            reqID
@@ -817,7 +818,7 @@ type BackEndInstance< 'StartParamType
             health.WriteHeader( msReply )         
             msReply.WriteBytes( reqID.ToByteArray() ) 
             SingleQueryPerformance.Pack( qPerf, msReply )
-            msReply.SerializeObjectWithTypeName( replyObject ) 
+            Strm.SerializeObjectWithTypeName( msReply, replyObject ) 
             health.WriteEndMark( msReply ) 
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "query %s has been served and returned with a reply of %dB (%s)" (reqID.ToString()) (msReply.Length) (qPerf.BackEndInfo()) ))
             queue.ToSend( ControllerCommand( ControllerVerb.Reply, ControllerNoun.QueryReply ), msReply )

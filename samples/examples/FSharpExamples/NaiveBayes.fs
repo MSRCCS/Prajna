@@ -275,12 +275,12 @@ type NaiveBayes() =
         printfn "Using standard .NET BinaryFormatter:"
         let newStream = new MemStream()
         sw.Restart()
-        newStream.SerializeFrom seqCounts
+        Strm.SerializeFrom(newStream, seqCounts)
         let timeSer2 = sw.Stop(); sw.Elapsed
         printfn "Serializing took: %A" timeSer2
         newStream.Position <- 0L
         sw.Restart()
-        let newCounts2 = newStream.DeserializeTo<Counts[]>()
+        let newCounts2 = Strm.DeserializeTo<Counts[]>(newStream)
         let timeDeser2 = sw.Stop(); sw.Elapsed
         printfn "Deserializing took: %A" timeDeser2
         printfn "Total: %A" (timeSer2 + timeDeser2)

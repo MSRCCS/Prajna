@@ -124,7 +124,7 @@ type internal FunctionParam internal (ty:FunctionParamType, o: DistributedObject
     member x.Pack( ms:MemStream ) = 
         ms.WriteByte( byte x.ParamType )
         ms.WriteVInt32( x.BlobIndex ) 
-    static member Unpack( ms:MemStream ) = 
+    static member Unpack( ms:StreamBase<byte> ) = 
         let ty = ms.ReadByte()
         let blobIndex = ms.ReadVInt32() 
         FunctionParam( enum<_>(ty), null, blobIndex )
@@ -619,7 +619,7 @@ and
                                         x.LaunchIDVersion
 //    member val SignatureName = "" with get, set
 //    member val SignatureVersion = 0L with get, set
-    member val MetadataStream = null with get, set
+    member val MetadataStream : StreamBase<byte> = null with get, set
     member val OutgoingQueues = List<_>() with get, set
     /// Given a queue information, lookup the peer number
     /// OutgoingQueuesToPeerNumber is constructed one time during job launch, no multithread issue here. 
@@ -1378,8 +1378,9 @@ and
         ms.WriteInt64( -1L )
     member val internal CustomizedFuncStream = null with get, set
     /// Deserialize Job description to Blob, 
-    member x.UnpackToBlob( ms:MemStream ) = 
-        x.MetadataStream <- new MemStream( ms )
+    member x.UnpackToBlob( ms:StreamBase<byte> ) = 
+        x.MetadataStream <- ms.Replicate()
+        x.MetadataStream.Info <- sprintf "ReplicatedStream:%s" ms.Info
         let blobList = List<_>()
         x.Name <- ms.ReadString( ) 
         x.Version <- DateTime( ms.ReadInt64() )
@@ -1822,17 +1823,19 @@ and
     /// Send blob to host, always use non hash version here.  
     member x.SendBlobToHost( queue:NetworkCommandQueue, blobi ) = 
         let blob = x.Blobs.[blobi]
-        let stream = x.EncodeToBlob( blob ) 
+        let stream = x.EncodeToBlob( blob )
         let buf, pos, count = stream.GetBufferPosLength()
         let msSend = new MemStream() 
         msSend.WriteString( x.Name ) 
         msSend.WriteInt64( x.Version.Ticks ) 
         msSend.WriteVInt32( blobi ) 
-        msSend.WriteBytesWithOffset( buf, pos, count ) 
+        msSend.Append(buf, int64 pos, int64 count)
+        //msSend.WriteBytesWithOffset( buf, pos, count ) 
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> let blob = x.Blobs.[blobi]
                                                       sprintf "Write, Blob %d type %A, name %s to %s" 
                                                                blobi blob.TypeOf blob.Name (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) ))
         queue.ToSend( ControllerCommand( ControllerVerb.Write, ControllerNoun.Blob), msSend )
+        msSend.DecRef()
     /// Send blob to peer 
     member x.SendBlobToJob( queue:NetworkCommandQueue, blobi ) = 
         let blob = x.Blobs.[blobi]
@@ -1844,12 +1847,14 @@ and
                                                                    stream.Position (stream.Length-stream.Position)
                                                                    stream.Length ))
             queue.ToSend( ControllerCommand( ControllerVerb.Write, ControllerNoun.Blob), stream )
+            stream.DecRef()
         |  _ -> 
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "send Set, Blob of blob %d type %A to program %s, pos %d, count %d length %d" 
                                                                    blobi blob.TypeOf (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) 
                                                                    stream.Position (stream.Length-stream.Position)
                                                                    stream.Length ))
             queue.ToSend( ControllerCommand( ControllerVerb.Set, ControllerNoun.Blob), stream )
+            stream.DecRef()
     /// Send blob to peer i, used by client
     member x.SendBlobPeeri (peeri:int) (queue:NetworkCommandQueue) blobi = 
         // Do we need to send different function to each peer? 
@@ -1863,7 +1868,8 @@ and
             msSend.WriteString( x.Name ) 
             msSend.WriteInt64( x.Version.Ticks ) 
             msSend.WriteVInt32( blobi )
-            msSend.WriteBytesWithOffset( buf, pos, count )
+            msSend.Append(buf, int64 pos, int64 count)
+            //msSend.WriteBytesWithOffset( buf, pos, count )
             Logger.LogF( DeploymentSettings.TraceLevelBlobIO, ( fun _ -> sprintf "Write, Blob to peer %s blob %d type %A, name %s length %d for job %s:%s (blob %d)" 
                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) blobi blob.TypeOf blob.Name msSend.Length
                                                                           x.Name x.VersionString blobi ))
@@ -1871,9 +1877,11 @@ and
             msSend
         | _ -> 
             /// Hashed blob doesn't have associated job name & ticks information, as they may be reused across jobs. 
-            msSend.WriteBytesWithOffset( buf, pos, count )
+            //msSend.WriteBytesWithOffset( buf, pos, count )
+            msSend.Append(buf, int64 pos, int64 count)
             Logger.Do( DeploymentSettings.TraceLevelBlobValidateHash, ( fun _ -> 
-                let vHash = HashByteArrayWithLength( buf, pos, count ) 
+                //let vHash = HashByteArrayWithLength( buf, pos, count ) 
+                let vHash = buf.ComputeSHA256(int64 pos, int64 count)
                 let cmp = BytesCompare() :> IEqualityComparer<_>
                 if not(cmp.Equals( vHash, blob.Hash )) then 
                     Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "Set Blob %d type %A, name %s length %d (hash %d, %s) does not match blobhash %s" 
@@ -1888,8 +1896,6 @@ and
                 ))
             queue.ToSend( ControllerCommand( ControllerVerb.Set, ControllerNoun.Blob), msSend )
             msSend
-
-            
 
     /// Set metadata availability fo a DSet according to job availability. 
     member x.SetMetaDataAvailability( curDSet: DSet ) = 
@@ -2450,6 +2456,7 @@ and
                                             peerAvail.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
                                             Logger.LogF(DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Send Blob %d (%s) to peer %d, mark the blob as available %A" blobi (x.Blobs.[blobi].Name ) peeri peerAvail) )
                                             bIOActivity <- true
+                                            stream.DecRef()
                                         else
                                             // Exceeding limit, need to wait. 
                                             bAllSent <- false
@@ -2480,6 +2487,8 @@ and
                 maxWait <- clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
             else
                 Threading.Thread.Sleep(5)
+        //jobMetadataStream.Release()
+        //availStream.Release()
         ()
     member x.TryStartJob() = 
         if bAllSynced then 
@@ -2528,6 +2537,7 @@ and
                     maxWait <- clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
                 else
                     Threading.Thread.Sleep(5)
+            //jobStream.Release()
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s of task %s is ready to execute" x.Name x.VersionString x.SignatureName ))
             // bAllSynced is always true, so should be bAllPeerConfirmed
             bAllSynced && bAllPeerConfirmed && numConfirmedStart>0
@@ -2539,10 +2549,12 @@ and
             let msError = new MemStream( 1024 )
             msError.WriteString( msg )
             queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message), msError )
+            msError.DecRef()
             queue.Close()
     member x.JobCallback( cmd, inClusterPeeri, ms, name, verNumber, cluster ) = 
         let queue = cluster.Queue(inClusterPeeri)
         try
+            ms.Info <- ms.Info + ":Job:" + x.Name
             let peeri = x.OutgoingQueuesToPeerNumber.Item(queue)
             match (cmd.Verb, cmd.Noun) with 
             | ControllerVerb.Unknown, _ -> 
@@ -2594,6 +2606,7 @@ and
                 else
                     let blob = x.Blobs.[blobi]
                     blob.Stream <- ms
+                    blob.Stream.AddRef()
                     x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
                     try 
                         let bSuccess = x.DecodeFromBlob( blobi, peeri )
@@ -2605,6 +2618,7 @@ and
                             msFeedback.WriteVInt32( blobi ) 
                             msFeedback.WriteBoolean( bSuccess )
                             queue.ToSend( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Blob ), msFeedback )
+                            msFeedback.DecRef()
                         else
                             let msg = sprintf "Error: Failed to decode blob %d, please check if the right DSet name is used, and if the DSet is associated with this cluster." blobi
                             x.Error( queue, msg )

@@ -197,7 +197,7 @@ and BackEndPerformance(slot, del: SinglePerformanceConstructFunction) =
 type FrontEndOnStartFunction<'StartParamType> = Func< 'StartParamType, bool>
 
 /// Function delegate to form messages to frontend 
-type OnInitialMsgToBackEndFunction = Func< MemStream, seq<ServiceInstanceBasic> >
+type OnInitialMsgToBackEndFunction = Func< StreamBase<byte>, seq<ServiceInstanceBasic> >
 
 // type AddServiceInstanceDelegate = delegate of int64*ServiceInstanceBasic -> unit
 // type OnDisconnectDelegate = delegate of int64 -> unit
@@ -279,7 +279,7 @@ type AggregationPolicyFunction = Func< (RequestHolder * SingleQueryPerformance *
 /// <summary> 
 /// A parse function that interpret message at front end 
 /// </summary>
-type FrontEndParseFunction = Func< (NetworkCommandQueuePeer * BackEndPerformance * ControllerCommand * MemStream),( bool * ManualResetEvent ) >
+type FrontEndParseFunction = Func< (NetworkCommandQueuePeer * BackEndPerformance * ControllerCommand * StreamBase<byte>),( bool * ManualResetEvent ) >
 
 
 /// <summary>
@@ -559,7 +559,7 @@ type FrontEndInstance< 'StartParamType
                 else
                     x.TimeOutTicks <- int64 param.TimeOutRequestInMilliSecond * TimeSpan.TicksPerMillisecond
                 if param.ServicePort > 0 && param.ServicePort <= 65536 then 
-                    x.Listener <- JobListener.InitializeListenningPort( param.ServicePort )  
+                    x.Listener <- JobListener.InitializeListenningPort( "", param.ServicePort )  
                     x.Listener.OnAccepted( OnAcceptAction(x.OnAcceptedQueue), fun _ -> sprintf "Accept incoming queue by vHub FrontEnd" ) 
                 else
                     // Try to attach to default job port
@@ -574,7 +574,7 @@ type FrontEndInstance< 'StartParamType
         let procItem = (
             fun (cmd : NetworkCommand) -> 
                 if not x.bTerminate then 
-                    x.ParseBackEndReply queue cmd.cmd (cmd.MemStream())
+                    x.ParseBackEndReply queue cmd.cmd (cmd.ms)
                 null
         )
         let remoteSignature = queue.RemoteEndPointSignature
@@ -597,7 +597,9 @@ type FrontEndInstance< 'StartParamType
                     // Wrap initial message with health information & end marker
                     let msSend = new MemStream( int ms.Length + 128 ) 
                     health.WriteHeader( msSend ) 
-                    msSend.WriteBytesWithOffset( ms.GetBufferPosLength() )
+                    let (ms, pos, len) = ms.GetBufferPosLength()
+                    msSend.AppendNoCopy(ms, int64 pos, int64 len)
+                    //msSend.WriteBytesWithOffset( ms.GetBufferPosLength() )
                     health.WriteEndMark( msSend ) 
                     queue.ToSend( cmd, msSend )
     /// Send keep alive
@@ -689,7 +691,7 @@ type FrontEndInstance< 'StartParamType
                     ms.ReadBytes( buf ) |> ignore
                     let reqID = Guid( buf ) 
                     let qPerf = SingleQueryPerformance.Unpack( ms ) 
-                    let replyObject = ms.DeserializeObjectWithTypeName( )
+                    let replyObject = Strm.DeserializeObjectWithTypeName( ms )
                     if Utils.IsNull replyObject then 
                         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Reply, Request from %s received Null Object, Rtt = %f ms." (LocalDNS.GetShowInfo( queue.RemoteEndPoint )) (health.GetRtt()) ) )
                         x.ProcessReply( queue, health, reqID, qPerf, replyObject ) 
@@ -963,7 +965,7 @@ type FrontEndInstance< 'StartParamType
         health.WriteHeader( msRequest ) 
         msRequest.WriteBytes( reqID.ToByteArray() )
         msRequest.WriteBytes( serviceInstanceBasic.ServiceID.ToByteArray() )
-        msRequest.SerializeObjectWithTypeName( reqHolder.ReqObject )
+        Strm.SerializeObjectWithTypeName( msRequest, reqHolder.ReqObject )
         health.WriteEndMark( msRequest )
         queue.ToSend( ControllerCommand( ControllerVerb.Request, ControllerNoun.QueryReply), msRequest )
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "send req %s to backend %s, to return (%s, %s) " (reqID.ToString()) (LocalDNS.GetShowInfo( queue.RemoteEndPoint)) (health.ExpectedLatencyInfo()) (health.QueueInfo()) ))

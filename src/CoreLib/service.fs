@@ -246,7 +246,7 @@ type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:st
         msPayload.WriteInt64( curDSet.Version.Ticks )
         msPayload.WriteString( serviceName )
         msPayload.Serialize( serviceClass ) // Don't use Serialize From
-        msPayload.SerializeObjectWithTypeName( param )
+        Strm.SerializeObjectWithTypeName( msPayload, param )
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Start, Service issued to peer %d partition %A" peeri peeriPartitionArray ))
         ControllerCommand( ControllerVerb.Start, ControllerNoun.Service), msPayload
     member x.LaunchServiceCallback( cmd, peeri, msRcvd, name, verNumber, cl ) = 

@@ -211,7 +211,7 @@ and [<Serializable; AllowNullLiteral>]
     ///          parti: partition value (used for redelivery
     ///          byte[]: the byte sent by the network queue 
     ///          int: count of delivery )
-    let deliveryQueue = ConcurrentDictionary<byte[], (int64*int*byte[]*(int ref))>()
+    let deliveryQueue = ConcurrentDictionary<byte[], (int64*int*MemStream*(int ref))>()
     /// Partition Progress monitoring. 
     let mutable partitionCheckmark = Array.zeroCreate<int64> 0
     /// Partition Progress monitoring. 
@@ -659,7 +659,7 @@ and [<Serializable; AllowNullLiteral>]
     member val private HasDownStreamDependency = false with get, set
     /// Serialization of dset to Memory Stream, couldn't figure out the best way for customized serialization of compact in F#
     /// so I wrote my own function of pack & unpack. 
-    member internal x.Pack( ms: MemStream, ?flagPack, ?shouldCodeHasDownStreamDependencyFlagArg ) = 
+    member internal x.Pack( ms: StreamBase<byte>, ?flagPack, ?shouldCodeHasDownStreamDependencyFlagArg ) = 
         let mutable flag = defaultArg flagPack DSetMetadataStorageFlag.None
         let shouldCodeHasDownStreamDependencyFlag = defaultArg shouldCodeHasDownStreamDependencyFlagArg true
         x.HasDownStreamDependency <- false
@@ -763,7 +763,7 @@ and [<Serializable; AllowNullLiteral>]
             ms.WriteBoolean(x.HasDownStreamDependency)
         // Note: Dependency object is encoded later, to avoid loop calculation of hash. 
     // In case where x.Pack should not encode the HasDownStreamDependency flag when it was called, this method can be used  later
-    member internal x.PackHasDownStreamDependencyFlag (ms : MemStream) =
+    member internal x.PackHasDownStreamDependencyFlag (ms : StreamBase<byte>) =
         ms.WriteBoolean(x.HasDownStreamDependency)
     // Encode Dependency 
     member internal x.EncodeDependency( ms )= 
@@ -811,7 +811,7 @@ and [<Serializable; AllowNullLiteral>]
             | _ ->
                 let _, dobjs = x.UpStreamDependentObjs() 
                 dobjs
-    member internal x.DecodeDependency( ms:MemStream ) = 
+    member internal x.DecodeDependency( ms:StreamBase<byte> ) = 
         let dependencyCode = ms.ReadVInt32()
         let depDObjectArray = DependentDObject.Unpack( ms )
         try
@@ -854,7 +854,7 @@ and [<Serializable; AllowNullLiteral>]
             let msg = sprintf "Fail in DSet.DecodeDependency, exception %A " e
             Logger.Log( LogLevel.Error, msg )
             failwith msg
-    member internal x.EncodeDownStreamDependency( ms ) =
+    member internal x.EncodeDownStreamDependency( ms : StreamBase<byte> ) =
         /// Additional dependency coding for bypass
         match x.Dependency with 
         | Bypass ( _, brothers ) -> 
@@ -892,7 +892,7 @@ and [<Serializable; AllowNullLiteral>]
                 9, Seq.singleton ( child :> DependentDObject )
             | CrossJoinTo child -> 
                 10, Seq.singleton ( child :> DependentDObject )
-    member internal x.DecodeDownStreamDependency( ms:MemStream ) = 
+    member internal x.DecodeDownStreamDependency( ms:StreamBase<byte> ) = 
         let hasDownStreamDependency = ms.ReadBoolean()
         match x.Dependency with 
         | Bypass (parent, _ ) -> 
@@ -976,7 +976,7 @@ and [<Serializable; AllowNullLiteral>]
             ( objs_downstream |> Seq.map ( fun o -> o.ToString() ) |> String.concat "," )
 
     // Peek readStream to get DSet name and version information, read pointer is set back to the origin.             
-    static member internal Peek( readStream: MemStream ) = 
+    static member internal Peek( readStream: StreamBase<byte> ) = 
         let orgpos = readStream.Position
         let clname = readStream.ReadString()
         let clVerNumber = readStream.ReadInt64()
@@ -988,8 +988,8 @@ and [<Serializable; AllowNullLiteral>]
         readStream.Seek( orgpos, SeekOrigin.Begin ) |> ignore
         name, verNumber
     /// Deserialization of DSet 
-    static member internal Unpack( readStream: MemStream, bUnpackFunc ) = 
-        let buf = readStream.GetBuffer()
+    static member internal Unpack( readStream: StreamBase<byte>, bUnpackFunc ) = 
+        //let buf = readStream.GetBuffer()
         let startpos = readStream.Position
         let clname = readStream.ReadString()
         let clVerNumber = readStream.ReadInt64()
@@ -1091,7 +1091,9 @@ and [<Serializable; AllowNullLiteral>]
             curDSet.DecodeDependency( readStream ) 
         /// Get hash
         let endpos = readStream.Position
-        curDSet.Hash <- HashByteArrayWithLength( buf, int startpos, int (endpos-startpos))
+        //curDSet.Hash <- HashByteArrayWithLength( buf, int startpos, int (endpos-startpos))
+        curDSet.Hash <- readStream.ComputeSHA256(startpos, endpos-startpos)
+        //let b2 = readStream.ComputeSHA256(startpos, endpos-startpos)
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Decode DSet %s:%s, Hash = %s (%d-%d)" curDSet.Name curDSet.VersionString (BytesToHex(curDSet.Hash)) startpos endpos ))
         curDSet.DecodeDownStreamDependency( readStream )
         curDSet
@@ -1139,11 +1141,13 @@ and [<Serializable; AllowNullLiteral>]
             let msSend = new MemStream( 10240 )
             x.Cluster.ClusterInfo.Pack( msSend )
             queuePeer.ToSend( cmd, msSend, true )
+            msSend.DecRef()
             // send dset to partners. 
             let msSend = new MemStream( 1024 )
             x.Pack( msSend, DSetMetadataStorageFlag.HasPassword )
             let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.DSet ) 
             queuePeer.ToSend( cmd, msSend )
+            msSend.DecRef()
             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Send first write command (Set, ClusterInfo) to peer %d of cluster %s"
                                                                    peeri 
                                                                    x.Cluster.Name ))
@@ -1163,6 +1167,7 @@ and [<Serializable; AllowNullLiteral>]
                     bToSent <- true
                 if bToSent then 
                     queuePeer.ToSend( ControllerCommand( ControllerVerb.LimitSpeed, ControllerNoun.DSet), msSpeed )  
+                msSpeed.DecRef()
 
     member internal x.bIsClusterReplicate() = 
         match x.Cluster.ReplicationType with 
@@ -1222,29 +1227,31 @@ and [<Serializable; AllowNullLiteral>]
         partitionSerial.[parti] <- partitionSerial.[parti] + int64 numElems
         serial
     /// Common Write Routine for DSets. 
-    member internal x.WriteCommon( parti, peeri, buf, offset, length, verb ) = 
+    member internal x.WriteCommon( parti, peeri, ms : MemStream, verb ) = 
         // If it is the first time write to a peer, do some operation. 
         x.DoFirstWrite( peeri )
         let cmd = ControllerCommand( verb, ControllerNoun.DSet )
-        partitionPending.[parti].Enqueue( length ) 
+        partitionPending.[parti].Enqueue( int ms.Length ) 
         let peerQueue = x.Cluster.QueueForWrite( peeri )
-        let bufSend = peerQueue.ToSendAndHoldBuffer( cmd, buf, offset, length, false )
+        peerQueue.ToSend( cmd, ms )
 
         if x.ConfirmDelivery then 
-            // let sha512 = new Security.Cryptography.SHA512CryptoServiceProvider()
-            let sha512 = new Security.Cryptography.SHA512Managed()
-            let res = sha512.ComputeHash( buf, offset, length )
+//            // let sha512 = new Security.Cryptography.SHA512CryptoServiceProvider()
+//            let sha512 = new Security.Cryptography.SHA512Managed()
+//            let res = sha512.ComputeHash( buf, offset, length )
+            let res = ms.ComputeSHA512(0L, ms.Length)
             // Overwrite old item, if there is one. s
-            deliveryQueue.Item( res ) <- ( x.Clock.ElapsedTicks, parti, bufSend, ref 0 )
+            ms.AddRef()
+            deliveryQueue.Item( res ) <- ( x.Clock.ElapsedTicks, parti, ms, ref 0 )
                 
     /// Write certain data to the DSet
-    member internal x.Write( parti, peeri, buf, offset, length ) = 
-        x.WriteCommon( parti, peeri, buf, offset, length, ControllerVerb.Write )
+    member internal x.Write( parti, peeri, ms ) = 
+        x.WriteCommon( parti, peeri, ms, ControllerVerb.Write )
 
     /// Write and replicate peer data to the DSet
-    member internal x.WriteAndReplicate( parti, peeri, buf, offset, length ) = 
+    member internal x.WriteAndReplicate( parti, peeri, ms ) = 
         // If it is the first time write to a peer, do some operation. 
-        x.WriteCommon( parti, peeri, buf, offset, length, ControllerVerb.WriteAndReplicate )
+        x.WriteCommon( parti, peeri, ms, ControllerVerb.WriteAndReplicate )
 
     /// End partition parti peeri
     member internal x.EndParition parti peeri = 
@@ -1258,6 +1265,7 @@ and [<Serializable; AllowNullLiteral>]
         msSend.WriteVInt32(0)
         let peerQueue = x.Cluster.QueueForWrite( peeri )
         peerQueue.ToSend( cmd, msSend )
+        msSend.DecRef()
     /// End Partition parti peeri
 //    member x.EndParition = 
 //        x.EndParitionCommon ControllerVerb.EndPartition
@@ -1320,6 +1328,7 @@ and [<Serializable; AllowNullLiteral>]
             if not bAllCloseDSetSent then 
                 // Wait for input command. 
                 Threading.Thread.Sleep(10)
+        msSend.DecRef()
         let remainingWait = Math.Max( 0., timeToWait - (PerfDateTime.UtcNow()).Subtract(t1).TotalSeconds )
         x.GracefulWaitForReprot(remainingWait)
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Closing for DSet Write %A" x.Name))
@@ -1338,7 +1347,9 @@ and [<Serializable; AllowNullLiteral>]
         let ms = new MemStream( 10240 ) 
         x.Pack( ms, flag )
         ms.Flush()
-        stream.Write( ms.GetBuffer(), 0, int ms.Length )
+        //stream.Write( ms.GetBuffer(), 0, int ms.Length )
+        ms.ReadToStream(stream, 0L, ms.Length)
+        ms.DecRef()
         stream.Flush()
     /// Save the Meta Data of DSet to a file 
     member internal x.SaveToMetaData( filename, flag ) =
@@ -1347,9 +1358,10 @@ and [<Serializable; AllowNullLiteral>]
             // Create directory if necessary
             DirectoryInfoCreateIfNotExists (dirpath) |> ignore
 
-        use ms = new MemStream( 10240 ) 
+        let ms = new MemStream( 10240 ) 
         x.Pack( ms, flag )
         WriteBytesToFileConcurrentP filename (ms.GetBuffer()) 0 (int ms.Length)
+        ms.DecRef()
 
     /// The root path information for the metadata, used for all DSet of different version.
     member internal x.RootPath( ) = 
@@ -1605,6 +1617,7 @@ and [<Serializable; AllowNullLiteral>]
             if Utils.IsNotNull queuePeer && (not queuePeer.Shutdown) && queuePeer.CanSend then 
                 queuePeer.ToSend( cmd, msSend )
                 Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Send Metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
+            msSend.DecRef()
 
     member internal x.SendMetadataToAllPeers() = 
         for pi = 0 to x.Cluster.NumNodes - 1 do 
@@ -1619,6 +1632,7 @@ and [<Serializable; AllowNullLiteral>]
                 Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Send Metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
             else
                 Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Unable to send metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
+            msSend.DecRef()
         
     member private x.MulticastMetadataAfterReport() = 
         x.IncrementMetaDataVersion()
@@ -1721,7 +1735,7 @@ and [<Serializable; AllowNullLiteral>]
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "MappingNumElems preupdate from host for DSet %s:%s" x.Name x.VersionString ))
         x.BaseWaitForCloseAllStreamsViaHandle( waithandles, jbInfo, start )
 
-    member internal x.WriteDSetCallback( cmd:ControllerCommand, peeri, msRcvd:MemStream ) = 
+    member internal x.WriteDSetCallback( cmd:ControllerCommand, peeri, msRcvd:StreamBase<byte> ) = 
         try
             let q = x.Cluster.Queue( peeri )
             match ( cmd.Verb, cmd.Noun ) with 
@@ -1766,6 +1780,7 @@ and [<Serializable; AllowNullLiteral>]
                 let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo ) 
                 // Expediate delivery of Cluster Information to the receiver
                 q.ToSend( cmd, msSend, true ) 
+                msSend.DecRef()
             | ( ControllerVerb.Duplicate, ControllerNoun.DSet ) 
             | ( ControllerVerb.Echo2, ControllerNoun.DSet ) ->
                 let parti = msRcvd.ReadVInt32()
@@ -1812,7 +1827,9 @@ and [<Serializable; AllowNullLiteral>]
                         let startTicks, parti, bufSend, count = !refValue
                         // All replication is accounted for
                         if (!count)+1 >= x.NumReplications then
-                            deliveryQueue.TryRemove( resHash ) |> ignore
+                            if (deliveryQueue.TryRemove( resHash, refValue )) then
+                                let _, _, bufSendMs, _ = !refValue
+                                bufSendMs.DecRef() // decrease the ref count
                         else
                             Interlocked.Increment( count ) |> ignore
             | _ ->
@@ -2038,7 +2055,7 @@ and [<Serializable; AllowNullLiteral>]
             x.ParentDSets <- parents.ToArray() |> Array.map ( fun pa -> pa.TargetDSet )
         | _ -> 
             ()
-    member val internal SyncReadChunk: JobInformation -> int ->  ( BlobMetadata*MemStream -> unit ) -> ManualResetEvent * bool = thisDSet.SyncReadChunkImpl with get, set
+    member val internal SyncReadChunk: JobInformation -> int ->  ( BlobMetadata*StreamBase<byte> -> unit ) -> ManualResetEvent * bool = thisDSet.SyncReadChunkImpl with get, set
     member private x.SyncReadChunkImpl jbInfo parti pushChunkFunc = 
         x.SyncEncode jbInfo parti pushChunkFunc  
 
@@ -2046,9 +2063,9 @@ and [<Serializable; AllowNullLiteral>]
     member val internal CachedPartition : PartitionCacheBase[] = null with get, set
     member val internal AllCachedPartition : bool[] = null with get, set
     /// Encode a collection of data
-    member val internal SyncEncode: JobInformation -> int -> ( BlobMetadata*MemStream -> unit ) -> ManualResetEvent * bool = thisDSet.SyncEncodeImpl with get, set
+    member val internal SyncEncode: JobInformation -> int -> ( BlobMetadata*StreamBase<byte> -> unit ) -> ManualResetEvent * bool = thisDSet.SyncEncodeImpl with get, set
     /// Encode a collection of data
-    member private x.SyncEncodeImpl jbInfo parti ( pushChunkFunc:(BlobMetadata*MemStream)->unit  ) = 
+    member private x.SyncEncodeImpl jbInfo parti ( pushChunkFunc:(BlobMetadata*StreamBase<byte>)->unit  ) = 
         // A pass through type, we will call its  
         let wrapperFunc( meta, elemArray ) = 
             if Utils.IsNotNull elemArray then 
@@ -2066,7 +2083,7 @@ and [<Serializable; AllowNullLiteral>]
         // Pass through type  
         match x.Dependency with 
         | StandAlone -> 
-            let wrapperFunc( meta, ms:MemStream ) = 
+            let wrapperFunc( meta, ms:StreamBase<byte> ) = 
                 if not (jbInfo.CancellationToken.IsCancellationRequested) then 
                     func( meta, ms :> Object )
             /// trigger read from stream
@@ -2460,6 +2477,7 @@ and [<Serializable; AllowNullLiteral>]
                             // networkStream -> SendOverNetwork -> DecodeTo will merge to childDSet on iterateExecuteDownstream
                             let encMeta, encStream = currentFunc.Encode( newMeta, newElemObject )
                             networkStream.SyncExecuteDownstream jbInfo encMeta.Partition encMeta (encStream :> Object)
+                            encStream.DecRef()
             else
                 // Encounter the end, MapFunc is called with keyArray being null only once in the execution
                 let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
@@ -2935,6 +2953,8 @@ and [<Serializable; AllowNullLiteral>]
 
             Threading.Thread.Sleep( 5 )
 
+        msSend.DecRef()
+
         // by setting bMetaDataSet, we stop update metadata, all further peer response with different DSet version will be considered as a failed peer. 
         curDSet.PeerDSet <- null
         curDSet.bMetaDataSet <- true
@@ -3178,10 +3198,12 @@ and [<Serializable; AllowNullLiteral>]
                     msSend.WriteString( curDSet.Name )
                     msSend.WriteInt64( curDSet.Version.Ticks )
                     queue.ToSend( ControllerCommand( ControllerVerb.Use, ControllerNoun.DSet), msSend )
+                    msSend.DecRef()
                 for parti in peeriPartitionArray do 
                     curDSet.SentCmd( peeri, parti ) 
                 let cmd, msPayload = curDSet.RemappingCommandCallback( peeri, peeriPartitionArray, curDSet )
                 queue.ToSend( cmd, msPayload )
+                msPayload.DecRef()
                 let node = curDSet.Cluster.Nodes.[peeri]
                 if curDSet.PeerRcvdSpeedLimit < node.NetworkSpeed then 
                     let msSpeed = new MemStream( 1024 )
@@ -3190,6 +3212,7 @@ and [<Serializable; AllowNullLiteral>]
                     msSpeed.WriteInt64( curDSet.PeerRcvdSpeedLimit )
                     queue.SetRcvdSpeed(curDSet.PeerRcvdSpeedLimit)
                     queue.ToSend( ControllerCommand( ControllerVerb.LimitSpeed, ControllerNoun.DSet), msSpeed )  
+                    msSpeed.DecRef()
                 // One more Read DSet command outstanding. 
                 Interlocked.Increment( curDSet.numPeerPartitionCmdSent.[peeri] ) |> ignore
         bAnyRemapping
@@ -3333,7 +3356,7 @@ and [<Serializable; AllowNullLiteral>]
                 newMeta, newElemObject
             else
                 match newElemObject with 
-                | :? MemStream as ms -> 
+                | :? StreamBase<byte> as ms -> 
                     let func = x.FunctionObj
                     func.Decode( newMeta, ms )
                 | _ -> 

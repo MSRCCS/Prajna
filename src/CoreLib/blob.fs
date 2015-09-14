@@ -68,27 +68,39 @@ type internal BlobStatus =
 /// The BlobFactory class implements cache that avoid instantiation of multiple Blob class, and save memory. 
 type internal BlobFactory() = 
     static member val Current = BlobFactory() with get
-    static member val InactiveSecondsToEvictBlob = 600L with get, set
+    //static member val InactiveSecondsToEvictBlob = 600L with get, set
+    static member val InactiveSecondsToEvictBlob = 10L with get, set
     member val Collection = ConcurrentDictionary<_,(_*_*_*_)>(BytesCompare()) with get
+
     /// Register object with a trigger function that will be executed when the object arrives. 
-    member x.Register( id:byte[], triggerFunc:(MemStream*int64->unit), epSignature:int64 ) = 
+    member x.Register( id:byte[], triggerFunc:(StreamBase<byte>*int64->unit), epSignature:int64 ) = 
         let addFunc _ = 
             ref null, ref (PerfDateTime.UtcNowTicks()), ConcurrentQueue<_>(), ConcurrentDictionary<_,_>()
         let tuple = x.Collection.GetOrAdd( id, addFunc )
         let refMS, refTicks, epQueue, epDic = tuple 
         refTicks := (PerfDateTime.UtcNowTicks())
         epDic.GetOrAdd( epSignature, true ) |> ignore
-        if Utils.IsNull !refMS then 
-            epQueue.Enqueue( triggerFunc )
-            null
-        else
-            !refMS
+        // enqueue the trigger function
+        epQueue.Enqueue(triggerFunc)
+        // run trigger immediately if stream already available
+        if (Utils.IsNotNull !refMS) then
+            let refValue = ref Unchecked.defaultof<_>
+            while epQueue.TryDequeue( refValue ) do 
+                let triggerFunc = !refValue
+                triggerFunc( !refMS, epSignature )
+            (!refMS).DecRef() // done with stream now, triggerFunc keeps copy of stream
+        refMS := null
+
     /// Store object info into the Factory class, apply trigger if there are any function waiting to be executed. 
-    member x.Store( id:byte[], ms: MemStream, epSignature:int64 ) = 
+    member x.Store( id:byte[], ms: StreamBase<byte>, epSignature:int64 ) = 
         let addFunc _ = 
+            ms.AddRef()
             ref ms, ref (PerfDateTime.UtcNowTicks()), ConcurrentQueue<_>(), ConcurrentDictionary<_,_>()
         let tuple = x.Collection.GetOrAdd( id, addFunc )
         let refMS, refTicks, epQueue, epDic = tuple 
+        if (Utils.IsNotNull (!refMS)) then
+            (!refMS).DecRef()
+        ms.AddRef()
         refMS := ms
         refTicks := (PerfDateTime.UtcNowTicks())
         epDic.GetOrAdd( epSignature, true ) |> ignore
@@ -96,6 +108,9 @@ type internal BlobFactory() =
         while epQueue.TryDequeue( refValue ) do 
             let triggerFunc = !refValue
             triggerFunc( ms, epSignature )
+        ms.DecRef() // triggers complete
+        refMS := null
+
     /// Retrieve object info from the Factory class. 
     member x.Retrieve( id ) = 
         let bExist, tuple = x.Collection.TryGetValue( id )
@@ -105,11 +120,15 @@ type internal BlobFactory() =
             !blob
         else
             null
+
     /// Cache Information, used the existing object in Factory if it is there already
-    member x.ReceiveWriteBlob( id, ms: MemStream, epSignature ) = 
+    member x.ReceiveWriteBlob( id, ms: StreamBase<byte>, epSignature ) = 
         let bExist, tuple = x.Collection.TryGetValue( id )
         if bExist then 
             let refMS, refTicks, epQueue, epDic = tuple 
+            if (Utils.IsNotNull (!refMS)) then
+                (!refMS).DecRef()
+            ms.AddRef()
             refMS := ms
             refTicks := (PerfDateTime.UtcNowTicks())
             epDic.GetOrAdd( epSignature, true ) |> ignore
@@ -117,9 +136,12 @@ type internal BlobFactory() =
             while epQueue.TryDequeue( refValue ) do 
                 let triggerFunc = !refValue
                 triggerFunc( !refMS, epSignature )
+            ms.DecRef() // triggers complete
+            refMS := null
             true
         else
             false
+
     /// Evict object that hasn't been visited within the specified seconds
     member x.Evict( elapseSeconds ) = 
         let t1 = (PerfDateTime.UtcNowTicks()) - TimeSpan.TicksPerSecond * elapseSeconds
@@ -129,10 +151,20 @@ type internal BlobFactory() =
             if !refTime < t1 then 
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "remove blob %A after %d secs of inactivity"
                                                                        pair.Key BlobFactory.InactiveSecondsToEvictBlob ))
-                x.Collection.TryRemove( pair.Key ) |> ignore
+                let mutable tuple = Unchecked.defaultof<(_*_*_*_)>
+                let ret = x.Collection.TryRemove( pair.Key, &tuple )
+                if (ret) then
+                    let refMS, refTicks, epQueue, epDic = tuple
+                    if (Utils.IsNotNull (!refMS)) then
+                        (!refMS).DecRef()
     /// Remove a certain entry
     member x.Remove( id ) = 
-        x.Collection.TryRemove( id ) |> ignore
+        let mutable tuple = Unchecked.defaultof<(_*_*_*_)>
+        let ret = x.Collection.TryRemove( id, &tuple )
+        if (ret) then
+            let refMS, refTicks, epQueue, epDic = tuple
+            if (Utils.IsNotNull (!refMS)) then
+                (!refMS).DecRef()
     /// Refresh timer entry of an object
     member x.Refresh( id ) = 
         let bExist, tuple = x.Collection.TryGetValue( id ) 
@@ -174,7 +206,6 @@ type internal BlobFactory() =
         BlobFactory.Current.ToArray()
 
 
-
 and [<AllowNullLiteral>]
     internal Blob() = 
     /// Blob Name, which should correspond to the underlying data name, e.g., Cluster Name, DSet name, etc..
@@ -198,10 +229,11 @@ and [<AllowNullLiteral>]
 //    member x.ReleaseBuffers() = 
 //        x.Buffers <- Array.zeroCreate<byte[]> 1
     /// MemStream associated with blob
-    member val Stream : MemStream = null with get, set
+    member val Stream : StreamBase<byte> = null with get, set
     member x.IsAllocated with get() = Utils.IsNotNull x.Stream
     member x.Release() = 
         if x.IsAllocated then
+            x.Stream.DecRef()
             x.Stream.Dispose()
             x.Stream <- null
     /// Index of the array in the specific Blob type. 
@@ -215,10 +247,11 @@ and [<AllowNullLiteral>]
                 x.Stream <- new MemStream( )
         x.Stream
     /// Turn stream to blob
-    member x.StreamToBlob( ms:MemStream ) = 
+    member x.StreamToBlob( ms:StreamBase<byte> ) = 
         if Utils.IsNull x.Hash then 
             let buf, pos, count = ms.GetBufferPosLength()
-            x.Hash <- BytesTools.HashByteArrayWithLength( buf, pos, count )
+            x.Hash <- buf.ComputeSHA256(int64 pos, int64 count)
+//            x.Hash <- BytesTools.HashByteArrayWithLength( buf, pos, count )
 //        if ms.Length<int64 Int32.MaxValue then
 //            x.Buffer <- Array.zeroCreate<byte> (int ms.Length)
 //            Buffer.BlockCopy( ms.GetBuffer(), 0, x.Buffer, 0, int ms.Length )
@@ -268,7 +301,7 @@ type internal BlobAvailability(numBlobs) =
         | BlobStatus.Error -> "Error"
         | _ -> "Illegal"
     /// Unpack to decode availability information
-    member x.Unpack( ms:MemStream ) = 
+    member x.Unpack( ms:StreamBase<byte> ) = 
         // Read availability vector of fixed length
         let readAvailVector = Array.copy x.AvailVector
         ms.ReadBytes( readAvailVector ) |> ignore 

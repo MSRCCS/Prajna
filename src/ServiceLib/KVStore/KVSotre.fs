@@ -180,8 +180,8 @@ type internal KVService<'K,'V >() =
             for kvpair in localCollection do 
                 let key = kvpair.Key
                 let value = kvpair.Value
-                ms.SerializeFromWithTypeName( key )
-                ms.SerializeFromWithTypeName( value )
+                Strm.SerializeFromWithTypeName( ms, key )
+                Strm.SerializeFromWithTypeName( ms, value )
                 cnt <- cnt + 1
             let pos = ms.Position
             ms.Seek( 0L, SeekOrigin.Begin ) |> ignore 
@@ -198,8 +198,8 @@ type internal KVService<'K,'V >() =
                 let bExist, bValue = localChange.TryRemove( key )
                 if bExist && bValue then 
                     use ms = new MemStream()
-                    ms.SerializeFromWithTypeName( key )
-                    ms.SerializeFromWithTypeName( value )
+                    Strm.SerializeFromWithTypeName( ms, key )
+                    Strm.SerializeFromWithTypeName( ms, value )
                     let filename = Path.Combine( dirName, x.Param.GetKeyName(key) )
                     FileTools.WriteBytesToFile filename (ms.GetBuffer())
     // Load a snapshot from store 
@@ -213,8 +213,8 @@ type internal KVService<'K,'V >() =
             let ms = new MemStream( byt, 0, byt.Length, false, true )
             let cnt = ms.ReadInt32()
             for i = 0 to cnt - 1 do 
-                let key = ms.DeserializeObjectWithTypeName() :?> 'K
-                let value = ms.DeserializeObjectWithTypeName() :?> 'V
+                let key = Strm.DeserializeObjectWithTypeName(ms) :?> 'K
+                let value = Strm.DeserializeObjectWithTypeName(ms) :?> 'V
                 localCollection.GetOrAdd( key, value) |> ignore
         else
             let dirName = x.Param.GetKVStoreName()
@@ -222,8 +222,8 @@ type internal KVService<'K,'V >() =
                 for kvpair in localCollection do
                     let byt = FileTools.ReadBytesFromFile filename
                     use ms = new MemStream( byt, 0, byt.Length, false, true)
-                    let key = ms.DeserializeObjectWithTypeName() :?> 'K
-                    let value = ms.DeserializeObjectWithTypeName() :?> 'V
+                    let key = Strm.DeserializeObjectWithTypeName(ms) :?> 'K
+                    let value = Strm.DeserializeObjectWithTypeName(ms) :?> 'V
                     localCollection.Item( key ) <- value
                     localChange.TryRemove( key ) |> ignore
     override x.Run() = 

@@ -77,8 +77,9 @@ int GetIndex(int hashVal)
 extern "C" __declspec(dllexport)
 void bin(char * buf, int len, int dim, int binNum, int * boundary, int * sPos, char * outBuf)
 {
-	int hashBitSize = fmax(8, (int)(log2((float)(binNum - 1)) + 1));
-	hashBytes = (hashBitSize - 1) / 8 + 1;
+	//int hashBitSize = fmax(8, (int)(log2((float)(binNum - 1)) + 1));
+	//hashBytes = (hashBitSize - 1) / 8 + 1;
+	hashBytes = 2;
 	boundaryArr = boundary;
 
 
@@ -187,7 +188,7 @@ void getBinSize(char * buf, int len, int dim, int binNum, int * boundary, int * 
 
 
 extern "C" __declspec(dllexport)
-void stdsort(void* buf, int len, int dim, void * obuf)
+void stdsort(void* buf, int len, int dim)
 {
 	//char ** pointer = new char *[len];
 

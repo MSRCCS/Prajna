@@ -63,7 +63,9 @@ type internal Crypt() =
         let cs = new CryptoStream(ms, rjndn.CreateEncryptor(), CryptoStreamMode.Write)
         cs.Write(clearBuf, 0, clearBuf.Length)
         cs.Flush() // should flush underlying MemStream
-        Array.sub (ms.GetBuffer()) 0 (int ms.Length)
+        let outBuf = Array.sub (ms.GetBuffer()) 0 (int ms.Length)
+        ms.DecRef()
+        outBuf
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
     static member EncryptWithParams(clearBuf : byte[], pwd : string, ?keySize : int, ?blkSize : int) =
@@ -105,7 +107,9 @@ type internal Crypt() =
         let cs = new CryptoStream(ms, rjndn.CreateEncryptor(), CryptoStreamMode.Write)
         cs.Write(clearBuf, 0, clearBuf.Length)
         cs.Flush() // should flush underlying MemStream
-        Array.sub (ms.GetBuffer()) 0 (int ms.Length)
+        let outBuf = Array.sub (ms.GetBuffer()) 0 (int ms.Length)
+        ms.DecRef()
+        outBuf
 
     static member Decrypt(cipherBuf : byte[], pwd : string, keySize : int, blkSize : int) =
         let rjndn = new RijndaelManaged()
@@ -128,11 +132,13 @@ type internal Crypt() =
         let cs = new CryptoStream(ms, rjndn.CreateDecryptor(), CryptoStreamMode.Read)
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-Crypt.SaltBytes)
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
-        Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
+        let outBuf = Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
+        ms.DecRef()
+        outBuf
 
     // no need to separately send parameters being used
     static member DecryptWithParams(cipherBuf : byte[], pwd : string) =
-        let ms = new MemStream(cipherBuf)
+        use ms = new MemStream(cipherBuf)
         // read parameters
         let saltBytes = ms.ReadInt32()
         let deriveByteIter = ms.ReadInt32()
@@ -157,7 +163,9 @@ type internal Crypt() =
         let cs = new CryptoStream(ms, rjndn.CreateDecryptor(), CryptoStreamMode.Read)
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-(int ms.Position))
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
-        Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
+        let outBuf = Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
+        ms.DecRef()
+        outBuf
 
     static member EncryptStr(str : string, pwd : string) =
         let strBuf = Text.Encoding.UTF8.GetBytes(str)
@@ -271,8 +279,7 @@ type internal Crypt() =
         cs.Flush()
         ms
 
-    static member Decrypt(rjnd : RijndaelManaged, buf : byte[]) : byte[]*int =
-        let ms = new MemStream(buf)
+    static member Decrypt(rjnd : RijndaelManaged, ms : StreamBase<byte>) : byte[]*int =
         let nPadding = ms.ReadByte()
         rjnd.IV <- ms.ReadBytesWLen()
         rjnd.Padding <- PaddingMode.None
@@ -285,3 +292,8 @@ type internal Crypt() =
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         (clearBuf, clearBuf.Length-nPadding)
 
+    static member Decrypt(rjnd : RijndaelManaged, buf : byte[]) : byte[]*int =
+        use ms = new MemStream(buf)
+        let outParam = Crypt.Decrypt(rjnd, ms)
+        ms.DecRef()
+        outParam

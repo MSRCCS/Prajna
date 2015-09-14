@@ -34,6 +34,7 @@
     <Compile Include="utils.fs" />
     <Compile Include="interops.fs" />
     <Compile Include="extension.fs" />
+    <Compile Include="serialize.fs" />
     <Compile Include="mem.fs" />
     <Compile Include="StringTools.fs" />
     <Compile Include="bytes.fs" />
@@ -47,11 +48,12 @@
     <Compile Include="ReflectionTools.fs" />
     <Compile Include="HttpBuilder.fs" />
     <Compile Include="resizequeue.fs" />
-    <Compile Include="serialize.fs" />
     <Compile Include="dns.fs" />
     <Compile Include="basenetwork.fs" />
     <Compile Include="genericnetwork.fs" />
     <Compile Include="crypt.fs" />
+    <None Include="Scripts\load-references.fsx" />
+    <None Include="Scripts\load-project.fsx" />
     <Compile Include="configuration.fs" />
   </ItemGroup>
   <PropertyGroup>

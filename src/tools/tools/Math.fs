@@ -29,15 +29,6 @@
  ---------------------------------------------------------------------------*)
 namespace Prajna.Tools
 open System
-[<StructuralEquality; StructuralComparison>]
-type internal UInt128 = 
-    struct 
-        val High : uint64
-        val Low : uint64
-        new ( high: uint64, low: uint64 ) = { High = high; Low = low }
-        new ( value:byte[] ) = { High = BitConverter.ToUInt64( value, 0 ); Low = BitConverter.ToUInt64( value, 8) }
-        override x.ToString() = x.High.ToString("X16")+x.Low.ToString("X16")
-    end
 
 type internal MurmurHash() = 
     [<Literal>] 

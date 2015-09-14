@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -35,6 +35,7 @@
     <Compile Include="interops.fs" />
     <Compile Include="Math.fs" />
     <Compile Include="extension.fs" />
+    <Compile Include="serialize.fs" />
     <Compile Include="customserialize.fs" />
     <Compile Include="custommemory.fs" />
     <Compile Include="StringTools.fs" />
@@ -44,17 +45,19 @@
     <Compile Include="LoggerCSharp.fs" />
     <Compile Include="file.fs" />
     <Compile Include="process.fs" />
-    <Compile Include="serialize.fs" />
     <Compile Include="resizequeue.fs" />
     <Compile Include="bufferliststream.fs" />
     <Compile Include="mem.fs" />
     <Compile Include="ArgumentParser.fs" />
     <Compile Include="ReflectionTools.fs" />
     <Compile Include="HttpBuilder.fs" />
+    <Compile Include="resizequeue.fs" />
     <Compile Include="dns.fs" />
     <Compile Include="basenetwork.fs" />
     <Compile Include="genericnetwork.fs" />
     <Compile Include="crypt.fs" />
+    <None Include="Scripts\load-references.fsx" />
+    <None Include="Scripts\load-project.fsx" />
     <Compile Include="configuration.fs" />
   </ItemGroup>
   <PropertyGroup>

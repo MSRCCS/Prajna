@@ -33,6 +33,16 @@ open System
 open System.IO
 open System.Runtime.CompilerServices
 
+[<StructuralEquality; StructuralComparison>]
+type internal UInt128 = 
+    struct 
+        val High : uint64
+        val Low : uint64
+        new ( high: uint64, low: uint64 ) = { High = high; Low = low }
+        new ( value:byte[] ) = { High = BitConverter.ToUInt64( value, 0 ); Low = BitConverter.ToUInt64( value, 8) }
+        override x.ToString() = x.High.ToString("X16")+x.Low.ToString("X16")
+    end
+    
 /// Extension Methods for System.IO.Stream
 [<Extension>]
 type StreamExtension =  
@@ -290,3 +300,30 @@ type StreamExtension =
         let buf = StreamExtension.ReadBytesWLen( x )
         let enc = new System.Text.UTF8Encoding()
         enc.GetString( buf )
+
+    /// Write IPEndPoint to bytestream 
+    [<Extension>]
+    static member WriteIPEndPoint( x: Stream, addr: Net.IPEndPoint ) =
+//        x.WriteVInt32( int addr.AddressFamily )       
+        StreamExtension.WriteBytesWLen( x, addr.Address.GetAddressBytes() )
+        StreamExtension.WriteInt32( x, addr.Port )
+
+/// Read IPEndPoint from bytestream, if the bytestream is truncated prematurely, the later IPAddress and port information will be 0. 
+    [<Extension>]
+    static member ReadIPEndPoint( x: Stream ) = 
+//        let addrFamily = x.ReadVInt32()
+        let buf = StreamExtension.ReadBytesWLen( x )
+        let port = StreamExtension.ReadInt32( x ) 
+        Net.IPEndPoint( Net.IPAddress( buf ), port )
+
+    [<Extension>]
+    static member internal WriteUInt128( x: Stream, data: UInt128 ) = 
+        StreamExtension.WriteUInt64( x, data.Low )
+        StreamExtension.WriteUInt64( x, data.High ) 
+
+    [<Extension>]
+    static member internal ReadUInt128( x: Stream ) = 
+        let low = StreamExtension.ReadUInt64( x )
+        let high = StreamExtension.ReadUInt64( x )
+        UInt128( high, low )
+

@@ -125,14 +125,22 @@ type internal ClientLauncher() =
         if bUseAllDrive then 
             DeploymentSettings.UseAllDrivesForData()
   
-        // Trigger Tracefile creation, otherwise, MakeFileAccessible( logfname ) will fail. 
-        let ramCounter = new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes")
-        // Find usable RAM space, leave 512MB, and use all. 
-        let usableRAM =( (int64 (ramCounter.NextValue())) - 512L ) <<< 20
-        if IntPtr.Size = 4 then 
-            System.Diagnostics.Process.GetCurrentProcess().MaxWorkingSet <- nativeint (Math.Min( usableRAM, 1300L<<<20 ))
-        else
-            System.Diagnostics.Process.GetCurrentProcess().MaxWorkingSet <- nativeint usableRAM
+        try
+            let ramCounter = new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes")
+            // Find usable RAM space, leave 512MB, and use all. 
+            let usableRAM =( (int64 (ramCounter.NextValue())) - 512L ) <<< 20
+            if usableRAM > 0L then
+                let maxWorkingSet = 
+                    if IntPtr.Size = 4 then 
+                        nativeint (Math.Min( usableRAM, 1300L<<<20 ))
+                    else
+                        nativeint usableRAM
+                if maxWorkingSet > System.Diagnostics.Process.GetCurrentProcess().MinWorkingSet then
+                    System.Diagnostics.Process.GetCurrentProcess().MaxWorkingSet <- maxWorkingSet
+        with
+        | e -> // Exception here should not cause the program to fail, it's safe to continue 
+               Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "ClientLauncher.Main: exception on reading perf counter and set MaxWorkingSet: %A" e))
+
         if nTotalJob > 0 then 
             DeploymentSettings.TotalJobLimit <- nTotalJob
             DeploymentSettings.ExeJobLimit <- nTotalJob

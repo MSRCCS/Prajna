@@ -31,15 +31,14 @@ namespace Prajna.Tools
 
 open System
 open System.IO
-open System.Collections.Generic
+open System.Runtime.Serialization
 open System.Collections.Concurrent
 open System.Reflection
 open System.Runtime.Serialization
 open System.Threading
 
 open Prajna.Tools
-open Prajna.Tools.Queue
-open Prajna.Tools.FSharp
+open Prajna.Tools.Utils
 
 module internal NodeConfig =
     [<Measure>] 
@@ -173,6 +172,76 @@ type ExpandableBuffer internal ( initialBuffer:byte[], posAtZero:int ) =
         x.ReadStream( readStream, ExpandableBuffer.DefaultReadStreamBlockLength)
         x.GetBufferTuple()
 
+
+[<AllowNullLiteral>]
+type internal CircularBuffer<'a> (size: int) =
+    member val buffer = Array.zeroCreate<'a> size with get, set
+    member val bufferSize = size with get,set
+    member val readPtr = 0 with get,set
+    member val writePtr = 0 with get,set
+    member x.length = (x.writePtr + x.bufferSize - x.readPtr) % x.bufferSize
+    member x.freeSize = (x.readPtr-1-x.writePtr + x.bufferSize)% x.bufferSize
+    member x.readPtrToEnd = x.bufferSize - x.readPtr
+    member x.writePtrToEnd = x.bufferSize - x.writePtr
+
+    member x.MoveReadPtr (len:int) =
+        if len > x.length then
+            failwith "Cannot move readptr in Circular buffer"
+        x.readPtr <- (x.readPtr + len)
+        if x.readPtr >= x.bufferSize then
+            x.readPtr <- x.readPtr - x.bufferSize
+    member x.MoveWritePtr (len:int) =
+        if len > x.freeSize then
+            failwith "Cannot move writeptr in Circular buffer"
+        x.writePtr <- (x.writePtr + len)
+        if x.writePtr >= x.bufferSize then
+            x.writePtr <- x.writePtr - x.bufferSize
+        
+
+    member x.Write(src:'a) =
+        if x.freeSize < 1 then
+            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
+        x.buffer.[x.writePtr] <- src
+        x.MoveWritePtr(1)
+        
+    member x.Write(writePtr:int, src:'a) =
+        if x.freeSize < 1 then
+            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
+        x.buffer.[writePtr] <- src
+
+
+    member x.Write(src:byte[],posi:int, len:int) =
+        if len > x.freeSize then
+            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
+        if len <= x.writePtrToEnd then
+            Buffer.BlockCopy( src, posi, x.buffer, x.writePtr, len )
+        else 
+            Buffer.BlockCopy( src, posi, x.buffer, x.writePtr, x.writePtrToEnd )
+            Buffer.BlockCopy( src, posi, x.buffer, 0, len - x.writePtrToEnd )
+        x.MoveWritePtr(len)
+
+    member x.Write(writePtr:int,src:byte[],posi:int, len:int) =
+        if len > x.freeSize then
+            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
+        if len <= x.RelativePtrToEnd(writePtr) then
+            Buffer.BlockCopy( src, posi, x.buffer, writePtr, len )
+        else 
+            Buffer.BlockCopy( src, posi, x.buffer, writePtr, x.RelativePtrToEnd(writePtr) )
+            Buffer.BlockCopy( src, posi, x.buffer, 0, len - x.RelativePtrToEnd(writePtr) )
+
+
+    member x.RelativeLength (readPosition:int) =   
+        (x.writePtr + x.bufferSize - readPosition) % x.bufferSize
+
+    member x.RelativeReadPtrToEnd (readPosition:int) = x.bufferSize - readPosition
+    member x.RelativePtrToEnd (posi:int) = x.bufferSize - posi
+
+    member x.MovePtr (ptr:int, len:int) =
+        let mutable tptr = (ptr + len)
+        while tptr >= x.bufferSize do
+            tptr <- tptr - x.bufferSize
+        tptr
+
 //type MStream = MemoryStreamB
 type MStream = StreamBaseByte
 
@@ -243,6 +312,51 @@ type [<AllowNullLiteral>] MemStream =
     member internal  x.GetValidBuffer() =
         Array.sub (x.GetBuffer()) 0 (int x.Length)
 
+module GenericSerialization = 
+    
+    let private raiseAlreadyPresent =
+        Func<Guid, (unit -> IFormatter), (unit -> IFormatter)>(fun _ _ -> 
+            raise <| ArgumentException("Formatter with same Guid already present."))
+
+    /// Default generic serializer (standard .Net BinaryFormatter)
+    let BinaryFormatterGuid = Guid( "4721F23B-65D3-499D-9750-2D6FE6A6AE54" )
+    
+    /// New generic serializer (our BinarySerializer)
+    let PrajnaFormatterGuid = Guid("99CB89AA-A823-41D5-B817-8E582DE8E086")
+
+    let mutable DefaultFormatterGuid = PrajnaFormatterGuid
+
+    let internal FormatterMap : ConcurrentDictionary<Guid, unit -> IFormatter> = 
+        let getNew = fun () -> new MemStream() :> MemoryStream
+        let getNewBuf = fun (a,b,c,d,e) -> new MemStream(a,b,c,d,e) :> MemoryStream
+        let selector() = CustomizedSerializationSurrogateSelector(getNew, getNewBuf) :> ISurrogateSelector
+        let stdFormatter() = Formatters.Binary.BinaryFormatter(SurrogateSelector = selector()) :> IFormatter
+        let prajnaFormatter() = 
+            let ser = BinarySerializer() :> IFormatter
+            ser.SurrogateSelector <- selector()
+            ser
+        let fmtMap = ConcurrentDictionary<_,_>()
+        fmtMap.AddOrUpdate( BinaryFormatterGuid, stdFormatter, raiseAlreadyPresent ) |> ignore
+        fmtMap.AddOrUpdate( PrajnaFormatterGuid, prajnaFormatter, raiseAlreadyPresent) |> ignore
+        fmtMap
+
+    let GetFormatter(guid: Guid) = FormatterMap.[guid]()
+
+    let AddFormatter(guid: Guid, fmt: unit -> IFormatter) = 
+        FormatterMap.AddOrUpdate(guid, Func<Guid, (unit -> IFormatter)>(fun _ -> fmt),  raiseAlreadyPresent )
+
+    let GetDefaultFormatter() = GetFormatter DefaultFormatterGuid
+
+/// <summary> 
+/// Adds serialization related methods to MemStream, which allows us to break dependency cycles between
+/// MemStream and CustomizedSerialization stuff.
+/// Usage only looks nice from F#, which is ok since MemStream will be internal.
+/// If/when we MemStream goes public, we'll need the to use [<Extension>] methods for C# clients.
+/// </summary> 
+//type MemStream with 
+
+// Use static class as we wish to support StreamBase<byte> instead of just MemStream
+/// Contains extensions to StreamBase<byte> to allow for custom serialization
 type Strm =
     /// <summary> 
     /// Serialize a particular object to bytestream, allow use of customizable serializer if installed. 
@@ -282,8 +396,9 @@ type Strm =
                         x.AppendNoCopy(arr.[i], 0L, arr.[i].Length)
                         arr.[i].DecRef()
                 | _ ->
-                    x.WriteBytes( CustomizedSerialization.DefaultSerializerGuid.ToByteArray() )
-                    x.BinaryFormatterSerializeFromTypeName( obj, fullname )
+                    x.WriteBytes( GenericSerialization.DefaultFormatterGuid.ToByteArray() )
+                    let fmt = GenericSerialization.GetDefaultFormatter()
+                    x.FormatterSerializeFromTypeName( obj, fullname, fmt )
 
     //static member ArrToReadTo = Array.zeroCreate<byte>(50000)
 
@@ -298,10 +413,10 @@ type Strm =
         let buf = Array.zeroCreate<_> 16 
         let pos = x.Position
         x.ReadBytes( buf ) |> ignore
-        let typeGuid = Guid( buf ) 
-        if typeGuid = CustomizedSerialization.NullObjectGuid then 
+        let markerGuid = Guid( buf ) 
+        if markerGuid = CustomizedSerialization.NullObjectGuid then 
             null 
-        elif typeGuid = CustomizedSerialization.ArrSerializerGuid then
+        elif markerGuid = CustomizedSerialization.ArrSerializerGuid then
             let arr = Array.zeroCreate<System.Byte[]>(x.ReadInt32())
             for i=0 to arr.Length-1 do
                 arr.[i] <- Array.zeroCreate<System.Byte>(x.ReadInt32())
@@ -310,7 +425,7 @@ type Strm =
 //                x.Seek(int64 len, SeekOrigin.Current) |> ignore
 //                arr.[i] <- Strm.ArrToReadTo
             box(arr)
-        elif typeGuid = CustomizedSerialization.MStreamSerializerGuid then
+        elif markerGuid = CustomizedSerialization.MStreamSerializerGuid then
             let len = x.ReadInt32()
             let arr = Array.zeroCreate<MemoryStreamB>(len)
             let arrLen = Array.zeroCreate<int32>(arr.Length)
@@ -323,19 +438,19 @@ type Strm =
                 x.Seek(int64 arrLen.[i], SeekOrigin.Current) |> ignore
             //x.DecRef()
             box(arr)
-        elif typeGuid <> CustomizedSerialization.DefaultSerializerGuid then 
-            let bE, decodeFunc = CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( typeGuid ) 
-            if bE then 
-                decodeFunc( x ) 
-            else
-                // This move back is added for compatible reason, old Serializer don't add a Guid, so if we can't figure out the guid in the beginning of
-                // bytestream, we just move back 
-                x.Seek( pos, SeekOrigin.Begin ) |> ignore
-                // Can't parse the guid, using the default serializer
-                x.BinaryFormatterDeserializeToTypeName( fullname ) 
-                // failwith (sprintf "Customized deserializable for typeGuid %A has not been installed" typeGuid ) 
         else
-            x.BinaryFormatterDeserializeToTypeName( fullname ) 
+            match CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( markerGuid ) with
+            | true, decodeFunc -> decodeFunc x
+            | _ -> 
+                match GenericSerialization.FormatterMap.TryGetValue( markerGuid ) with
+                | true, fmt -> x.FormatterDeserializeToTypeName( fullname, fmt() ) 
+                | _ -> 
+                    // This move back is added for compatible reason, old Serializer don't add a Guid, so if we can't figure out the guid in the beginning of
+                    // bytestream, we just move back 
+                    x.Seek( pos, SeekOrigin.Begin ) |> ignore
+                    // Can't parse the guid, using the default serializer
+                    x.FormatterDeserializeToTypeName( fullname, GenericSerialization.GetFormatter GenericSerialization.BinaryFormatterGuid) 
+
     /// Serialize a particular object to bytestream, allow use of customizable serializer if one is installed. 
     /// The customized serializer is of typeof<'U>.FullName, even the object passed in is of a derivative type. 
     static member SerializeFromWithTypeName( x, obj: 'U )=
@@ -363,12 +478,7 @@ type Strm =
             Unchecked.defaultof<_>
         else
             obj :?> 'U
-
-//  JinL: 05/02/2014 MemoryStream is purely mnanaged code, add Finalize() just degrades performance. 
-//    /// Finalize
-//    override x.Finalize() = 
-//        x.Dispose( true )  
-        
+  
 /// MemBitStream Will potentially read & write bits
 //type internal MemBitStream = 
 //    inherit MemStream
@@ -393,70 +503,3 @@ type Strm =
 //    member x.ReadBits( nbit ) = 
 //        ()
                 
-[<AllowNullLiteral>]
-type internal CircularBuffer<'a> (size: int) =
-    member val buffer = Array.zeroCreate<'a> size with get, set
-    member val bufferSize = size with get,set
-    member val readPtr = 0 with get,set
-    member val writePtr = 0 with get,set
-    member x.length = (x.writePtr + x.bufferSize - x.readPtr) % x.bufferSize
-    member x.freeSize = (x.readPtr-1-x.writePtr + x.bufferSize)% x.bufferSize
-    member x.readPtrToEnd = x.bufferSize - x.readPtr
-    member x.writePtrToEnd = x.bufferSize - x.writePtr
-
-    member x.MoveReadPtr (len:int) =
-        if len > x.length then
-            failwith "Cannot move readptr in Circular buffer"
-        x.readPtr <- (x.readPtr + len)
-        if x.readPtr >= x.bufferSize then
-            x.readPtr <- x.readPtr - x.bufferSize
-    member x.MoveWritePtr (len:int) =
-        if len > x.freeSize then
-            failwith "Cannot move writeptr in Circular buffer"
-        x.writePtr <- (x.writePtr + len)
-        if x.writePtr >= x.bufferSize then
-            x.writePtr <- x.writePtr - x.bufferSize
-
-    member x.Write(src:'a) =
-        if x.freeSize < 1 then
-            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
-        x.buffer.[x.writePtr] <- src
-        x.MoveWritePtr(1)
-        
-    member x.Write(writePtr:int, src:'a) =
-        if x.freeSize < 1 then
-            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
-        x.buffer.[writePtr] <- src
-
-
-    member x.Write(src:byte[],posi:int, len:int) =
-        if len > x.freeSize then
-            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
-        if len <= x.writePtrToEnd then
-            Buffer.BlockCopy( src, posi, x.buffer, x.writePtr, len )
-        else 
-            Buffer.BlockCopy( src, posi, x.buffer, x.writePtr, x.writePtrToEnd )
-            Buffer.BlockCopy( src, posi, x.buffer, 0, len - x.writePtrToEnd )
-        x.MoveWritePtr(len)
-
-    member x.Write(writePtr:int,src:byte[],posi:int, len:int) =
-        if len > x.freeSize then
-            failwith "Cannot write to Circular buffer, buffer is full; need to check the free size before write"
-        if len <= x.RelativePtrToEnd(writePtr) then
-            Buffer.BlockCopy( src, posi, x.buffer, writePtr, len )
-        else 
-            Buffer.BlockCopy( src, posi, x.buffer, writePtr, x.RelativePtrToEnd(writePtr) )
-            Buffer.BlockCopy( src, posi, x.buffer, 0, len - x.RelativePtrToEnd(writePtr) )
-
-
-    member x.RelativeLength (readPosition:int) =   
-        (x.writePtr + x.bufferSize - readPosition) % x.bufferSize
-
-    member x.RelativeReadPtrToEnd (readPosition:int) = x.bufferSize - readPosition
-    member x.RelativePtrToEnd (posi:int) = x.bufferSize - posi
-
-    member x.MovePtr (ptr:int, len:int) =
-        let mutable tptr = (ptr + len)
-        while tptr >= x.bufferSize do
-            tptr <- tptr - x.bufferSize
-        tptr

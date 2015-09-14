@@ -30,6 +30,7 @@ open System
 open System.IO
 open System.Collections.Generic
 open System.Collections.Concurrent
+open System.Runtime.Serialization
 open System.Threading
 
 open Prajna.Tools
@@ -622,6 +623,38 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
             null
         | _ -> 
             o
+
+    /// <summary> 
+    /// Serialize a particular object to bytestream using BinaryFormatter, support serialization of null.  
+    /// </summary>
+    member internal x.FormatterSerializeFromTypeName( obj: 'U, fullname:string, fmt: IFormatter )=
+            if Utils.IsNull obj then 
+                fmt.Serialize( x, NullObjectForSerialization() )
+            else
+#if DEBUG
+                if obj.GetType().FullName<>fullname then 
+                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.SerializeFromTypeName, expect type of %s but get %s"
+                                                                    fullname
+                                                                    (obj.GetType().FullName) )     
+#endif
+                fmt.Serialize( x, obj )
+
+    /// <summary> 
+    /// Deserialize a particular object from bytestream using BinaryFormatter, support serialization of null.
+    /// </summary>
+    member internal x.FormatterDeserializeToTypeName(fullname:string, fmt: IFormatter) =
+            let o = fmt.Deserialize( x )
+            match o with 
+            | :? NullObjectForSerialization -> 
+                Unchecked.defaultof<_>
+            | _ -> 
+#if DEBUG
+                if Utils.IsNotNull fullname && o.GetType().FullName<>fullname then 
+                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.DeserializeToTypeName, expect type of %s but get %s"
+                                                                    fullname
+                                                                    (o.GetType().FullName) )     
+#endif
+                o 
 
 [<AllowNullLiteral>] 
 type internal StreamReader<'T>(_bls : StreamBase<'T>, _bufPos : int64, _maxLen : int64) =

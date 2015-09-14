@@ -347,12 +347,12 @@ module GenericSerialization =
 
     let GetDefaultFormatter() = GetFormatter DefaultFormatterGuid
 
-/// <summary> 
-/// Adds serialization related methods to MemStream, which allows us to break dependency cycles between
-/// MemStream and CustomizedSerialization stuff.
-/// Usage only looks nice from F#, which is ok since MemStream will be internal.
-/// If/when we MemStream goes public, we'll need the to use [<Extension>] methods for C# clients.
-/// </summary> 
+///// <summary> 
+///// Adds serialization related methods to MemStream, which allows us to break dependency cycles between
+///// MemStream and CustomizedSerialization stuff.
+///// Usage only looks nice from F#, which is ok since MemStream will be internal.
+///// If/when we MemStream goes public, we'll need the to use [<Extension>] methods for C# clients.
+///// </summary> 
 //type MemStream with 
 
 // Use static class as we wish to support StreamBase<byte> instead of just MemStream

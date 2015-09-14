@@ -237,9 +237,12 @@ type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:st
                 x.EndAction()
             else
                 x.CloseAndUnregister()
-                let msg = x.Job.JobStatusString()
-                Logger.Log( LogLevel.Info, msg )
-                ()
+                let status, msg = x.Job.JobStatus()
+                if status then
+                    Logger.Log( LogLevel.Info, msg )
+                else
+                    Logger.Log( LogLevel.Warning, msg )
+                    failwith msg
     member x.RemappingCommandToLaunchService( peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
         let msPayload = new MemStream( 1024 )
         msPayload.WriteString( curDSet.Name )
@@ -310,9 +313,12 @@ type internal DSetStopServiceAction(cl:Cluster, serviceName:string)=
 // No need to close job (as TaskLaunchMode.DonotLaunch)
 //                x.EndAction()
             else
-                let msg = x.Job.JobStatusString()
-                Logger.Log( LogLevel.Error, msg )
-                failwith msg                            
+                let status, msg = x.Job.JobStatus()
+                if status then
+                    Logger.Log( LogLevel.Info, msg )
+                else
+                    Logger.Log( LogLevel.Warning, msg )
+                    failwith msg                            
     member x.RemappingCommandToStopService( peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
         let msPayload = new MemStream( 1024 )
         msPayload.WriteString( curDSet.Name )

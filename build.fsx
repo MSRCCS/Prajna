@@ -124,6 +124,7 @@ let (|Fsproj|Csproj|Vbproj|) (projFileName:string) =
 
 Target "PrintBuildMachineConfiguration" ( fun _ ->
     printfn "Build Machine Configuration: "
+    printfn "    Machine Name: %s" Environment.MachineName
     printfn "    # of Logical Processors: %d" Environment.ProcessorCount
 #if MONO
 #else
@@ -401,7 +402,7 @@ let runTests (target:string) =
                                        |> NUnit (fun p ->
                                            { p with
                                                DisableShadowCopy = true
-                                               TimeOut = TimeSpan.FromMinutes 10.
+                                               TimeOut = TimeSpan.FromMinutes 20.
                                                OutputFile = sprintf "TestResults_%s_%d.xml" target i})
                     )
 #else
@@ -410,7 +411,7 @@ let runTests (target:string) =
                 DisableShadowCopy = true
                 ProcessModel = SeparateProcessModel
                 Domain = SingleDomainModel
-                TimeOut = TimeSpan.FromMinutes 10.
+                TimeOut = TimeSpan.FromMinutes 20.
                 OutputFile = sprintf "TestResults_%s.xml" target})    
 #endif
     finally

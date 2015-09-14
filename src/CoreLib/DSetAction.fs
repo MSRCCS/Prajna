@@ -442,8 +442,12 @@ type internal DSetFoldAction<'U, 'State >()=
 //                failwith msg
         else
             x.CloseAndUnregister()
-            let msg = x.Job.JobStatusString()
-            Logger.Log( LogLevel.Info, msg )
+            let status, msg = x.Job.JobStatus()
+            if status then
+                Logger.Log( LogLevel.Info, msg )
+            else
+                Logger.Log( LogLevel.Warning, msg)
+                failwith msg
             s                            
     member x.RemappingCommandForRead( peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
         let msPayload = new MemStream( 1024 )

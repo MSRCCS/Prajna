@@ -40,12 +40,6 @@ module internal AssemblyProperties =
 #else
     [<assembly: AssemblyConfiguration("Release")>]
 #endif 
-    // For four below are for internal testing purpose, shall be removed once the test is done.
-    [<assembly: InternalsVisibleTo("azurevm" )>]
-    [<assembly: InternalsVisibleTo("NetTest" )>]
-    [<assembly: InternalsVisibleTo("ProgTest" )>]
-    [<assembly: InternalsVisibleTo("common" )>]
-
     [<assembly: InternalsVisibleTo("Prajna")>]
 
     [<assembly: InternalsVisibleTo("PrajnaClient")>]

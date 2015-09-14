@@ -945,8 +945,8 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                         (infoFunc : 'TP -> string) : int*int =
         let compBase = new ComponentBase()
         let sharedStatePosition = SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        //Component<'T>.StartOnSystemThreadPool func
-        Component<'T>.StartOnThreadPool threadPool func cts tpKey infoFunc
+        Component<'T>.StartOnSystemThreadPool func
+        //Component<'T>.StartOnThreadPool threadPool func cts tpKey infoFunc
         //Component<'T>.StartProcessOnOwnThread func tpKey infoFunc
         (compBase.ComponentId, sharedStatePosition)
 
@@ -961,8 +961,8 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                   (infoFunc : 'TP -> string) : unit =
         proc <- Component.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
         compBase.SharedStatePosition <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        //Component<'T>.StartOnSystemThreadPool proc
-        Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
+        Component<'T>.StartOnSystemThreadPool proc
+        //Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
         //Component<'T>.StartProcessOnOwnThread proc tpKey infoFunc
 
     //  internally overwrites Dequeue and Proc (Dequeue reuses old Dequeue for internal dequeueing)

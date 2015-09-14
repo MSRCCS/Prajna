@@ -40,6 +40,7 @@ open Prajna.Tools.FSharp
 // A basic refcounter interface
 type [<AllowNullLiteral>] IRefCounter<'K> =
     interface   
+        //abstract Allocs : ConcurrentDictionary<string, string> with get // for debugging allocations
         abstract DebugInfo : 'K with get, set
         abstract Key : 'K with get
         abstract Release : (IRefCounter<'K>->unit) with get, set
@@ -76,8 +77,14 @@ type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> a
 #if DEBUG
         if (BufferListDebugging.DebugLeak) then
             Logger.LogF(level, fun _ -> sprintf "SharedPool %A has %d objects in use" info usedList.Count)
-            for o in usedList do
-                Logger.LogF(level, fun _ -> sprintf "Used object %A : %A : %A : %A" o.Key o.Value o.Value.Key o.Value.DebugInfo)
+            Logger.LogF(level, fun _ ->
+                let sb = new System.Text.StringBuilder()
+                for o in usedList do
+                    sb.AppendLine(sprintf "Used object %A : %A : %A : %A" o.Key o.Value o.Value.Key o.Value.DebugInfo) |> ignore
+                    //for a in o.Value.Allocs do
+                    //    sb.AppendLine(sprintf "Ref from %s : %s" a.Key a.Value) |> ignore
+                sb.ToString()
+            )
 #endif
         ()
 
@@ -99,12 +106,12 @@ type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> a
     abstract Release : IRefCounter<'K>->unit
     default x.Release(elem : IRefCounter<'K>) =
 #if DEBUG
-        let debugInfo = elem.DebugInfo // make copy in case it gets overwritten
+        let key = elem.Key // make copy in case it gets overwritten
 #endif
         stack.ReleaseElem(elem :?> 'T)
 #if DEBUG
         if (BufferListDebugging.DebugLeak) then
-            usedList.TryRemove(debugInfo) |> ignore
+            usedList.TryRemove(key) |> ignore
 #endif
 
     abstract GetElem : 'K->ManualResetEvent*'T
@@ -113,7 +120,7 @@ type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> a
 #if DEBUG
         if (BufferListDebugging.DebugLeak) then
             elem.DebugInfo <- info
-            usedList.[info] <- elem
+            usedList.[elem.Key] <- elem
 #endif
         (event, elem)
 
@@ -123,12 +130,14 @@ type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> a
 #if DEBUG
         if (BufferListDebugging.DebugLeak) then
             (!elem).DebugInfo <- info
-            usedList.[info] <- !elem
+            usedList.[(!elem).Key] <- !elem
 #endif
         event
 
 [<AllowNullLiteral>]
 type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<string>> (infoStr : string, bAlloc : bool)=
+    [<DefaultValue>] val mutable private info : string
+
     static let g_id = ref -1L
     let mutable id = Interlocked.Increment(g_id) //mutable for GetFromPool
     let bRelease = ref 0
@@ -138,20 +147,23 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
         else
             null
 
-    new(infoStr : string) as x =
-        new SafeRefCnt<'T>(infoStr, true)
-        then
-            let r : IRefCounter<string> = x.RC
-            x.InitElem()
-            x.RC.SetRef(1L)
-            r.DebugInfo <- infoStr + ":" + x.Id.ToString()
+//    new(infoStr : string) as x =
+//        new SafeRefCnt<'T>(infoStr, true)
+//        then
+//            let r : IRefCounter<string> = x.RC
+//            x.InitElem()
+//            x.RC.SetRef(1L)
+//            r.DebugInfo <- infoStr + ":" + x.Id.ToString()
 
     new(infoStr : string, e : SafeRefCnt<'T>) as x =
         new SafeRefCnt<'T>(infoStr, false)
         then
+            let r : IRefCounter<string> = x.RC
             x.Element <- e.Elem // check for released element prior to setting
             x.RC.AddRef()
-            //let e : 'T = x.Element
+            let e : 'T = x.Element
+            x.info <- infoStr + ":" + x.Id.ToString()
+            //x.Element.Allocs.[x.info] <- Environment.StackTrace
             //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Also using %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
     
     static member internal GetFromPool<'TP when 'TP:null and 'TP:(new:unit->'TP) and 'TP :> IRefCounter<string>>
@@ -165,6 +177,8 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
             x.Element <- poolElem :> IRefCounter<string> :?> 'T
             x.InitElem()
             x.RC.SetRef(1L)
+            x.info <- infoStr + ":" + x.Id.ToString()
+            //x.Element.Allocs.[x.info] <- Environment.StackTrace
             //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Using element %s for id %d - refcount %d" x.Element.Key x.Id x.Element.GetRef)
             (event, x)
         else
@@ -179,6 +193,7 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
         if (Interlocked.CompareExchange(bRelease, 1, 0) = 0) then
             if (Utils.IsNotNull elem) then
                 let bFinalize = defaultArg bFinalize false
+                //x.Element.Allocs.TryRemove(x.info) |> ignore
                 //Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Releasing %s with id %d elemId %s finalize %b - refcount %d" infoStr id x.RC.Key bFinalize x.Element.GetRef)
                 x.RC.DecRef()
 
@@ -222,6 +237,7 @@ type [<AbstractClass>] [<AllowNullLiteral>] RefCountBase() =
         key <- k
 
     interface IRefCounter<string> with
+        //override val Allocs = new ConcurrentDictionary<string, string>() with get
         override x.Key with get() = key
         override val DebugInfo : string = "" with get, set
         override val Release : IRefCounter<string>->unit = (fun _ -> ()) with get, set
@@ -309,10 +325,10 @@ type [<AllowNullLiteral>] RBufPart<'T> =
         then
             x.Init()
 
-    new() as x =
-        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart") }
-        then
-            x.Init()
+//    new() as x =
+//        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart") }
+//        then
+//            x.Init()
 
     new(e : RBufPart<'T>) as x =
         { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", e) }

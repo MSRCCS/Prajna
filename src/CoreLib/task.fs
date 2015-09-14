@@ -2823,6 +2823,9 @@ and internal TaskQueue() =
         if (Utils.IsNotNull ta && Utils.IsNotNull ta.MetadataStream) then
             ta.MetadataStream.DecRef()
             ta.MetadataStream <- null
+            for b in ta.Blobs do
+                if (Utils.IsNotNull b.Stream) then
+                    b.Stream.DecRef()
         lookupTable.TryRemove( (ta.Name, ta.Version), ref Unchecked.defaultof<_> ) |> ignore
             
     member x.LinkQueueAndTask( ta:Task, queue: NetworkCommandQueue ) = 

@@ -366,6 +366,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
         xConn.Socket <- sock
         // create a receiver queue and thread proc
         xRecvC.Q <- xg.fnQRecv()
+        xRecvC.ReleaseItem <- x.RecvRelease
         // create cancellation token and key for thread pools
         //connKey <- NetUtils.GetIPKey(xConn.Socket)
         connKey <- LocalDNS.GetShowInfo(xConn.Socket.RemoteEndPoint)
@@ -506,6 +507,11 @@ and [<AllowNullLiteral>] GenericConn() as x =
     // this specifies the remainder within the SocketAsyncEventArgs
     member private x.ESendRem with get() = eSendRem
 
+    /// Release SA being processed on receiver side
+    /// <param name="rb"> The element to be released
+    member x.RecvRelease(rb : RBufPart<byte> ref) =
+        (!rb).Release()
+
     /// Generic function for recv dequeue to be used by users of GenericConn class
     /// <param name="dequeueAction">The action used to dequeue a SocketAsyncEventArgs to process</param>
     /// <param nam="e">The SocketAsyncEventArg being processed</param>
@@ -542,7 +548,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
             if (0 = curBufRecvRem) then
                 event <- furtherProcess()
         if (0 = eRecvRem && Utils.IsNull event) then
-            rb.Release()
+            //rb.Release()
             (true, null)
         else
             (false, event)
@@ -573,7 +579,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
             if (0 = curBufRecvRem) then
                 event <- furtherProcess()
         if (0 = eRecvRem && Utils.IsNull event) then
-            rb.Release()
+            //rb.Release()
             (true, null)
         else
             (false, event)

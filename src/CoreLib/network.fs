@@ -1247,6 +1247,8 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     // use standard dequeue for fixed size q (using RecvDequeueGenericConn) - won't set any events, use release to set
 
     member private x.RecvSARelease(rb : RBufPart<byte> ref) =
+        // call the bease class SA Release
+        xgc.RecvRelease(rb)
         let size = int64 (!rb).Count
         Interlocked.Add(recvSAQ.CurrentSizeRef, -size) |> ignore
         Interlocked.Add(x.ONet.TotalSARecvSize, -size) |> ignore

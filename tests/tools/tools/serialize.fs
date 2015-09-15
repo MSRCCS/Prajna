@@ -28,9 +28,8 @@ module SerializationTests =
     [<Test>]
     let testPrimitiveArray() = testObject [|1..10|]
         
-//  Higher rank arrays not supported for now
-//    [<Test>]
-//    let testHigherRankArray() = testObject (Array2D.init 3 3 (fun i j -> 3 * i + j))
+    [<Test>]
+    let testHigherRankArray() = testObject (Array2D.init 3 3 (fun i j -> 3 * i + j))
         
     [<Test>]
     let testPrimitiveList() = testObject [1..10]
@@ -43,6 +42,7 @@ module SerializationTests =
             val Real: float
             val Imaginary: float
             new (r: float, i: float) = {Real = r; Imaginary = i; }
+            override this.ToString() = sprintf "(%f, %f)" this.Real this.Imaginary
         end
 
     [<Test>]
@@ -51,6 +51,12 @@ module SerializationTests =
     [<Test>]
     let testStructArray() = testObject [|Complex(1.0, 2.0); Complex(3.0, 4.0)|]
 
+    [<Test>]
+    let testHigherRankStructArray() = testObject <| Array2D.init 2 2 (fun i j -> Complex(float i, float j))
+        
+    [<Test>]
+    let testHigherRankObjectArray() = testObject <| Array2D.init 2 2 (fun i j -> sprintf "%A" (Complex(float i, float j)))
+        
     type PersonStruct =
         struct
             val Name: string

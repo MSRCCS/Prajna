@@ -1459,7 +1459,9 @@ and [<AllowNullLiteral; Serializable>]
                                         null
                                     else 
                                         // Start pos will not be the end of stream, garanteed by state not null 
-                                        new MemStream( buf, pos, length, false, true )
+                                        let msNew = new MemStream( buf, 0, pos + length, false, true )
+                                        msNew.Seek( int64 pos, SeekOrigin.Begin ) |> ignore 
+                                        msNew
                                 let stateFunc() = 
                                     if bCommonStatePerNode || Utils.IsNull state then 
                                         state

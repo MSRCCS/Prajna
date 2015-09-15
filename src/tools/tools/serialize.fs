@@ -176,7 +176,7 @@ module internal Serialize =
             assert(false)
             Unchecked.defaultof<'T>
 
-    let inline memo (f: 'a -> 'b) =
+    let memo (f: 'a -> 'b) =
         let cache = new Dictionary<'a, 'b>()
         fun x -> 
             match cache.TryGetValue(x) with
@@ -196,6 +196,26 @@ module internal Serialize =
 
     let theConverter = FormatterConverter()
     let theContext = StreamingContext(StreamingContextStates.Remoting)
+
+    // Increments a vector of indices to access the next element of a 
+    // possibly multidimensional array with possibly non-zero lower bounds
+    let incrementIndex (lowerBounds: int[]) (lengths: int[]) : int[] -> bool =
+        fun (curIndices: int[]) ->
+            let rec go curDim =
+                if curDim < 0 then
+                    true
+                else
+                    let nextVal = curIndices.[curDim] + 1
+                    let lo = lowerBounds.[curDim]
+                    if nextVal < lo + lengths.[curDim] then
+                        curIndices.[curDim] <- nextVal
+                        false
+                    else
+                        curIndices.[curDim] <- lo
+                        go (curDim - 1)
+            let rank = lowerBounds.Length
+            go (rank - 1)
+
 
 type internal SerializationCallback = obj -> StreamingContext -> unit
 
@@ -333,8 +353,8 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         Buffer.BlockCopy(arrObj, 0, buffer, curPos, sizeInBytes)
         memStream.Position <- newLen
 
-    let writePrimitiveArray : Type * Array -> unit = 
-        let writePrimitiveArrayOneByOne(elType: Type, arrObj: Array) = 
+    let writePrimitiveArray : Type * int[] * int[] * Array -> unit = 
+        let writePrimitiveArrayOneByOne(elType: Type, lowerBounds: int[], lengths: int[], arrObj: Array) = 
             match Type.GetTypeCode(elType) with
             | TypeCode.Boolean -> let arr = arrObj :?> Boolean[] in arr |> Array.iter stream.Write
             | TypeCode.Byte -> let arr = arrObj :?> Byte[] in arr |> Array.iter stream.Write
@@ -351,16 +371,19 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
             | TypeCode.Decimal | TypeCode.DateTime | TypeCode.DBNull | TypeCode.String | TypeCode.Object | TypeCode.Empty | _ -> 
                 failwith <| sprintf "Unknown primitive type %A" elType
         match stream.BaseStream with
-//        | :? MemoryStream as memStream -> 
-//            fun (elType: Type, arrObj: Array) -> writeMemoryBlittableArray (elType, arrObj, memStream)
+        | :? MemoryStream as memStream -> 
+            fun (elType: Type, lowerBounds: int[], lengths: int[], arrObj: Array) -> writeMemoryBlittableArray (elType, arrObj, memStream)
         | _ -> writePrimitiveArrayOneByOne
 
-    let writeValueArray : Type * Array -> unit = 
-        let writeOtherValueTypeArray(elType: Type, arrObj: Array) = 
-            let len = arrObj.Length
+    let writeValueArray : Type * int[] * int[] * Array -> unit = 
+        let writeOtherValueTypeArray(elType: Type, lowerBounds: int[], lengths: int[], arrObj: Array) = 
+            let inc = Serialize.incrementIndex lowerBounds lengths
+            let indices = Array.copy lowerBounds
             let elTypeInfo = typeSerializer.GetSerTypeInfo elType
-            for i = 0 to len - 1 do
-                self.WriteContents(elTypeInfo, arrObj.GetValue(i))
+            if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
+                self.WriteContents(elTypeInfo, arrObj.GetValue(indices))
+                while not <| inc indices do
+                    self.WriteContents(elTypeInfo, arrObj.GetValue(indices))
         match stream.BaseStream with
 //        | :? MemoryStream as memStream ->
 //            fun (elType: Type, arrObj: Array) ->
@@ -370,25 +393,31 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
 //                    writeOtherValueTypeArray(elType, arrObj)
         | _ -> writeOtherValueTypeArray
 
-    let writeObjectArray(arrObj: Array) = 
-        let len = arrObj.Length
-        for i = 0 to len - 1 do
-            self.WriteObject (arrObj.GetValue(i))
+    let writeObjectArray(arrObj: Array, lowerBounds: int[], lengths: int[]) = 
+        let inc = Serialize.incrementIndex lowerBounds lengths
+        let indices = Array.copy lowerBounds
+        if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
+            self.WriteObject(arrObj.GetValue(indices))
+            while not <| inc indices do
+                self.WriteObject (arrObj.GetValue(indices))
 
     member private this.WriteArray (arrayType: Type, arrObj: Array) =
         // TODO: Support higher rank and non-zero-based arrays
-        let len = arrObj.Length
-        stream.Write len
+        stream.Write arrObj.Rank
+        let lowerBounds : int[] = Array.init arrObj.Rank arrObj.GetLowerBound
+        let lengths : int[] = Array.init arrObj.Rank arrObj.GetLength
+        writePrimitiveArray(typeof<int>, [|0|], [|lowerBounds.Length|], lowerBounds)
+        writePrimitiveArray(typeof<int>, [|0|], [|lengths.Length|], lengths)
         let elType = arrayType.GetElementType()
         if elType.IsPrimitive then
-            writePrimitiveArray(elType, arrObj)
+            writePrimitiveArray(elType, lowerBounds, lengths, arrObj)
         elif elType.IsValueType then 
-            writeValueArray(elType, arrObj)
+            writeValueArray(elType, lowerBounds, lengths, arrObj)
         else 
-            writeObjectArray(arrObj)
+            writeObjectArray(arrObj, lowerBounds, lengths)
 
     member private this.WriteContents (objType: SerTypeInfo, obj: obj) = 
-        for field in objType.SerializedFields (*objType.GetFields(Serialize.AllInstance)*) do 
+        for field in objType.SerializedFields do 
             let fieldType = field.FieldType
             let fieldValue = field.GetValue(obj)
             if fieldType.IsPrimitive then
@@ -487,7 +516,7 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
         memStream.Position <- memStream.Position + int64 sizeInBytes
 
     let readPrimitiveArray : Type -> Array -> unit = 
-        let inline readPrimitiveArrayOneByOne (elType: Type) (arrObj: Array) = 
+        let readPrimitiveArrayOneByOne (elType: Type) (arrObj: Array) = 
             match Type.GetTypeCode(elType) with
             | TypeCode.Boolean -> let arr = arrObj :?> Boolean[] in arr |> Array.iteri (fun i _ -> arr.[i] <- reader.ReadBoolean())
             | TypeCode.Byte -> let arr = arrObj :?> Byte[] in arr |> Array.iteri (fun i _ -> arr.[i] <- reader.ReadByte())
@@ -504,15 +533,20 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
             | TypeCode.Decimal | TypeCode.DateTime | TypeCode.DBNull | TypeCode.String | TypeCode.Object | TypeCode.Empty | _ -> 
                 failwith <| sprintf "Unknown primitive type %A" elType
         match reader.BaseStream with
-//        | :? MemoryStream as memStream -> fun (elType: Type) (arrObj: Array) -> readMemoryBlittableArray (elType, arrObj, memStream)
+        | :? MemoryStream as memStream -> fun (elType: Type) (arrObj: Array) -> readMemoryBlittableArray (elType, arrObj, memStream)
         | _ -> readPrimitiveArrayOneByOne
 
-    let readValueArray : SerTypeInfo -> Array -> unit = 
-        let inline readOtherValueTypeArray (elType: SerTypeInfo) (arrObj: Array) = 
+    let readValueArray : SerTypeInfo -> int[] -> int[] -> Array -> unit = 
+        let readOtherValueTypeArray (elType: SerTypeInfo) (lowerBounds: int[]) (lengths: int[]) (arrObj: Array) = 
             let mutable value = FormatterServices.GetUninitializedObject(elType.Type)
-            for i = 0 to arrObj.Length - 1 do
-                do self.ReadContents(elType, &value)
-                arrObj.SetValue(value, i)
+            let inc = Serialize.incrementIndex lowerBounds lengths
+            let indices = Array.copy lowerBounds
+            if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
+                self.ReadContents(elType, &value)
+                arrObj.SetValue(value, indices)
+                while not <| inc indices do
+                    do self.ReadContents(elType, &value)
+                    arrObj.SetValue(value, indices)
         match reader.BaseStream with
 //        | :? MemoryStream as memStream ->
 //            fun (elType: SerTypeInfo) (arrObj: Array) ->
@@ -522,20 +556,25 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
 //                    readOtherValueTypeArray elType arrObj
         | _ -> readOtherValueTypeArray
 
-    let readObjectArray(arrObj: Array) =
-        for i = 0 to arrObj.Length - 1 do
+    let readObjectArray (lowerBounds: int[]) (lengths: int[]) (arrObj: Array) =
+        let inc = Serialize.incrementIndex lowerBounds lengths
+        let indices = Array.copy lowerBounds
+        if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
             let obj = self.ReadObject(reader, marked)
-            arrObj.SetValue(obj, i)
+            arrObj.SetValue(obj, indices)
+            while not <| inc indices do
+                let obj = self.ReadObject(reader, marked)
+                arrObj.SetValue(obj, indices)
 
     let DeserConstructorArgTypes = [| typeof<SerializationInfo>; typeof<StreamingContext> |]
 
-    member private this.ReadArray (elType: Type, arrObj: Array) =
+    member private this.ReadArray (elType: Type, lowerBounds: int[], lengths: int[], arrObj: Array) =
         if elType.IsPrimitive then
             readPrimitiveArray elType arrObj
         elif elType.IsValueType then 
-            readValueArray (typeSerializer.GetSerTypeInfo elType) arrObj
+            readValueArray (typeSerializer.GetSerTypeInfo elType) lowerBounds lengths arrObj
         else 
-            readObjectArray arrObj
+            readObjectArray lowerBounds lengths arrObj
 
     member private this.ReadContents (objType: SerTypeInfo, obj: byref<obj>) : unit = 
         for field in objType.SerializedFields (* objType.GetFields(Serialize.AllInstance)*) do 
@@ -618,11 +657,15 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                     marked.Add str
                     upcast str
                 | arrType when arrType.IsArray ->
-                    let size = reader.ReadInt32()
+                    let rank = reader.ReadInt32()
+                    let lowerBounds : int[] = Array.zeroCreate rank
+                    let lengths : int[] = Array.zeroCreate rank
+                    do readPrimitiveArray typeof<int> lowerBounds
+                    do readPrimitiveArray typeof<int> lengths
                     let elType = arrType.GetElementType()
-                    let newArr = Array.CreateInstance(elType, size)
+                    let newArr = Array.CreateInstance(elType, lengths, lowerBounds)
                     marked.Add newArr
-                    do this.ReadArray(elType, newArr)
+                    do this.ReadArray(elType, lowerBounds, lengths, newArr)
                     upcast newArr
                 | typeType when typeof<Type>.IsAssignableFrom(typeType) -> 
                     let typeName = reader.ReadString()

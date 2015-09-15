@@ -9,6 +9,10 @@ Documentation:
 =======
 http://MSRCCS.github.io/Prajna
 
+Build:
+======
+For Windows, have Visual Studio 2015 installed, then run build.cmd.
+
 License
 =======
 This project is licensed under the [Apache license v2.0](https://github.com/MSRCCS/Prajna/blob/master/LICENSE.txt).

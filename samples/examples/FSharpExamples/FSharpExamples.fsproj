@@ -62,6 +62,7 @@
     <Compile Include="PiEstimation.fs" />
     <Compile Include="NaiveBayes.fs" />
     <Compile Include="WorldPopulation.fs" />
+    <Compile Include="Matrix.fs" />
     <Compile Include="Driver.fs" />
     <Content Include="pg1661.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

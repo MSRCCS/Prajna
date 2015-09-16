@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8"/>
-    <title>Environment - Prajna</title>
+    <title>GenericSerialization - Prajna</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <meta name="description" content=""/>
     <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
@@ -35,78 +35,125 @@
 
 
 
-<h1>Environment</h1>
+<h1>GenericSerialization</h1>
 <div class="xmldoc">
-<p>Represent Prajna Environment for running Prajna program</p>
 </div>
-  <h3>Constructors</h3>
+
+<!-- Render nested types and modules, if there are any -->
+
+  <h3>Functions and values</h3>
   <table class="table table-bordered member-list">
     <thead>
-      <tr><td>Constructor</td><td>Description</td></tr>
+      <tr><td>Function or value</td><td>Description</td></tr>
     </thead>
     <tbody>
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '597', 597)" onmouseover="showTip(event, '597', 597)">
-            new()
+          <code onmouseout="hideTip(event, '19', 19)" onmouseover="showTip(event, '19', 19)">
+            AddFormatter (guid, fmt)
           </code>
-          <div class="tip" id="597">
-            <strong>Signature:</strong> unit -&gt; Environment<br />
+          <div class="tip" id="19">
+            <strong>Signature:</strong> (guid:Guid * fmt:(unit -&gt; IFormatter)) -&gt; unit -&gt; IFormatter<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/environment.fs#L37-37" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/mem.fs#L636-636" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
           
         </td>
       </tr>
-    </tbody>
-  </table>
-  <h3>Static members</h3>
-  <table class="table table-bordered member-list">
-    <thead>
-      <tr><td>Static member</td><td>Description</td></tr>
-    </thead>
-    <tbody>
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '598', 598)" onmouseover="showTip(event, '598', 598)">
-            Cleanup()
+          <code onmouseout="hideTip(event, '20', 20)" onmouseover="showTip(event, '20', 20)">
+            BinaryFormatterGuid 
           </code>
-          <div class="tip" id="598">
-            <strong>Signature:</strong> unit -&gt; unit<br />
+          <div class="tip" id="20">
+            <strong>Signature:</strong> Guid<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/environment.fs#L45-45" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/mem.fs#L615-615" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
-          <p>Cleanup Prajna Environment for running Prajna program</p>
+          <p>Default generic serializer (standard .Net BinaryFormatter)</p>
 
         </td>
       </tr>
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '599', 599)" onmouseover="showTip(event, '599', 599)">
-            Init()
+          <code onmouseout="hideTip(event, '21', 21)" onmouseover="showTip(event, '21', 21)">
+            DefaultFormatterGuid 
           </code>
-          <div class="tip" id="599">
-            <strong>Signature:</strong> unit -&gt; unit<br />
+          <div class="tip" id="21">
+            <strong>Signature:</strong> Guid<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/environment.fs#L41-41" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/mem.fs#L620-620" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
-          <p>Initialize Prajna Environment for running Prajna program
-Currently, it's required to be called only if one needs to create a local cluster via Cluster</p>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '22', 22)" onmouseover="showTip(event, '22', 22)">
+            GetDefaultFormatter ()
+          </code>
+          <div class="tip" id="22">
+            <strong>Signature:</strong> unit -&gt; IFormatter<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/mem.fs#L639-639" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '23', 23)" onmouseover="showTip(event, '23', 23)">
+            GetFormatter guid
+          </code>
+          <div class="tip" id="23">
+            <strong>Signature:</strong> guid:Guid -&gt; IFormatter<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/mem.fs#L634-634" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '24', 24)" onmouseover="showTip(event, '24', 24)">
+            PrajnaFormatterGuid 
+          </code>
+          <div class="tip" id="24">
+            <strong>Signature:</strong> Guid<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/mem.fs#L618-618" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>New generic serializer (our BinarySerializer)</p>
 
         </td>
       </tr>

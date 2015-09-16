@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>DSetLinqExtensions - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="https://github.com/MSRCCS/Prajna">Prajna</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+
+
+<h1>DSetLinqExtensions</h1>
+<div class="xmldoc">
+</div>
+  <h3>Static members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Static member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '168', 168)" onmouseover="showTip(event, '168', 168)">
+            Aggregate(dset, reducer)
+          </code>
+          <div class="tip" id="168">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * reducer:Func&lt;&#39;U,&#39;U,&#39;U&gt;) -&gt; &#39;U<br />
+                          <strong>Type parameters:</strong> 'U          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L73-73" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Reduces the elements using the specified 'reducer' function</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '169', 169)" onmouseover="showTip(event, '169', 169)">
+            Aggregate(dset, state, folder, aggrFunc)
+          </code>
+          <div class="tip" id="169">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * state:&#39;State * folder:Func&lt;&#39;State,&#39;U,&#39;State&gt; * aggrFunc:Func&lt;&#39;State,&#39;State,&#39;State&gt;) -&gt; &#39;State<br />
+                          <strong>Type parameters:</strong> 'U, 'State          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L68-68" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is deserialized (separately) for each partition. 
+Within each partition, the elements are folded into the state variable using 'folder' function. Then 'aggrFunc' is used to aggregate the resulting
+state variables from all partitions to a single state.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '170', 170)" onmouseover="showTip(event, '170', 170)">
+            AsEnumerable(dset)
+          </code>
+          <div class="tip" id="170">
+            <strong>Signature:</strong> dset:DSet&lt;&#39;U&gt; -&gt; IEnumerable&lt;&#39;U&gt;<br />
+                          <strong>Type parameters:</strong> 'U          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L98-98" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Returns the dataset as an IEnumerable<'U></p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '171', 171)" onmouseover="showTip(event, '171', 171)">
+            GroupBy(...)
+          </code>
+          <div class="tip" id="171">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * keySelector:Func&lt;&#39;U,&#39;K&gt; * elementSelector:Func&lt;&#39;U,&#39;U1&gt; * resultSelector:Func&lt;&#39;K,IEnumerable&lt;&#39;U1&gt;,&#39;U2&gt;) -&gt; DSet&lt;&#39;U2&gt;<br />
+                          <strong>Type parameters:</strong> 'U, 'K, 'U1, 'U2          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L93-93" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Groups the elements of a dataset according to a specified key selector function and creates a result value from each group and its key. The elements of each group are projected by using a specified function.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '172', 172)" onmouseover="showTip(event, '172', 172)">
+            GroupBy(...)
+          </code>
+          <div class="tip" id="172">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * keySelector:Func&lt;&#39;U,&#39;K&gt; * resultSelector:Func&lt;&#39;K,IEnumerable&lt;&#39;U&gt;,&#39;U1&gt;) -&gt; DSet&lt;&#39;U1&gt;<br />
+                          <strong>Type parameters:</strong> 'U, 'K, 'U1          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L88-88" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Groups the elements of a dataset according to a specified key selector function and creates a result value from each group and its key.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '173', 173)" onmouseover="showTip(event, '173', 173)">
+            GroupBy(...)
+          </code>
+          <div class="tip" id="173">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * keySelector:Func&lt;&#39;U,&#39;K&gt; * elementSelector:Func&lt;&#39;U,&#39;U1&gt;) -&gt; DSet&lt;seq&lt;&#39;U1&gt;&gt;<br />
+                          <strong>Type parameters:</strong> 'U, 'K, 'U1          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L83-83" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Groups the elements of a dataset according to a specified key selector function and projects the elements for each group by using a specified function.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '174', 174)" onmouseover="showTip(event, '174', 174)">
+            GroupBy(dset, keySelector)
+          </code>
+          <div class="tip" id="174">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * keySelector:Func&lt;&#39;U,&#39;K&gt;) -&gt; DSet&lt;&#39;K * List&lt;&#39;U&gt;&gt;<br />
+                          <strong>Type parameters:</strong> 'U, 'K          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L78-78" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Groups the elements of a dataset according to a specified key selector function.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '175', 175)" onmouseover="showTip(event, '175', 175)">
+            Select(dset, func)
+          </code>
+          <div class="tip" id="175">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * func:Func&lt;&#39;U,int,int64,&#39;U1&gt;) -&gt; DSet&lt;&#39;U1&gt;<br />
+                          <strong>Type parameters:</strong> 'U, 'U1          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L51-51" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Creates a new dataset whose elements are the results of applying the given function to each of the elements 
+of the dataset. The first integer index passed to the function indicates the partition, and the second integer
+passed to the function index (from 0) element within the partition</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '176', 176)" onmouseover="showTip(event, '176', 176)">
+            Select(dset, func)
+          </code>
+          <div class="tip" id="176">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * func:Func&lt;&#39;U,&#39;U1&gt;) -&gt; DSet&lt;&#39;U1&gt;<br />
+                          <strong>Type parameters:</strong> 'U, 'U1          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L44-44" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Creates a new dataset whose elements are the results of applying the given function to each of the elements 
+of the dataset.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '177', 177)" onmouseover="showTip(event, '177', 177)">
+            SelectMany(dset, func)
+          </code>
+          <div class="tip" id="177">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * func:Func&lt;&#39;U,IEnumerable&lt;&#39;U1&gt;&gt;) -&gt; DSet&lt;&#39;U1&gt;<br />
+                          <strong>Type parameters:</strong> 'U, 'U1          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L56-56" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Applies the given function to each element of the dataset and concatenates all the results.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '178', 178)" onmouseover="showTip(event, '178', 178)">
+            Where(dset, func)
+          </code>
+          <div class="tip" id="178">
+            <strong>Signature:</strong> (dset:DSet&lt;&#39;U&gt; * func:Func&lt;&#39;U,bool&gt;) -&gt; DSet&lt;&#39;U&gt;<br />
+                          <strong>Type parameters:</strong> 'U          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/DSetCSharpLinq.fs#L61-61" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Creates a new dataset containing only the elements of the dataset for which the given predicate returns true.</p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="Prajna" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/paper/Prajna_v1.pdf">Prajna Paper</a></li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

@@ -52,20 +52,14 @@ type MatrixSample() =
         let randomMatrix =  Array.init numRows (fun _ -> Array.init vectorSize (fun _ -> r.NextDouble()))
         let vector = Array.init vectorSize (fun _ -> r.NextDouble())
 
-        printf "Storing... "
-        let dSet = 
-            DSet<float[]>(Name = "randomMatrix-" + (Guid.NewGuid().ToString()), Cluster = cluster)
-            |> DSet.distribute randomMatrix
-        do dSet |> DSet.saveToHDD
-        printfn "done."
-
         let singleCoreResult = 
             printTiming "single core" <| lazy 
                 randomMatrix |> Array.map (fun row -> row .* vector)
         
         let distributedResult = 
             printTiming "distributed" <| lazy 
-                dSet
+                DSet<float[]>(Cluster = cluster)
+                |> DSet.distribute randomMatrix
                 |> DSet.mapi(fun i j row -> (i,j), row .* vector)
                 |> DSet.toSeq
                 |> Seq.sortBy fst

@@ -41,13 +41,12 @@ open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.StringTools
 open Prajna.Core
-//open Prajna.Service.CoreServices
 
 [<Serializable>]
 type StorageProfile (profileName : string) =
     //member val diskProfile = [|"c:\\sortbenchmark\\";"c:\\sortbenchmark\\";"c:\\sortbenchmark\\";"c:\\sortbenchmark\\";"d:\\sortbenchmark\\";"e:\\sortbenchmark\\";"f:\\sortbenchmark\\"|] with get
-    member val drives = DriveInfo.GetDrives()
-    member val diskProfile = DriveInfo.GetDrives() |> Array.filter(fun di -> di.DriveType = DriveType.Fixed)  |> Array.filter(fun di -> di.TotalSize > 100000000000L) |> Array.map(fun di -> Path.Combine(di.Name,"sortbenchmark").ToLower()+"\\")
+    //member val drives = DriveInfo.GetDrives()
+    member val diskProfile = null with get,set
     //member val diskProfile = [|"c:\\sortbenchmark\\";"d:\\sortbenchmark\\";"e:\\sortbenchmark\\";"f:\\sortbenchmark\\"|] with get
 
     member val fileListQueue : ConcurrentQueue<(int*string)> = new ConcurrentQueue<(int*string)>()
@@ -74,6 +73,7 @@ type StorageProfile (profileName : string) =
 
                 x.lock := 0
                 b <- true
+
         ()
 
     
@@ -101,7 +101,13 @@ type StorageProfile (profileName : string) =
             while not b && not x.bInited do
                 if (Interlocked.CompareExchange(x.lock,1,0) = 0) then
                     if not x.bInited then
-                        x.diskProfile |> Array.iter (fun path ->
+                        x.diskProfile <- DriveInfo.GetDrives() 
+                            |> Array.filter(fun di -> di.DriveType = DriveType.Fixed)  
+                            |> Array.filter(fun di -> di.TotalSize > 100000000000L) 
+                            |> Array.map(fun di -> Path.Combine(di.Name,"sortbenchmark").ToLower()+"\\")
+
+                        x.diskProfile
+                            |> Array.iter (fun path ->
                                                         try 
                                                             if not (Directory.Exists(path)) then
                                                                 Directory.CreateDirectory(path) |> ignore
@@ -265,6 +271,8 @@ type DiskHelper(records:int64) =
     member x.GeneratePartitionFilePath(parti:int) =
         x.partitiondataSP.GenerateFilePath(parti)
 
+    member x.GetNextPartitionFilePath() =
+        x.partitiondataSP.GetNextFilePath()
 
     member x.GenerateSortedFilePath(parti:int) = 
         x.sorteddataSP.GenerateFilePath(parti)
@@ -291,3 +299,85 @@ type DiskHelper(records:int64) =
                 x.sorteddataSP.Save() 
                 b <- true
                 x.sorteddataSP.lock := 0
+
+
+
+[<AllowNullLiteral>]
+type RollingFileMgr(records:int64) = 
+    let prefix = "sortFile_"
+    let dirs = [|@"C:\sortbenchmark";@"D:\sortbenchmark\";@"E:\sortbenchmark\";@"F:\sortbenchmark\"|]
+    member val dirIndex = ref -1 with get,set
+
+    member val writeFileLock = Array.create dirs.Length (ref 0)
+    member val MaxFileSize = 10000000
+    
+    member val fileHandleQ = new ConcurrentQueue<(FileStream*int)>()
+
+    member val readyFileQ = new ConcurrentQueue<string>()
+    member val fileNameQ = new ConcurrentQueue<string>()
+
+
+    member x.Init() =
+        for i = 0 to dirs.Length - 1 do
+            let dir = Path.Combine(dirs.[i],prefix+(string) records)
+            if not (Directory.Exists(dir)) then
+                Directory.CreateDirectory(dir) |> ignore
+
+            //x.fileHandleQ.Enqueue(x.CreateNewFile() , 0)
+            
+        ()
+
+    member x.GetNewFilename() =
+        let index = Interlocked.Increment(x.dirIndex)
+        let dir = Path.Combine(dirs.[index % dirs.Length],prefix+(string) records)
+        Path.Combine(dir, (string) index + ".bin")
+
+    member x.CreateNewFile() =
+        let fp = x.GetNewFilename()
+        x.fileNameQ.Enqueue(fp)
+        new FileStream(fp,FileMode.Create)
+
+
+    member x.EnqueueFileHandle(fh:FileStream, size:int) =
+        x.fileHandleQ.Enqueue(fh,size)
+
+
+
+[<AllowNullLiteral>]
+type SingleThreadExec1() =
+    let counter = ref 0
+    let bRun = ref 0
+    let q = new ConcurrentQueue<unit->unit>()
+
+    member val Flush = false with get,set
+    member x.IsEmpty() = q.IsEmpty
+    // execute function only on one thread - "counter" number of times
+    member x.Exec(f : unit->unit) =
+        if (Interlocked.Increment(counter) = 1) then
+            let mutable bDone = false
+            while (not bDone) do
+                f()
+                bDone <- (Interlocked.Decrement(counter) = 0)
+
+    // execute function only on one thread - but at least one time after call
+    member x.ExecOnce(f : unit->unit) =
+        if (Interlocked.Increment(counter) = 1) then
+            let mutable bDone = false
+            while (not bDone) do
+                // get count prior to executing
+                let curCount = !counter
+                f()
+                bDone <- (Interlocked.Add(counter, -curCount) = 0)
+
+    member x.ExecQ(f : unit->unit) =
+        q.Enqueue(f)
+        if (Interlocked.Increment(counter) > 10 || x.Flush) then
+            if (Interlocked.CompareExchange(bRun,1,0) = 0) then
+                let mutable bDone = false
+                let fn = ref (fun () -> ())
+                while (not bDone) do
+                    let ret = q.TryDequeue(fn)
+                    if (ret) then
+                        (!fn)()
+                        bDone <- (Interlocked.Decrement(counter) = 0)
+                bRun := 0

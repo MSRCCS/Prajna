@@ -18,9 +18,12 @@ let main argv =
     let dumpClusterFile = parse.ParseBoolean( "-dump", false )
     let machinePort = parse.ParseInt( "-port", -1 )
     let machineExt = parse.ParseString( "-nameext", "" )
-    let internalIP = parse.ParseString( "-intip", "" )
-    let externalIP = parse.ParseString( "-extip", "" )
+    let internalIP = parse.ParseStrings( "-intip", [||] )
+    let externalIP = parse.ParseStrings( "-extip", [||] )
+    let useIP = parse.ParseString("-useip", "") // use particular IP address for machine
     let bWriteIP = parse.ParseBoolean( "-writeip", false )
+    let machineID = parse.ParseBoolean( "-id", false )
+    let machineName = parse.ParseString( "-name", "" )
 
     if (dumpClusterFile = true) then
         // dump inputcluster as text to screen
@@ -43,12 +46,24 @@ let main argv =
         // overwrite default listening port of 1082 if desired
         if (machinePort >= 0) then
             clientInfo.MachinePort <- machinePort
-        if (bWriteIP) then
+        if not (useIP.Equals("")) then
+            clientInfo.MachineName <- useIP
+            clientInfo.InternalIPAddress <- Array.create 1 ((Net.IPAddress.Parse(useIP)).GetAddressBytes())
+        else if (bWriteIP) then
             clientInfo.MachineName <- NetworkSocket.GetIpv4Addr(clientInfo.MachineName).ToString()
-        if (externalIP <> "") then
-            clientInfo.ExternalIPAddress <- Array.create 1 ((Net.IPAddress.Parse( externalIP )).GetAddressBytes())
-        if (internalIP <> "") then
-            clientInfo.InternalIPAddress <- Array.create 1 ((Net.IPAddress.Parse( internalIP )).GetAddressBytes())
+        if (externalIP.Length > 0) then
+            //clientInfo.ExternalIPAddress <- Array.create 1 ((Net.IPAddress.Parse( externalIP )).GetAddressBytes())
+            clientInfo.ExternalIPAddress <- externalIP |> Array.map (fun a -> Net.IPAddress.Parse(a).GetAddressBytes())
+        if (internalIP.Length > 0) then
+            //clientInfo.InternalIPAddress <- Array.create 1 ((Net.IPAddress.Parse( internalIP )).GetAddressBytes())
+            clientInfo.InternalIPAddress <- internalIP |> Array.map (fun a -> Net.IPAddress.Parse(a).GetAddressBytes())
+        if not (machineName.Equals("")) then
+            clientInfo.MachineName <- machineName
+        if (machineID) then
+            let rnd = new System.Random()
+            let b = Array.zeroCreate<byte>(sizeof<uint64>)
+            rnd.NextBytes(b)
+            clientInfo.MachineID <- BitConverter.ToUInt64(b, 0)
         let clusterInfo = new ClusterInfo()
         clusterInfo.Version <- (DateTime.UtcNow)
         clusterInfo.Name <- outputClusterFile.Substring(0, outputClusterFile.LastIndexOf(".inf"))

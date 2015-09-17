@@ -227,14 +227,15 @@ type DSet<'U> () =
                     let meta = BlobMetadata( parti, serial, wLen )
                     let kvList = arr.[parti].GetRange(0, wLen)
                     let _, msOutput = codec.EncodeFunc( meta, kvList.ToArray() ) 
-                    ms.Write( msOutput.GetBuffer(), 0, int msOutput.Length )
+                    ms.Append(msOutput)
+                    msOutput.DecRef()
                     written.[parti] <- written.[parti] + wLen
                     if x.NumReplications<=1 || peers.Length > 1 then 
                         peers |> Array.iter( fun peeri -> 
-                            x.Write( parti, peeri, ms.GetBuffer(), 0, int ms.Length ) )
+                            x.Write( parti, peeri, ms ) )
                     else
                         let peeri = peers.[0]
-                        x.WriteAndReplicate( parti, peeri, ms.GetBuffer(), 0, int ms.Length )
+                        x.WriteAndReplicate( parti, peeri, ms )
                             
                     if wLen >= arr.[parti].Count then 
                         arr.[parti].Clear()
@@ -243,7 +244,8 @@ type DSet<'U> () =
                     if bFlush && arr.[parti].Count>0 then 
                         let newpeers = x.CanWrite( parti )
                         if newpeers.[0] >=0 then 
-                            writeout( parti, newpeers, bFlush )                     
+                            writeout( parti, newpeers, bFlush )
+                    ms.DecRef()
 
             o |> Seq.iteri ( fun i elem -> 
                     let parti = x.PartitionFunc( elem, x.NumPartitions )
@@ -456,7 +458,7 @@ type DSet<'U> () =
             s
         let aggr s1 s2 = 
             s1
-        x.FoldWithCommonStatePerNode( folder, aggr, Unchecked.defaultof<'U> ) |> ignore
+        x.FoldWithCommonStatePerNode( folder, aggr, new Object() ) |> ignore
 
     /// Iterate the given function to each element. This is an action.
     static member iter iterFunc (x:DSet<'U>) = 
@@ -655,6 +657,40 @@ type DSet<'U> () =
     /// <param name="partitionSize"> Size of each partition </param> 
     static member initS initFunc partitionSize (x:DSet<'U>) =
         x.InitS(initFunc, partitionSize)
+
+    /// <summary>
+    /// Create a distributed dataset on the distributed cluster, with each element created by a functional delegate, using
+    /// a given number of parallel execution per node.
+    /// <param name="initFunc"> The functional delegate that create each element in the dataset, the integer index passed to the function 
+    /// indicates the partition, and the second integer passed to the function index (from 0) element within the partition. 
+    /// </param> 
+    /// <param name="partitionSizeFunc"> The functional delegate that returns the size of the partition,  the integer index passed to the function 
+    /// indicates the partition. 
+    /// </param> 
+    /// </summary> 
+    member x.InitN(initFunc, partitionSizeFunc : int->int->int) =
+        x.NumPartitions <- x.Cluster.NumNodes * x.NumParallelExecution
+        x.NumReplications <- 1
+        x.Dependency <- Source
+        x.Function <- Function.Init<'U>( initFunc, partitionSizeFunc x.NumPartitions ) 
+        // Trigger of setting the serialization limit parameter within functions. 
+        // Automatic set serialization limit
+        // x.SerializationLimit <- x.SerializationLimit
+        x
+
+    /// <summary>
+    /// Create a distributed dataset on the distributed cluster, with each element created by a functional delegate, using
+    /// a given number of parallel execution per node.
+    /// <param name="initFunc"> The functional delegate that create each element in the dataset, the integer index passed to the function 
+    /// indicates the partition, and the second integer passed to the function index (from 0) element within the partition. 
+    /// </param> 
+    /// <param name="partitionSizeFunc"> The functional delegate that returns the size of the partition,  the integer index passed to the function 
+    /// indicates the partition. 
+    /// </param> 
+    /// <param name="x"> The DSet to operate on </param>
+    /// </summary> 
+    static member initN(initFunc, partitionSizeFunc : int->int->int) (x:DSet<'U>) =
+        x.InitN(initFunc, partitionSizeFunc)
 
     /// <summary> 
     /// Generate a distributed dataset through a customerized seq functional delegate running on each of the machine. 

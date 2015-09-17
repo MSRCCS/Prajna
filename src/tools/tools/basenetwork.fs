@@ -166,7 +166,7 @@ type [<AbstractClass>] NetUtils() =
     static member internal RecvOrClose(conn : IConn, fn, e) =
         let (closed, asyncOper) = NetUtils.RecvAsync(conn.Socket, e)
         if (closed) then
-            //Logger.LogF(LogLevel.MildVerbose, (fun _ -> sprintf "!!!UTC %s baseNetwork; close is called %A, BytesTransferred %d, SocketError %A, receive buffer size:%d" (UtcNowToString()) (LocalDNS.GetShowInfo(conn.Socket.RemoteEndPoint)) e.BytesTransferred e.SocketError conn.Socket.ReceiveBufferSize ))
+            //Logger.LogF(LogLevel.MildVerbose, (fun _ -> sprintf "baseNetwork; close is called %A, BytesTransferred %d, SocketError %A, receive buffer size:%d" (LocalDNS.GetShowInfo(conn.Socket.RemoteEndPoint)) e.BytesTransferred e.SocketError conn.Socket.ReceiveBufferSize ))
             conn.Close()
         else if (not asyncOper) then
             fn e
@@ -481,6 +481,26 @@ type Network() =
         with e->
             ()
 
+    /// Generic function to listen on given port for incoming connections
+    /// Create a new connection of type 'T and add it to list when connection is accepted
+    /// <param name="port">The port to listen on</param>
+    /// <param name="bind">The local address to bind to</param>
+    /// <param name="state">
+    /// The state passed to connection initialization.  When a connection of IConn is created
+    /// conn.Init(socket, state) is called
+    /// </param>
+    member x.Listen<'T when 'T :> IConn and  'T : (new: unit->'T)>(port : int, bind : string, state : obj) =
+        if (bind.Equals("")) then
+            x.Listen<'T>(port, state)
+        else
+            let addr = Dns.GetHostAddresses(bind)
+            listen <- new TcpListener(addr.[0], port)
+            listen.Start()
+            try
+                let newFn = (fun () -> new 'T() :> IConn)
+                listen.BeginAcceptSocket(AsyncCallback(x.AfterAccept), (listen, newFn, state)) |> ignore
+            with e->
+                ()
     /// Stop listening for incoming connections
     member x.StopListen() =
         try
@@ -510,7 +530,7 @@ type Network() =
     /// Each conn can be different class so long as interface IConn is implemented
     /// A random host IPAddress is chosen for both local and remote endpoints from the list of possible interfaces.
     /// <param name="addrStr">An address string of the remote end</param>
-    /// <param name="port">The port of the remove end</param>
+    /// <param name="port">The port of the remote end</param>
     /// <param name="state">
     /// The state passed into connection initialization.  When connection is created, conn.Init(socket, state) is called.
     /// </param>
@@ -539,21 +559,114 @@ type Network() =
             with e->
                 null 
 
+    /// Generic function to connect to given address string
+    /// Each conn can be different class so long as interface IConn is implemented
+    /// A random host IPAddress is chosen for both local and remote endpoints from the list of possible interfaces.
+    /// <param name="addrStr">An address string of the remote end</param>
+    /// <param name="port">The port of the remote end</param>
+    /// <param name="state">
+    /// The state passed into connection initialization.  When connection is created, conn.Init(socket, state) is called.
+    /// </param>
+    member x.Connect<'T when 'T :> IConn and  'T : (new: unit->'T)>(addrStr : string, port : int, bind : string, state : obj) =
+        if (bind.Equals("")) then
+            x.Connect<'T>(addrStr, port, state)
+        else
+            let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
+            let conn = new 'T() :> IConn
+            let addr = (Dns.GetHostAddresses(bind)).[0]
+            try
+                sock.Bind(IPEndPoint(addr, 0))
+                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Bind to local %A" addr))
+                // use IP v4 address, randomly pick one for remote
+                let addrs = Dns.GetHostAddresses(addrStr)
+                let addrsv4 = addrs |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
+                let index = NetUtils.RandGen.Next(0, addrsv4.Length)
+                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %d - %A" index addrsv4.[index]))
+                sock.Connect(addrsv4.[index], port)
+                x.InitConn(conn, sock, state)
+                conn
+            with e->
+                try
+                    let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
+                    sock.Bind(IPEndPoint(addr, 0))
+                    sock.Connect(addrStr, port)
+                    x.InitConn(conn, sock, state)
+                    conn
+                with e->
+                    null 
+                                    
     static member internal SrcDstBlkCopy(src : byte[], srcOffset : int byref, srcLen : int byref,
                                          dst : byte[], dstOffset : int byref, dstLen : int byref) =
         let toCopy = Math.Min(srcLen, dstLen)
         if (toCopy > 0) then
+            if (srcOffset < 0) then
+                failwith "offset cannot be less than zero"
             Buffer.BlockCopy(src, srcOffset, dst, dstOffset, toCopy)
             srcOffset <- srcOffset + toCopy
             srcLen <- srcLen - toCopy
             dstOffset <- dstOffset + toCopy
             dstLen <- dstLen - toCopy
 
+    // dst is memstream
+    static member internal SrcDstBlkCopy(src : byte[], srcOffset : int byref, srcLen : int byref,
+                                         dst : StreamBase<byte>, dstLen : int byref) =
+        let toCopy = Math.Min(srcLen, dstLen)
+        if (toCopy > 0) then
+            dst.Write(src, srcOffset, toCopy)
+            srcOffset <- srcOffset + toCopy
+            srcLen <- srcLen - toCopy
+            dstLen <- dstLen - toCopy
+        toCopy
+
+    // dst is memstream
+    static member internal SrcDstBlkNoCopy(src : RBufPart<byte>, srcOffset : int byref, srcLen : int byref,
+                                           dst : StreamBase<byte>, dstLen : int byref) =
+        let toCopy = Math.Min(srcLen, dstLen)
+        if (toCopy > 0) then
+            //dst.Write(src, srcOffset, toCopy)
+            dst.AppendNoCopy(src, int64 srcOffset, int64 toCopy)
+            srcOffset <- srcOffset + toCopy
+            srcLen <- srcLen - toCopy
+            dstLen <- dstLen - toCopy
+        toCopy
+
+    // src is memstream
+    static member internal SrcDstBlkCopy(src : StreamBase<byte>, srcLen : int byref,
+                                         dst : byte[], dstOffset : int byref, dstLen : int byref) =
+        let toCopy = Math.Min(src.Length-src.Position, int64 srcLen)
+        let toCopy = int32(Math.Min(Math.Min(toCopy, int64 dstLen), int64 Int32.MaxValue))
+        if (toCopy > 0) then
+            let amtRead = src.Read(dst, dstOffset, toCopy)
+            if (amtRead >= 0) then
+                srcLen <- srcLen - amtRead
+                dstOffset <- dstOffset + amtRead
+                dstLen <- dstLen - amtRead
+                amtRead
+            else
+                0
+        else
+            toCopy
+
 // =============================================================================
 // Not really network stuff, can be used by any processing pipeline that
 // wants to implement processing on thread pool and have flow control (using the resizequeue structures)
 
 type [<AllowNullLiteral>] internal ComponentBase() =
+    static do
+        let minThreads = ref 0
+        let minIOThreads = ref 0
+        let maxThreads = ref 0
+        let maxIOThreads = ref 0
+        let availThreads = ref 0
+        let availIOThreads = ref 0
+        //System.Threading.ThreadPool.SetMinThreads(6, 6) |> ignore
+        System.Threading.ThreadPool.GetMinThreads(minThreads, minIOThreads)
+        System.Threading.ThreadPool.GetMaxThreads(maxThreads, maxIOThreads)
+        System.Threading.ThreadPool.GetAvailableThreads(availThreads, availIOThreads)
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Minimum threads: %d Minimum I/O completion threads: %d" !minThreads !minIOThreads)
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Maximum threads: %d Maximum I/O completion threads: %d" !maxThreads !maxIOThreads)
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Available threads: %d Available I/O completion threads: %d" !availThreads !availIOThreads)
+
     static let componentCount = ref -1
     let componentId = Interlocked.Increment(componentCount)
     let mutable sharedStatePosition = -1
@@ -627,6 +740,7 @@ and [<AllowNullLiteral>] internal SharedComponentState() =
 /// There is also support for multiple processing steps to take place in a single item
 type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     let compBase = new ComponentBase()
+    let bRelease = ref 0
     let item : 'T ref = ref null
     let mutable q : BaseQ<'T> = null
     let mutable bIsClosed = false
@@ -643,6 +757,15 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     let [<VolatileField>] mutable isTerminated = false
     let [<VolatileField>] mutable bInProcessing = false
     let [<VolatileField>] mutable procCount = 0
+    override x.Finalize() =
+        /// Close All Active Connection, to be called when the program gets shutdown.
+        x.ReleaseAllItems()
+    /// Standard form for all class that use CleanUp service
+    interface IDisposable with
+        /// Close All Active Connection, to be called when the program gets shutdown.
+        member x.Dispose() = 
+            x.Finalize()
+            GC.SuppressFinalize(x)
 
     // accessors
     member internal x.Item with get() = item
@@ -703,6 +826,18 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     member private x.ProcCount with get() = procCount and set(v) = procCount <- v
     member private x.CompBase with get() = compBase
 
+    member x.ReleaseAllItems() =
+        if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
+            let itemDQ : 'T ref = ref Unchecked.defaultof<'T>
+            if (Utils.IsNotNull !item) then
+                x.ReleaseItem(item)
+                item := null
+            if (Utils.IsNotNull x.Q) then
+                while (not x.Q.IsEmpty) do
+                    let (success, event) = x.Q.DequeueWait(itemDQ)
+                    if (success) then
+                        x.ReleaseItem(itemDQ)
+                        itemDQ := null
     // default CloseAction by setting next component to close in pipeline 
     // this gets called once bIsClosed is true && queue is empty, triggers next component to close
     /// A default "Close" function which can be used
@@ -730,13 +865,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         (self : Component<'T>) (nextComponent : Component<'TN>) (triggerNext : Option<unit->unit>) () =
         if (Interlocked.Increment(self.TerminateDone) = 0) then
             if (Utils.IsNotNull nextComponent) then
-                // clear the queue
-                if (Utils.IsNotNull nextComponent.Q) then
-                    let item : 'TN ref = ref Unchecked.defaultof<'TN>
-                    while (not nextComponent.Q.IsEmpty) do
-                        let (success, event) = nextComponent.Q.DequeueWait(item)
-                        if (success) then
-                            nextComponent.ReleaseItem(item)
+                nextComponent.ReleaseAllItems()
                 nextComponent.Terminate()
             match triggerNext with
                 | None -> ()
@@ -810,7 +939,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// <param name="infoFunc">A function which returns information about the thread</param>
     static member StartProcessOnOwnThread(proc : unit->ManualResetEvent*bool)
                                          (tpKey : 'TP)
-                                    (infoFunc : 'TP -> string) : unit =
+                                         (infoFunc : 'TP -> string) : unit =
         let thread = ThreadTracking.StartThreadForAction ( fun _ -> infoFunc tpKey ) (Action<_>( fun _ -> Component<'T>.ProcessOnOwnThread(proc) ))
         thread.IsBackground <- false
         ()
@@ -831,9 +960,9 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                         (infoFunc : 'TP -> string) : int*int =
         let compBase = new ComponentBase()
         let sharedStatePosition = SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        //Component<'T>.StartOnSystemThreadPool func
-        Component<'T>.StartOnThreadPool threadPool func cts tpKey infoFunc
-        //x.StartProcessOnOwnThread func tpKey infoFunc
+        Component<'T>.StartOnSystemThreadPool func
+        //Component<'T>.StartOnThreadPool threadPool func cts tpKey infoFunc
+        //Component<'T>.StartProcessOnOwnThread func tpKey infoFunc
         (compBase.ComponentId, sharedStatePosition)
 
     /// Start component processing on threadpool - internal as ThreadPoolWithWaitHandles is not internal
@@ -847,9 +976,9 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                   (infoFunc : 'TP -> string) : unit =
         proc <- Component.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
         compBase.SharedStatePosition <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        //Component<'T>.StartOnSystemThreadPool proc
-        Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
-        //x.StartProcessOnOwnThread proc tpKey infoFunc
+        Component<'T>.StartOnSystemThreadPool proc
+        //Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
+        //Component<'T>.StartProcessOnOwnThread proc tpKey infoFunc
 
     //  internally overwrites Dequeue and Proc (Dequeue reuses old Dequeue for internal dequeueing)
     /// Initialize the use of multiple processors - this is useful if multiple actions need to be performed
@@ -899,25 +1028,22 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// Register a processor for the component - same as RegisterProc, but default name is created and returned
     /// <param name="processItem">A function which does processing, returns event if cannot complete</param>
     /// <returns>The internal name of the processor - can use for unregistering</returns>
-    member x.AddProc(processItem : 'T->ManualResetEvent) =
-        if (!count <> -1) then
-            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Registering processor %d" (!count+1)))
-        let name = sprintf "Listener:%d:%d" compBase.ComponentId (Interlocked.Increment(count))
-        x.RegisterProc(name, processItem)
-        name
-
-    /// Register a processor for the component - same as RegisterProc, but default name is created and returned
-    /// <param name="processItem">A function which does processing, returns event if cannot complete</param>
-    /// <returns>The internal name of the processor - can use for unregistering</returns>
     member x.GetOrAddProc(name: string, processItem : 'T->ManualResetEvent) =
         x.CheckAndInitMultipleProcess() 
         processors.GetOrAdd( name, fun _ -> if Interlocked.Increment( count ) <> 0 then 
                                                 Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Registering processor %d" (!count+1)))
                                             (processItem, false)
                                             ) |> ignore
-        
 
-
+    /// Register a processor for the component - same as RegisterProc, but default name is created and returned
+    /// <param name="processItem">A function which does processing, returns event if cannot complete</param>
+    /// <returns>The internal name of the processor - can use for unregistering</returns>
+    member x.AddProc(processItem : 'T->ManualResetEvent) =
+        if (!count <> -1) then
+            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Registering processor %d" (!count+1)))
+        let name = sprintf "Listener:%d:%d" compBase.ComponentId (Interlocked.Increment(count))
+        x.RegisterProc(name, processItem)
+        name
 
     /// Unregister a processor for the component
     /// <param name="name">The name of the processing to be removed</param>

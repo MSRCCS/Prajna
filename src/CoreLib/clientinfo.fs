@@ -135,6 +135,7 @@ type internal ClientStatusEx() =
             ms.Serialize(info)
             x.SendQ.Enqueue(ms.GetBuffer())
             x.SendEvent.Set() |> ignore
+            ms.DecRef()
 
     // server request client node for information
     member x.ReqInfo(desiredInfo : ClientInfoType) =
@@ -145,6 +146,7 @@ type internal ClientStatusEx() =
             ms.WriteUInt32(uint32 desiredInfo)
             x.SendQ.Enqueue(ms.GetBuffer())
             x.SendEvent.Set() |> ignore
+            ms.DecRef()
 
     member x.ReqOperation (opNoun:ControllerNoun) (target : string) =                   // currently supports delete, flexible for future needs
         if (x.SendQ.Count < x.MaxOutstandingRequests) then
@@ -155,6 +157,7 @@ type internal ClientStatusEx() =
            // ms.WriteUInt32(uint32 ClientInfoType.Assembly)
             x.SendQ.Enqueue(ms.GetBuffer())
             x.SendEvent.Set() |> ignore
+            ms.DecRef()
 
     member x.ReqValidate(desiredInfo : ClientInfoType) = 
         if (x.SendQ.Count < x.MaxOutstandingRequests) then
@@ -164,6 +167,7 @@ type internal ClientStatusEx() =
             ms.WriteUInt32(uint32 desiredInfo)
             x.SendQ.Enqueue(ms.GetBuffer())
             x.SendEvent.Set() |> ignore 
+            ms.DecRef()
         ()
 
     member x.StartReq(name : string) =
@@ -173,6 +177,7 @@ type internal ClientStatusEx() =
         ms.WriteString(name)
         x.SendQ.Enqueue(ms.GetBuffer())
         x.SendEvent.Set() |> ignore
+        ms.DecRef()
 
     // parse receive command (at both client and server)
     member x.ParseRecv(buf : byte[]) =
@@ -206,6 +211,7 @@ type internal ClientStatusEx() =
                 let target = ms.ReadString()
                 x.DelDSet(target)
             | _ -> Logger.Log( LogLevel.Error, sprintf "Error: unknown controller command %A" cmd )
+        ms.DecRef()
 
     // code running on client nodes ====
     /// Update  of client node
@@ -321,7 +327,9 @@ type internal ClientStatusEx() =
            ms.Serialize(x.metadict)
            ms.WriteInt32(x.clusterFiles.Count)
            ms.Serialize(x.clusterFiles)
-        ms.GetBuffer()
+        let outParam = ms.GetBuffer()
+        ms.DecRef()
+        outParam
 
     // code running on controller ====
     /// Compute which information needs to be sent by client nodes?
@@ -378,6 +386,7 @@ type internal ClientStatusEx() =
 
         else
             ()
+        ms.DecRef()
 
 //following delete functions get their targets via x.ReqOperation(). Target is decoded to be a version or full entity and appropriate action is taken
     member x.DelAssembly (target:string) =
@@ -520,6 +529,7 @@ type internal ClientController() =
                         Logger.Log( LogLevel.Error, (sprintf "Error: unknown controller command %A" cmd ))
                 | _ -> 
                     Logger.Log( LogLevel.Error, (sprintf "Error: unknown received info from cluster controller %A" rcvdInfo ))
+                ms.DecRef()
             with
             | e -> Logger.Log( LogLevel.Info, sprintf "Error: fail to communicate with cluster controller %A" e  )
         with 

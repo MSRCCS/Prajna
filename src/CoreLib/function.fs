@@ -79,10 +79,10 @@ type internal MapToKind =
 /// Output parameter is seq<parti, serial, numElems, ms>
 [<AllowNullLiteral; Serializable>]
 type internal MetaFunction() = 
-    let nullDecode( meta:BlobMetadata, ms:MemStream ) =
+    let nullDecode( meta:BlobMetadata, ms:StreamBase<byte> ) =
         ( meta, System.Object() )
     let nullEncode( meta:BlobMetadata, o: Object ) = 
-        let ms = new MemStream()
+        let ms = new MemStream() :> StreamBase<byte>
         ms.Serialize( o ) 
         ( meta, ms )
     let nullMap( meta:BlobMetadata, o: Object, mapTo:MapToKind ) = 
@@ -168,7 +168,7 @@ type internal CastFunction<'U>() =
         match o with 
         | :? (('U)[]) as arr ->
             arr
-        | :? MemStream as ms -> 
+        | :? StreamBase<byte> as ms -> 
             ms.DeserializeTo<'U[]>()
         | _ -> 
             let msg = sprintf "CastFunction.CastTo, the input object is not of type ('U)[] or MemStream, but type %A with information %A" (o.GetType()) o
@@ -189,8 +189,7 @@ type internal CastFunction<'U>() =
         | _ -> 
             let msg = sprintf "Error in CastFunction.MapTo, unsupported mapTo %A" mapTo
             Logger.Log( LogLevel.Error, msg )
-            failwith msg           
-            
+            failwith msg            
 
 /// Function that used in DSet.AsyncReadChunk
 /// input parameter is parti, serial, numElems, ms
@@ -221,7 +220,7 @@ type internal MetaFunction<'U>() as x =
     /// Input: metadata, MemStream
     /// Output: metadata, elemObject
     /// It is OK for value object to be null. However, a null KeyObject signals the end of the stream. 
-    member x.DecodeFunc(meta, ms ) =
+    member x.DecodeFunc(meta, ms : StreamBase<byte> ) =
         // Decode Key Value
         try
             if Utils.IsNotNull ms then 
@@ -247,7 +246,7 @@ type internal MetaFunction<'U>() as x =
             let msg = sprintf "Error in MetaFunction<'K, 'V>.decodeFunc, most probably fail to cast with %A" e
             Logger.Log( LogLevel.Error, msg )
             failwith msg
-    member x.EncodeFuncFromObj(meta, o:Object ) =
+    member x.EncodeFuncFromObj(meta, o:Object ) : BlobMetadata*StreamBase<byte> =
         try
             if Utils.IsNotNull o then 
                 x.EncodeFunc( meta, (o:?>('U)[]) )
@@ -259,7 +258,7 @@ type internal MetaFunction<'U>() as x =
             Logger.Log( LogLevel.Error, msg )
             failwith msg
     // Encoding
-    member x.EncodeFunc(meta, elemArray ) =
+    member x.EncodeFunc(meta, elemArray ) : BlobMetadata*StreamBase<byte> =
         // Encode Key Value
         if Utils.IsNotNull elemArray then 
             // Encode will update the metadata 
@@ -267,8 +266,10 @@ type internal MetaFunction<'U>() as x =
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "EncodeFunc, type %A input metadata %s output metadata %s" (elemArray.GetType()) (meta.ToString()) (encMeta.ToString()) ))
             if encMeta.NumElems<>elemArray.Length then 
                 let msg = sprintf "Error in MetaFunction<'U>.EncodeFunc, the length of key array doesn't match that of numElems, %s (actual %d key-values)" (MetaFunction.MetaString(meta)) elemArray.Length
-                Logger.Log( LogLevel.Warning, msg )
-            let ms = new MemStream() 
+                Logger.Log( LogLevel.Warning, msg )            
+           // let ms = new MemStream() :> StreamBase<byte>
+            let ms = new MemoryStreamB() :> StreamBase<byte>
+            ms.Info <- sprintf "EncodeFunc:"
             let orgpos = ms.Position // Position 0, 
             ms.SerializeFrom( elemArray )
 //            if Utils.IsNotNull valueArray then 
@@ -559,7 +560,7 @@ type internal FunctionWrapper<'U, 'U1 >( func: (BlobMetadata* ('U)[] ) -> BlobMe
                     match o with 
                     | :? (('U)[]) as arr ->
                         meta, arr
-                    | :? MemStream as ms -> 
+                    | :? StreamBase<byte> as ms -> 
                         x.UpstreamCodec.DecodeFunc( meta, ms )
                     | _ -> 
                         let msg = sprintf "FunctionWrapper.WrapperMapFunc, the input object is not of type ('U)[] or MemStream, but type %A with information %A" (o.GetType()) o
@@ -1316,7 +1317,7 @@ type internal CrossJoinChooseFunctionWrapper<'U0,'U1,'U>(mapFunc: 'U0->'U1->'U o
             match obj with 
             | :? (('U1)[]) as arr ->
                 arr
-            | :? MemStream as ms -> 
+            | :? StreamBase<byte> as ms -> 
                 ms.DeserializeTo<'U1[]>()
             | _ -> 
                 let msg = sprintf "CrossJoinFunctionWrapper.CrossJoinMapFunc, the input object is not of type ('U1)[] or MemStream, but type %A with information %A" (obj.GetType()) obj
@@ -1370,7 +1371,7 @@ type internal CrossJoinFoldFunctionWrapper<'U0,'U1,'U,'S>(mapFunc: 'U0->'U1->'U,
             match obj with 
             | :? (('U1)[]) as arr ->
                 arr
-            | :? MemStream as ms -> 
+            | :? StreamBase<byte> as ms -> 
                 ms.DeserializeTo<'U1[]>()
             | _ -> 
                 let msg = sprintf "CrossJoinFunctionWrapper.CrossJoinMapFunc, the input object is not of type ('U1)[] or MemStream, but type %A with information %A" (obj.GetType()) obj
@@ -1488,7 +1489,7 @@ type internal FunctionWrapperPartition<'U, 'U1 >(func: (BlobMetadata* ('U)[] ) -
                     match o with 
                     | :? (('U)[]) as arr ->
                         meta, arr
-                    | :? MemStream as ms -> 
+                    | :? StreamBase<byte> as ms -> 
                         x.UpstreamCodec.DecodeFunc( meta, ms )
                     | _ -> 
                         let msg = sprintf "FunctionWrapperPartition.WrapperMapFunc, the input object is not of type ('U)[] or MemStream, but type %A with information %A" (o.GetType()) o
@@ -1575,7 +1576,7 @@ type internal Function () =
 //    member val Assembly : AssemblyEx = null with get, set
     member val FunctionObj : MetaFunction = null with get, set
     member val ParamTypes : Type[] = [| |] with get, set
-    member x.Pack( ms: MemStream ) = 
+    member x.Pack( ms: StreamBase<byte> ) = 
         ms.WriteByte( byte x.FunctionType )
         ms.WriteByte( byte x.TransformType )
 //        if ( x.FunctionType &&& FunctionKind.HasAssembly )<>FunctionKind.None then 
@@ -1594,17 +1595,14 @@ type internal Function () =
             // We wrap around Function object serialization so that this portion can be skipped at deserialization. 
             use msFunc = new MemStream( 1024 )
             msFunc.Serialize( x.FunctionObj )
-            let bytearray = msFunc.ForWriteConvertToByteArray()
-            ms.WriteBytesWLen( bytearray ) 
-            Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> let msRetry = new MemStream( bytearray )
-                                                             let funBack = msRetry.Deserialize() 
-                                                             sprintf "Success in deserialization functions. "))
+            ms.WriteMemStream(msFunc) |> ignore
+            Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Success in deserialization functions. "))
     static member MakeSeq f = 
         { new IEnumerable<'U> with 
                 member x.GetEnumerator() = f()
             interface System.Collections.IEnumerable with 
                 member x.GetEnumerator() = (f() :> System.Collections.IEnumerator) }
-    static member Unpack( ms:MemStream, bUnpackFunc ) = 
+    static member Unpack( ms:StreamBase<byte>, bUnpackFunc ) = 
         let functionType = enum<FunctionKind>( ms.ReadByte() )
         let transformType = enum<TransformKind>( ms.ReadByte() )
 //        if ( x.FunctionType &&& FunctionKind.HasAssembly )<> FunctionKind.None then 

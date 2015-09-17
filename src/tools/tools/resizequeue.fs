@@ -42,9 +42,25 @@ module internal Ev =
         else
             null
 
+    let inline ResetUntilCond (cond : unit->bool, ev : ManualResetEvent) =
+        while (cond()) do
+            ev.Reset() |> ignore            
+            // recheck condition after reset in case another thread has set it
+            if (cond()) then
+                ev.WaitOne() |> ignore
+                //if ev.WaitOne(0) then
+                //    ev.Reset() |> ignore
+                //else
+                //    ev.WaitOne() |> ignore
+                //()
+            else
+                ev.Set() |> ignore
+
     let inline SetOnNotCond (cond : unit->bool, ev : ManualResetEvent) =
         if not (cond()) then
             ev.Set() |> ignore
+    let SetOnNotCondNoInline (cond : unit->bool, ev : ManualResetEvent) =
+        SetOnNotCond(cond, ev)
 
 /// The base class for various concurrent queue structures with and without flow control logic
 /// all enqueue/dequeue methods return (success, waithandle) in all classes
@@ -172,6 +188,18 @@ type BaseQ<'T>() =
         else
             (false, ev)
 
+    static member inline internal EnqueueSync(enq: 'T->unit, item : 'T, cond : unit->bool, ev : ManualResetEvent) =
+        Ev.ResetUntilCond(cond, ev)
+        enq(item)
+        (true, null)
+
+
+    static member internal EnqueueNoInline(enq: 'T->unit, item : 'T, cond : unit->bool, ev : ManualResetEvent, waitTime : int) =
+        BaseQ.Enqueue(enq, item, cond, ev, waitTime)
+
+    static member internal EnqueueSyncNoInline(enq: 'T->unit, item : 'T, cond : unit->bool, ev : ManualResetEvent) =
+        BaseQ.EnqueueSync(enq, item, cond, ev)
+
     static member inline internal Dequeue(deq : 'T ref->bool, item : 'T ref, cond : unit->bool,
                                           ev : ManualResetEvent, waitTime : int) =
         let ev = Ev.ResetOnCond(cond, ev, waitTime)
@@ -179,6 +207,15 @@ type BaseQ<'T>() =
             (deq(item), null)
         else
             (false, ev)
+
+    static member internal DequeueNoInline(deq : 'T ref->bool, item : 'T ref, cond : unit->bool,
+                                           ev : ManualResetEvent, waitTime : int) =
+        BaseQ.Dequeue(deq, item, cond, ev, waitTime)
+
+    static member inline internal DequeueSync(deq : 'T ref->bool, item : 'T ref, cond : unit->bool,
+                                              ev : ManualResetEvent) =
+        Ev.ResetUntilCond(cond, ev)
+        (deq(item), null)
               
     static member inline internal Dequeue(deq : 'T ref->bool*ManualResetEvent, item : 'T ref, cond : unit->bool,
                                           ev : ManualResetEvent, waitTime : int) =
@@ -187,6 +224,15 @@ type BaseQ<'T>() =
             deq(item)
         else
             (false, ev)
+
+    static member internal DequeueNoInline(deq : 'T ref->bool*ManualResetEvent, item : 'T ref, cond : unit->bool,
+                                           ev : ManualResetEvent, waitTime : int) =
+        BaseQ.Dequeue(deq, item, cond, ev, waitTime)
+
+    static member inline internal DequeueSync(deq : 'T ref->bool*ManualResetEvent, item : 'T ref, cond : unit->bool,
+                                              ev : ManualResetEvent) =
+        Ev.ResetUntilCond(cond, ev)
+        deq(item)
 
 /// A queue derived from BaseQ with no limits on queue growth
 [<AllowNullLiteral>]
@@ -322,7 +368,7 @@ type internal FixedLenQ<'T>() as x =
     /// Tuple of (success, event) where success is always true and event is null
     /// </returns>
     override x.EnqueueSync (item : 'T) =
-        BaseQ.Enqueue(eq, item, isFullMax, emptyEvent, -1)
+        BaseQ.EnqueueSync(eq, item, isFullMax, emptyEvent)
 
     /// <summary> 
     /// Enqueue an item. Queue grows to max len, if it exceeds then it returns a wait handle
@@ -354,7 +400,7 @@ type internal FixedLenQ<'T>() as x =
     /// If so, caller can wait on event prior to calling again.
     /// </returns>
     override x.DequeueSync (result : 'T ref) =
-        BaseQ.Dequeue(dq, result, isEmpty, fullEvent, -1)
+        BaseQ.DequeueSync(dq, result, isEmpty, fullEvent)
 
     /// <summary>
     /// Try dequeue, return wait for full event.
@@ -454,6 +500,8 @@ type internal FixedSizeQ<'T>() as x =
     member x.DesiredSize with get() = desiredSize and set(v) = desiredSize <- v
     /// The current size of the queue
     member x.CurrentSize with get() = !currentSize
+    /// The current size ref
+    member internal x.CurrentSizeRef with get() = currentSize
 
     /// An arbitrary function for testing fullness for declaring queue is "full"
     member val IsFullMaxCond : int64->unit->bool = (fun size -> isFullMax(size)) with get, set
@@ -470,7 +518,7 @@ type internal FixedSizeQ<'T>() as x =
     /// Tuple of (success, event) where success is always true and event is null
     /// </returns>
     member x.EnqueueSyncSize (item : 'T) (size : int64) =
-        BaseQ<_>.Enqueue(eq(size), item, isFullMax(size), emptyEvent, -1)
+        BaseQ<_>.EnqueueSync(eq(size), item, isFullMax(size), emptyEvent)
 
     /// <summary> 
     /// Enqueue an item.
@@ -507,6 +555,20 @@ type internal FixedSizeQ<'T>() as x =
     /// <returns>
     /// Tuple of (success, event) where if success is false, an event is returned which the caller can wait upon.
     /// </returns>
+    member x.EnqueuSyncCond (item : 'T) (size : int64) (cond : (FixedSizeQ<'T>*int64)->unit->bool) =
+        BaseQ<_>.EnqueueSync(eq(size), item, cond(x, size), emptyEvent)
+
+    /// <summary> 
+    /// Enqueue an item. 
+    /// Queue grows to max size (using size as count), if it exceeds then it waits for some duration of time and returns wait handle
+    /// Generic condition for testing of "full"
+    /// </summary>
+    /// <param name="item">Item to be inserted into queue</param> 
+    /// <param name="size">Size of item being queued</param>
+    /// <param name="cond">Condition for testing if full</param>
+    /// <returns>
+    /// Tuple of (success, event) where if success is false, an event is returned which the caller can wait upon.
+    /// </returns>
     member x.EnqueueWaitTimeCond (item : 'T) (size : int64) (cond : (FixedSizeQ<'T>*int64)->unit->bool) =
         BaseQ<_>.Enqueue(eq(size), item, cond(x, size), emptyEvent, x.WaitTimeEnqueueMs)
 
@@ -522,6 +584,41 @@ type internal FixedSizeQ<'T>() as x =
     /// </returns>
     member x.EnqueueWaitTimeFullMaxCond (item : 'T) (size : int64) =
         BaseQ<_>.Enqueue(eq(size), item, x.IsFullMaxCond(size), emptyEvent, x.WaitTimeEnqueueMs)
+
+    /// <summary>
+    /// Try dequeue, wait for full event (still no guarantee to succeed)
+    /// A separate call to dequeue the size is needed
+    /// </summary>
+    /// <param name="result">Item retrieved</param>
+    /// <returns>
+    /// Tuple of (success, event), where if success is false, an event may be returned.
+    /// If so, caller can wait on event prior to calling again.
+    /// </returns>
+    override x.DequeueSync (result : 'T ref) =
+        BaseQ.Dequeue((fun r -> q.TryDequeue(r)), result, isEmpty, fullEvent, -1)
+
+    /// <summary>
+    /// Try dequeue, return wait for full event.
+    /// A separate call to dequeue the size is needed
+    /// </summary>
+    /// <param name="result">Item retrieved</param>
+    /// <returns>
+    /// Tuple of (success, event), where if success is false, an event may be returned.
+    /// If so, caller can wait on event prior to calling again.
+    /// </returns>
+    override x.DequeueWait (result : 'T ref) =
+        BaseQ.Dequeue((fun r -> q.TryDequeue(r)), result, isEmpty, fullEvent, 0)        
+
+    /// <summary>
+    /// Try dequeue, return wait for full event after waiting for WaitTimeDequeueMs milliseconds.
+    /// A separate call to dequeue the size is needed
+    /// </summary>
+    /// <param name="result">Item retrieved</param>
+    /// <returns>
+    /// Tuple of (success, event), where if success is false, caller can wait on event prior to calling again.
+    /// </returns>
+    override x.DequeueWaitTime (result : 'T ref) =
+        BaseQ.Dequeue((fun r -> q.TryDequeue(r)), result, isEmpty, fullEvent, x.WaitTimeDequeueMs)
 
     /// <summary>
     /// Try dequeue, wait for full event (still no guarantee to succeed)
@@ -731,12 +828,13 @@ type internal FixedSizeMinSizeQ<'T>() as x =
 /// Shared stack of memory (for example to share across network connections)
 /// Use stack so same buffer gets used with higher frequency (e.g. to improve caching)
 [<AllowNullLiteral>]
-type internal SharedStack<'T when 'T : (new : unit -> 'T)>(initSize : int, allocObj : 'T -> unit) =
+type internal SharedStack<'T when 'T : (new : unit -> 'T)>(initSize : int, allocObj : 'T -> unit, infoStr : string) =
     let stack = new ConcurrentStack<'T>()
+    let infoStr = infoStr
     let mutable size = 0
     let expandStack(newSize : int)() =
         if (newSize > size) then
-            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Expand stack from %d to %d" size newSize))
+            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Expand %s stack from %d to %d" infoStr size newSize))
             for i = size to (newSize-1) do
                 let elem = new 'T()
                 allocObj(elem)
@@ -747,30 +845,32 @@ type internal SharedStack<'T when 'T : (new : unit -> 'T)>(initSize : int, alloc
     let notEmpty = new ManualResetEvent(true)
 
     let isEmpty = (fun _ -> stack.IsEmpty)
-
+    member x.Count() = stack.Count
+    member x.Size with get() = size
     /// The maximum stack size as count of number of elements
     member val MaxStackSize = Int32.MaxValue with get, set
 
     /// Expand stack to 150% of current size
     member private x.ExpandStack(prevSize : int) =
-        let newSize = Math.Min(size + ((size+1)>>>1),  x.MaxStackSize) // increase by 50%, up to max
-        if (newSize = size) then
+        let newSize = Math.Min(prevSize + ((prevSize+1)>>>1),  x.MaxStackSize) // increase by 50%, up to max
+        if (newSize = prevSize) then
             // cannot grow further
             Ev.ResetOnCond(isEmpty, notEmpty, 0)
         else
             st.ExecQ(expandStack(newSize))
             null
 
-    /// Get element from stack
-    /// <param name="elem">The location of where to store retrieved element</param>
-    /// <returns>An event which caller can wait upon in case stack has no more elements and cannot grow</returns>
-    member x.GetElem(elem : 'T ref) =
-        let mutable event = null
-        while (Utils.IsNull event) && (not (stack.TryPop(elem))) do
-            let prevSize = size
-            if (stack.IsEmpty) then
-                event <- x.ExpandStack(prevSize)
-        event
+//    /// Get element from stack
+//    /// <param name="elem">The location of where to store retrieved element</param>
+//    /// <returns>An event which caller can wait upon in case stack has no more elements and cannot grow</returns>
+//    member x.GetElem(elem : 'T ref) =
+//        let mutable event = null
+//        while (Utils.IsNull event) && (not (stack.TryPop(elem))) do
+//            let prevSize = size
+//            if (stack.IsEmpty) then
+//                event <- x.ExpandStack(prevSize)
+//        event
+
     /// Get element from stack
     /// <param name="elem">The location of where to store retrieved element</param>
     /// <returns>An event which caller can wait upon in case stack has no more elements and cannot grow</returns>

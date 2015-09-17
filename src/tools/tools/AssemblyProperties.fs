@@ -40,7 +40,6 @@ module internal AssemblyProperties =
 #else
     [<assembly: AssemblyConfiguration("Release")>]
 #endif 
-
     [<assembly: InternalsVisibleTo("Prajna")>]
 
     [<assembly: InternalsVisibleTo("PrajnaClient")>]
@@ -57,5 +56,7 @@ module internal AssemblyProperties =
     
     // Temporary! PrajnaCopy is currently using internal stuff
     [<assembly: InternalsVisibleTo("PrajnaCopy" )>]
+    // Temporary! SortBenchmark is currently using internal stuff
+    [<assembly: InternalsVisibleTo("SortBenchmark")>]
 
     do()

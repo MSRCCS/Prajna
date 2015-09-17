@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -45,6 +45,11 @@
       <Project>{159bb552-8346-4313-8e10-43b88beca63b}</Project>
       <Private>True</Private>
     </ProjectReference>
+    <ProjectReference Include="..\ClientExt\ClientExt.fsproj">
+      <Name>ClientExt</Name>
+      <Project>{ea8c1f76-66da-4aad-ade8-3ab016672ff5}</Project>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
@@ -59,7 +64,7 @@
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Debugx64\PrajnaClient.XML</DocumentationFile>
     <Prefer32Bit>false</Prefer32Bit>
-    <StartArguments>-mem 48000 -verbose 7 -dirlog c:\Prajna\Log\JinL -homein JINL3 -port 1002 -jobport 1100,1149</StartArguments>
+    <StartArguments>-mem 192000 -verbose 4 -dirlog c:\Prajna\Log\sanjeevm -port 1082 -jobport 1200-1250</StartArguments>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">

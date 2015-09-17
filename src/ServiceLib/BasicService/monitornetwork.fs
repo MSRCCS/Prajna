@@ -167,7 +167,8 @@ type MonitorNetworkInstance< 'StartParamType
                             // Only insert filler packet when monitor Value is larger than 0L
                             let mutable sendLen = 0L
 
-                            while queue.CanSend && queue.UnProcessedCmdInBytes < x.MaxBytesInNetworkQueue && sendLen <= trafficToSend do
+                            //while queue.CanSend && queue.UnProcessedCmdInBytes < x.MaxBytesInNetworkQueue && sendLen <= trafficToSend do
+                            while queue.CanSend && sendLen <= trafficToSend do
                                 queue.ToSend(new ControllerCommand(ControllerVerb.Unknown,ControllerNoun.Unknown), msStream )
                                 sendLen <- sendLen + int64 x.EchoStreamLength
                     

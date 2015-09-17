@@ -250,7 +250,7 @@ type BufferCache() =
     /// <summary> 
     /// Deserialize the guid 
     /// </summary> 
-    static member UnPackGuid( ms: MemStream ) = 
+    static member UnPackGuid( ms: StreamBase<byte> ) = 
         let len = ms.ReadVInt32( ) 
         let arr = Array.zeroCreate<_> len 
         let buf = Array.zeroCreate<_> 16
@@ -261,7 +261,7 @@ type BufferCache() =
     /// <summary> 
     /// Serialize an array of CacheableBuffer 
     /// </summary> 
-    static member PackCacheableBuffers( arr: CacheableBuffer[], ms: MemStream ) = 
+    static member PackCacheableBuffers( arr: CacheableBuffer[], ms: StreamBase<byte> ) = 
         let len = if Utils.IsNull arr then 0 else arr.Length
         ms.WriteVInt32( len ) 
         for i = 0 to len - 1 do 
@@ -270,7 +270,7 @@ type BufferCache() =
     /// <summary> 
     /// Deserialize an array of CacheableBuffer 
     /// </summary> 
-    static member UnPackCacheableBuffers( ms: MemStream ) = 
+    static member UnPackCacheableBuffers( ms: StreamBase<byte> ) = 
         let len = ms.ReadVInt32( ) 
         let arr = Array.zeroCreate<_> len 
         for i = 0 to len - 1 do 

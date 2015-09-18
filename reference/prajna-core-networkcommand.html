@@ -37,8 +37,6 @@
 
 <h1>NetworkCommand</h1>
 <div class="xmldoc">
-<p>commands over the wire have 8-byte header followed by body
-A class representing NetworkCommand consisting of ControllerCommand, buffer, offset, count</p>
 </div>
   <h3>Constructors</h3>
   <table class="table table-bordered member-list">
@@ -49,57 +47,51 @@ A class representing NetworkCommand consisting of ControllerCommand, buffer, off
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '660', 660)" onmouseover="showTip(event, '660', 660)">
-            new(_cmd, _ms)
+          <code onmouseout="hideTip(event, '680', 680)" onmouseover="showTip(event, '680', 680)">
+            new(cmd, ms, startPos)
           </code>
-          <div class="tip" id="660">
-            <strong>Signature:</strong> (_cmd:ControllerCommand * _ms:MemStream) -&gt; NetworkCommand<br />
+          <div class="tip" id="680">
+            <strong>Signature:</strong> (cmd:ControllerCommand * ms:StreamBase&lt;byte&gt; * startPos:int64) -&gt; NetworkCommand<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L190-190" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L99-99" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
-          <p>A new NetworkCommand formed from MemStream
-1. In case MemStream.Position == MemStream.Length, it is assumed
-   the stream has just been written, offset is set to zero
-2. In case MemStream.Position <> MemStream.Length, it is assumed
-   we are in middle of read, read continues from current position</p>
-
+          
         </td>
       </tr>
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '661', 661)" onmouseover="showTip(event, '661', 661)">
-            new(_cmd, _buffer, _offset, _count)
+          <code onmouseout="hideTip(event, '681', 681)" onmouseover="showTip(event, '681', 681)">
+            new(cmd, ms)
           </code>
-          <div class="tip" id="661">
-            <strong>Signature:</strong> (_cmd:ControllerCommand * _buffer:byte [] * _offset:int * _count:int) -&gt; NetworkCommand<br />
+          <div class="tip" id="681">
+            <strong>Signature:</strong> (cmd:ControllerCommand * ms:StreamBase&lt;byte&gt;) -&gt; NetworkCommand<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L178-178" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L84-84" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
-          <p>A new NetworkCommand formed after reading data from network</p>
-
+          
         </td>
       </tr>
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '662', 662)" onmouseover="showTip(event, '662', 662)">
+          <code onmouseout="hideTip(event, '682', 682)" onmouseover="showTip(event, '682', 682)">
             new()
           </code>
-          <div class="tip" id="662">
+          <div class="tip" id="682">
             <strong>Signature:</strong> unit -&gt; NetworkCommand<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L176-176" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L81-81" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
@@ -117,53 +109,15 @@ A class representing NetworkCommand consisting of ControllerCommand, buffer, off
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '663', 663)" onmouseover="showTip(event, '663', 663)">
-            buffer()
-          </code>
-          <div class="tip" id="663">
-            <strong>Signature:</strong> unit -&gt; byte []<br />
-                      </div>
-        </td>
-        <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L207-207" class="github-link">
-              <img src="../content/img/github.png" class="normal" />
-              <img src="../content/img/github-blue.png" class="hover" />
-            </a>
-          <p>The buffer</p>
-
-        </td>
-      </tr>
-      <tr>
-        <td class="member-name">
-
-          <code onmouseout="hideTip(event, '664', 664)" onmouseover="showTip(event, '664', 664)">
-            buffer()
-          </code>
-          <div class="tip" id="664">
-            <strong>Signature:</strong> unit -&gt; unit<br />
-                      </div>
-        </td>
-        <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L207-207" class="github-link">
-              <img src="../content/img/github.png" class="normal" />
-              <img src="../content/img/github-blue.png" class="hover" />
-            </a>
-          <p>The buffer</p>
-
-        </td>
-      </tr>
-      <tr>
-        <td class="member-name">
-
-          <code onmouseout="hideTip(event, '665', 665)" onmouseover="showTip(event, '665', 665)">
+          <code onmouseout="hideTip(event, '683', 683)" onmouseover="showTip(event, '683', 683)">
             cmd()
           </code>
-          <div class="tip" id="665">
+          <div class="tip" id="683">
             <strong>Signature:</strong> unit -&gt; ControllerCommand<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L205-205" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L109-109" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
@@ -174,15 +128,15 @@ A class representing NetworkCommand consisting of ControllerCommand, buffer, off
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '666', 666)" onmouseover="showTip(event, '666', 666)">
+          <code onmouseout="hideTip(event, '684', 684)" onmouseover="showTip(event, '684', 684)">
             cmd()
           </code>
-          <div class="tip" id="666">
+          <div class="tip" id="684">
             <strong>Signature:</strong> unit -&gt; unit<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L205-205" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L109-109" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
@@ -193,115 +147,112 @@ A class representing NetworkCommand consisting of ControllerCommand, buffer, off
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '667', 667)" onmouseover="showTip(event, '667', 667)">
+          <code onmouseout="hideTip(event, '685', 685)" onmouseover="showTip(event, '685', 685)">
             CmdLen()
           </code>
-          <div class="tip" id="667">
-            <strong>Signature:</strong> unit -&gt; int<br />
+          <div class="tip" id="685">
+            <strong>Signature:</strong> unit -&gt; int64<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L217-217" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L114-114" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
-          <p>Get the length of the command on the wire</p>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '686', 686)" onmouseover="showTip(event, '686', 686)">
+            ms()
+          </code>
+          <div class="tip" id="686">
+            <strong>Signature:</strong> unit -&gt; StreamBase&lt;byte&gt;<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L111-111" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>The memory stream</p>
 
         </td>
       </tr>
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '668', 668)" onmouseover="showTip(event, '668', 668)">
-            count()
+          <code onmouseout="hideTip(event, '687', 687)" onmouseover="showTip(event, '687', 687)">
+            ms()
           </code>
-          <div class="tip" id="668">
-            <strong>Signature:</strong> unit -&gt; int<br />
-                      </div>
-        </td>
-        <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L211-211" class="github-link">
-              <img src="../content/img/github.png" class="normal" />
-              <img src="../content/img/github-blue.png" class="hover" />
-            </a>
-          <p>The buffer length (remaining)</p>
-
-        </td>
-      </tr>
-      <tr>
-        <td class="member-name">
-
-          <code onmouseout="hideTip(event, '669', 669)" onmouseover="showTip(event, '669', 669)">
-            count()
-          </code>
-          <div class="tip" id="669">
+          <div class="tip" id="687">
             <strong>Signature:</strong> unit -&gt; unit<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L211-211" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L111-111" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
-          <p>The buffer length (remaining)</p>
+          <p>The memory stream</p>
 
         </td>
       </tr>
       <tr>
         <td class="member-name">
 
-          <code onmouseout="hideTip(event, '670', 670)" onmouseover="showTip(event, '670', 670)">
-            MemStream()
+          <code onmouseout="hideTip(event, '688', 688)" onmouseover="showTip(event, '688', 688)">
+            Release()
           </code>
-          <div class="tip" id="670">
-            <strong>Signature:</strong> unit -&gt; MemStream<br />
-                      </div>
-        </td>
-        <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L214-214" class="github-link">
-              <img src="../content/img/github.png" class="normal" />
-              <img src="../content/img/github-blue.png" class="hover" />
-            </a>
-          <p>Get a MemStream object from the NetworkCommand</p>
-
-        </td>
-      </tr>
-      <tr>
-        <td class="member-name">
-
-          <code onmouseout="hideTip(event, '671', 671)" onmouseover="showTip(event, '671', 671)">
-            offset()
-          </code>
-          <div class="tip" id="671">
-            <strong>Signature:</strong> unit -&gt; int<br />
-                      </div>
-        </td>
-        <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L209-209" class="github-link">
-              <img src="../content/img/github.png" class="normal" />
-              <img src="../content/img/github-blue.png" class="hover" />
-            </a>
-          <p>The buffer offset</p>
-
-        </td>
-      </tr>
-      <tr>
-        <td class="member-name">
-
-          <code onmouseout="hideTip(event, '672', 672)" onmouseover="showTip(event, '672', 672)">
-            offset()
-          </code>
-          <div class="tip" id="672">
+          <div class="tip" id="688">
             <strong>Signature:</strong> unit -&gt; unit<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L209-209" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L127-127" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
-          <p>The buffer offset</p>
+          <p>release the underlying memstream</p>
 
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '689', 689)" onmouseover="showTip(event, '689', 689)">
+            startPos()
+          </code>
+          <div class="tip" id="689">
+            <strong>Signature:</strong> unit -&gt; int64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L107-107" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '690', 690)" onmouseover="showTip(event, '690', 690)">
+            startPos()
+          </code>
+          <div class="tip" id="690">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/network.fs#L107-107" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
         </td>
       </tr>
     </tbody>

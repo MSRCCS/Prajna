@@ -280,9 +280,7 @@ Class exposed because of being used in an Abstract function</p>
           <td class="type-name">
             <a href="prajna-core-networkcommand.html">NetworkCommand</a>
           </td>
-          <td class="xmldoc"><p>commands over the wire have 8-byte header followed by body
-A class representing NetworkCommand consisting of ControllerCommand, buffer, offset, count</p>
-</td>
+          <td class="xmldoc"></td>
         </tr>
         <tr>
           <td class="type-name">
@@ -317,13 +315,6 @@ Network &lt;- (SendAsync)          GenericConn     &lt;- (ProcessSendGenericConn
           </td>
           <td class="xmldoc"><p>A set of NetworkCommandQueue that are established via the Connect call
 Each connect is reference counted, so that the connect will shutdown when the reference reaches 0</p>
-</td>
-        </tr>
-        <tr>
-          <td class="type-name">
-            <a href="prajna-core-networkperformance.html">NetworkPerformance</a>
-          </td>
-          <td class="xmldoc"><p>Network Performance statistics (only activate when service is in use)</p>
 </td>
         </tr>
         <tr>
@@ -654,6 +645,18 @@ The current implementation of expandableBuffer is not threadsafe, and should not
         </tr>
         <tr>
           <td class="type-name">
+            <a href="prajna-tools-irefcounter-1.html">IRefCounter<'K></a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-idcounter.html">IdCounter</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
             <a href="prajna-tools-loglevel.html">LogLevel</a>
           </td>
           <td class="xmldoc"><p>Prajna Trace level, the lower the level, the more important of the message.</p>
@@ -670,9 +673,13 @@ The current implementation of expandableBuffer is not threadsafe, and should not
           <td class="type-name">
             <a href="prajna-tools-memstream.html">MemStream</a>
           </td>
-          <td class="xmldoc"><p>MemStream is similar to MemoryStream and provide a number of function to ease the read and write object
-This class is used if you need to implement customized serializer and deserializer.</p>
-</td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-rbufpart-1.html">RBufPart<'T></a>
+          </td>
+          <td class="xmldoc"></td>
         </tr>
         <tr>
           <td class="type-name">
@@ -685,9 +692,59 @@ resultant random number is different based on different salt value.</p>
         </tr>
         <tr>
           <td class="type-name">
+            <a href="prajna-tools-refcntbuf-1.html">RefCntBuf<'T></a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-refcountbase.html">RefCountBase</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-saferefcnt-1.html">SafeRefCnt<'T></a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-streambase-1.html">StreamBase<'T></a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-streambasebyte.html">StreamBaseByte</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-streambasecounter.html">StreamBaseCounter</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-streambaseextension.html">StreamBaseExtension</a>
+          </td>
+          <td class="xmldoc"><p>Extensions to StreamBase<byte> to allow for custom serialization</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
             <a href="prajna-tools-streamextension.html">StreamExtension</a>
           </td>
           <td class="xmldoc"><p>Extension Methods for System.IO.Stream</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-stringextension.html">StringExtension</a>
+          </td>
+          <td class="xmldoc"><p>Extension Methods for System.String</p>
 </td>
         </tr>
         <tr>
@@ -900,6 +957,12 @@ There is also support for multiple processing steps to take place in a single it
           </td>
           <td class="xmldoc"><p>maintains multiple network connections</p>
 </td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-network-refcntbufsa.html">RefCntBufSA</a>
+          </td>
+          <td class="xmldoc"></td>
         </tr>
     </tbody>
   </table>

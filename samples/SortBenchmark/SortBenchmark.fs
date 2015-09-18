@@ -104,8 +104,6 @@ module Interop =
 
         let boundaryHandle = GCHandle.Alloc(boundary,GCHandleType.Pinned);
         let pinedBoundary = boundaryHandle.AddrOfPinnedObject()
-
-
         
         let res = Array.zeroCreate<int> binNum
         let resHandle = GCHandle.Alloc(res,GCHandleType.Pinned);
@@ -119,21 +117,19 @@ module Interop =
         res
 
     [<DllImport(@"qsort.dll", CallingConvention=CallingConvention.StdCall)>]
-    extern void Mymemcpy(nativeint srcBuf, int srcOff, nativeint dest, int destOff, int size);
-    let NativeMemcpy (srcBuf:byte[], srcOff:int, destBuf:byte[], destOff:int, len:int) = 
+    extern void MyMemoryCopy(nativeint srcBuf, int srcOff, nativeint dest, int destOff, int size);
+    let NativeMemoryCopy (srcBuf:byte[], srcOff:int, destBuf:byte[], destOff:int, len:int) = 
         let sbufHandle = GCHandle.Alloc(srcBuf,GCHandleType.Pinned);
         let pinedsBuf = sbufHandle.AddrOfPinnedObject()
         
         let dbufHandle = GCHandle.Alloc(destBuf,GCHandleType.Pinned);
         let pineddBuf = dbufHandle.AddrOfPinnedObject()
 
-        Mymemcpy(pinedsBuf,srcOff,pineddBuf,destOff,len)
+        MyMemoryCopy(pinedsBuf,srcOff,pineddBuf,destOff,len)
         dbufHandle.Free()
         sbufHandle.Free()
 
-
 type RepartitionStage = StageOne=1 | StageTwo=2
-
 
 /// records is total number of records
 [<Serializable>]
@@ -156,9 +152,6 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
     
     member x.HDIndex = [|"c:\\";"d:\\";"e:\\";"f:\\"|]
     member x.HDReaderLocker = Array.init (x.HDIndex.Length) (fun _ -> ref 0)
-
- 
-
 
 
     member x.Validate (parti) = 

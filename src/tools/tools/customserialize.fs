@@ -72,8 +72,6 @@ and internal CustomizedSerialization() =
     static member val internal NullObjectGuid = Guid( "45BD7C41-0595-4854-A375-0A1895B10AAD" ) with get
     /// Use default system serializer
     static member val internal DefaultSerializerGuid = Guid( "4721F23B-65D3-499D-9750-2D6FE6A6AE54" ) with get
-    /// Byte[] serializer
-    static member val internal ArrSerializerGuid = Guid("0C57DE71-CAB7-46DE-9A51-133E003862D1") with get
     /// Memstream[] serializer
     static member val internal MStreamSerializerGuid = Guid("4D6BD747-AC4C-43A9-BDDA-2EB007B4C601") with get
     /// Collection of Customized Serializer by name
@@ -286,4 +284,226 @@ and private CustomizedSerializationSurrogateSelector(getNewMs : unit->MemoryStre
                 else
                     null
 
+module GenericSerialization = 
+    
+    let private raiseAlreadyPresent =
+        Func<Guid, (unit -> IFormatter), (unit -> IFormatter)>(fun _ _ -> 
+            raise <| ArgumentException("Formatter with same Guid already present."))
 
+    /// Default generic serializer (standard .Net BinaryFormatter)
+    let BinaryFormatterGuid = Guid( "4721F23B-65D3-499D-9750-2D6FE6A6AE54" )
+    
+    /// New generic serializer (our BinarySerializer)
+    let PrajnaFormatterGuid = Guid("99CB89AA-A823-41D5-B817-8E582DE8E086")
+
+    let mutable DefaultFormatterGuid = PrajnaFormatterGuid
+
+    let internal FormatterMap : ConcurrentDictionary<Guid, unit -> IFormatter> = 
+        let getNew = fun () -> new MemStream() :> MemoryStream
+        let getNewBuf = fun (a,b,c,d,e) -> new MemStream(a,b,c,d,e) :> MemoryStream
+        let selector() = CustomizedSerializationSurrogateSelector(getNew, getNewBuf) :> ISurrogateSelector
+        let stdFormatter() = Formatters.Binary.BinaryFormatter(SurrogateSelector = selector()) :> IFormatter
+        let prajnaFormatter() = 
+            let ser = BinarySerializer() :> IFormatter
+            ser.SurrogateSelector <- selector()
+            ser
+        let fmtMap = ConcurrentDictionary<_,_>()
+        fmtMap.AddOrUpdate( BinaryFormatterGuid, stdFormatter, raiseAlreadyPresent ) |> ignore
+        fmtMap.AddOrUpdate( PrajnaFormatterGuid, prajnaFormatter, raiseAlreadyPresent) |> ignore
+        fmtMap
+
+    let GetFormatter(guid: Guid) = FormatterMap.[guid]()
+
+    let AddFormatter(guid: Guid, fmt: unit -> IFormatter) = 
+        FormatterMap.AddOrUpdate(guid, Func<Guid, (unit -> IFormatter)>(fun _ -> fmt),  raiseAlreadyPresent )
+
+    let GetDefaultFormatter() = GetFormatter DefaultFormatterGuid
+
+///// <summary> 
+///// Adds serialization related methods to MemStream, which allows us to break dependency cycles between
+///// MemStream and CustomizedSerialization stuff.
+///// Usage only looks nice from F#, which is ok since MemStream will be internal.
+///// If/when we MemStream goes public, we'll need the to use [<Extension>] methods for C# clients.
+///// </summary> 
+//type MemStream with 
+
+/// Extensions to StreamBase<byte> to allow for custom serialization
+[<Extension>]
+type StreamBaseExtension =
+    [<Extension>]
+    static member internal BinaryFormatterSerializeFromTypeName(x : StreamBase<'T>, obj, fullname) =
+        CustomizedSerialization.BinaryFormatterSerializeFromTypeName(x, x.GetNewMs, x.GetNewMsByteBuf, obj, fullname)
+
+    [<Extension>]
+    static member internal BinaryFormatterDeserializeToTypeName(x : StreamBase<'T>, fullname) =
+        CustomizedSerialization.BinaryFormatterDeserializeToTypeName(x, x.GetNewMs, x.GetNewMsByteBuf, fullname)
+
+    /// Serialize an object to bytestream with BinaryFormatter, support serialization of null. 
+    [<Extension>]
+    static member internal Serialize( x : StreamBase<'T>, obj )=
+        StreamBaseExtension.BinaryFormatterSerializeFromTypeName(x, obj, obj.GetType().FullName)
+//        let fmt = new Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+//        if Utils.IsNull obj then 
+//            fmt.Serialize( x, NullObjectForSerialization() )
+//        else
+//            fmt.Serialize( x, obj )
+
+    /// Deserialize an object from bytestream with BinaryFormatter, support deserialization of null. 
+    [<Extension>]
+    static member internal Deserialize(x : StreamBase<'T>) =
+//        let fmt = new Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+        let fmt = CustomizedSerialization.GetBinaryFormatter(x.GetNewMs, x.GetNewMsByteBuf)
+        let o = fmt.Deserialize( x )
+        match o with 
+        | :? NullObjectForSerialization -> 
+            null
+        | _ -> 
+            o
+
+    /// <summary> 
+    /// Serialize a particular object to bytestream using BinaryFormatter, support serialization of null.  
+    /// </summary>
+    [<Extension>]
+    static member internal FormatterSerializeFromTypeName( x : StreamBase<'T>, obj: 'U, fullname:string, fmt: IFormatter )=
+            if Utils.IsNull obj then 
+                fmt.Serialize( x, NullObjectForSerialization() )
+            else
+#if DEBUG
+                if obj.GetType().FullName<>fullname then 
+                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.SerializeFromTypeName, expect type of %s but get %s"
+                                                                    fullname
+                                                                    (obj.GetType().FullName) )     
+#endif
+                fmt.Serialize( x, obj )
+
+    /// <summary> 
+    /// Deserialize a particular object from bytestream using BinaryFormatter, support serialization of null.
+    /// </summary>
+    static member internal FormatterDeserializeToTypeName(x : StreamBase<'T>, fullname:string, fmt: IFormatter) =
+            let o = fmt.Deserialize( x )
+            match o with 
+            | :? NullObjectForSerialization -> 
+                Unchecked.defaultof<_>
+            | _ -> 
+#if DEBUG
+                if Utils.IsNotNull fullname && o.GetType().FullName<>fullname then 
+                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.DeserializeToTypeName, expect type of %s but get %s"
+                                                                    fullname
+                                                                    (o.GetType().FullName) )     
+#endif
+                o 
+
+    /// <summary> 
+    /// Serialize a particular object to bytestream, allow use of customizable serializer if installed. 
+    /// If obj is null, it is serialized to a specific reserved NullObjectGuid for null. 
+    /// If obj is not null, and no customized serailizer is installed, the bytestream is written as DefaultSerializerGuid + BinaryFormatter() serialized bytestream. 
+    /// If obj is not null, and a customized serailizer is installed, the bytestream is written as GUID_SERIALIZER + content. 
+    /// </summary>
+    /// <param name="obj"> Object to be serialized </param> 
+    /// <param name="fullname"> TypeName of the Object to be used to lookup for installed customizable serializer </param>
+    [<Extension>]
+    static member CustomizableSerializeFromTypeName( x : StreamBase<byte>, obj: Object, fullname:string )=
+        let mutable bCustomized = false
+        if Utils.IsNull obj then 
+            x.WriteBytes( CustomizedSerialization.NullObjectGuid.ToByteArray() ) 
+            bCustomized <- true
+        else
+            let bExist, typeGuid = CustomizedSerialization.EncoderCollectionByName.TryGetValue( fullname ) 
+            if bExist then 
+                let bE, encodeFunc = CustomizedSerialization.EncoderCollectionByGuid.TryGetValue( typeGuid ) 
+                if bE then 
+                    x.WriteBytes( typeGuid.ToByteArray() )
+                    encodeFunc( obj, x ) 
+                    bCustomized <- true
+        if not bCustomized then 
+            match (obj) with
+                | :? ((StreamBase<byte>)[]) as arr ->
+                    x.WriteBytes( CustomizedSerialization.MStreamSerializerGuid.ToByteArray() )
+                    x.WriteInt32(arr.Length)
+                    for i=0 to arr.Length-1 do
+                        x.WriteInt32(int32 arr.[i].Length)
+                    for i=0 to arr.Length-1 do
+                        x.AppendNoCopy(arr.[i], 0L, arr.[i].Length)
+                        arr.[i].DecRef()
+                | _ ->
+                    x.WriteBytes( GenericSerialization.DefaultFormatterGuid.ToByteArray() )
+                    let fmt = GenericSerialization.GetDefaultFormatter()
+                    StreamBaseExtension.FormatterSerializeFromTypeName( x, obj, fullname, fmt )
+
+    //static member ArrToReadTo = Array.zeroCreate<byte>(50000)
+
+    /// <summary> 
+    /// Deserialize a particular object from bytestream, allow use of customizable serializer if installed. 
+    /// A Guid is first read from bytestream, if it is a specific reserved NullObjectGuid, return object is null. 
+    /// If the GUID is DefaultSerializerGuid, BinaryFormatter is used to deserialize the object. 
+    /// For other GUID, installed customized deserailizer is used to deserialize the object. 
+    /// </summary>
+    /// <param name="fullname"> Should always be null </param>
+    [<Extension>]
+    static member CustomizableDeserializeToTypeName( x : StreamBase<byte>, fullname:string ) =
+        let buf = Array.zeroCreate<_> 16 
+        let pos = x.Position
+        x.ReadBytes( buf ) |> ignore
+        let markerGuid = Guid( buf ) 
+        if markerGuid = CustomizedSerialization.NullObjectGuid then 
+            null 
+        elif markerGuid = CustomizedSerialization.MStreamSerializerGuid then
+            let len = x.ReadInt32()
+            let arr = Array.zeroCreate<StreamBase<byte>>(len)
+            let arrLen = Array.zeroCreate<int32>(arr.Length)
+            for i=0 to arr.Length-1 do
+                arrLen.[i] <- x.ReadInt32()
+            for i=0 to arr.Length-1 do
+                arr.[i] <- x.GetNew()
+                arr.[i].AppendNoCopy(x, x.Position, int64 arrLen.[i])
+                x.Seek(int64 arrLen.[i], SeekOrigin.Current) |> ignore
+            box(arr)
+        else
+            match CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( markerGuid ) with
+            | true, decodeFunc -> decodeFunc x
+            | _ -> 
+                match GenericSerialization.FormatterMap.TryGetValue( markerGuid ) with
+                | true, fmt -> StreamBaseExtension.FormatterDeserializeToTypeName( x, fullname, fmt() ) 
+                | _ -> 
+                    // This move back is added for compatible reason, old Serializer don't add a Guid, so if we can't figure out the guid in the beginning of
+                    // bytestream, we just move back 
+                    x.Seek( pos, SeekOrigin.Begin ) |> ignore
+                    // Can't parse the guid, using the default serializer
+                    StreamBaseExtension.FormatterDeserializeToTypeName( x, fullname, GenericSerialization.GetFormatter GenericSerialization.BinaryFormatterGuid) 
+
+    /// Serialize a particular object to bytestream, allow use of customizable serializer if one is installed. 
+    /// The customized serializer is of typeof<'U>.FullName, even the object passed in is of a derivative type. 
+    [<Extension>]
+    static member SerializeFromWithTypeName( x : StreamBase<byte>, obj: 'U )=
+        StreamBaseExtension.CustomizableSerializeFromTypeName( x, obj, typeof<'U>.FullName )
+
+    /// <summary>
+    /// Serialize a particular object to bytestream, allow use of customizable serializer if one is installed. 
+    /// The customized serializer is of name obj.GetType().FullName. 
+    /// </summary> 
+    [<Extension>]
+    static member SerializeObjectWithTypeName( x : StreamBase<byte>, obj: Object )=
+        let objName = if Utils.IsNull obj then null else obj.GetType().FullName
+        StreamBaseExtension.CustomizableSerializeFromTypeName( x, obj, objName )
+
+    /// Deserialize a particular object from bytestream, allow use of customizable serializer if one is installed.  
+    [<Extension>]
+    static member DeserializeObjectWithTypeName( x : StreamBase<byte> ) =
+        StreamBaseExtension.CustomizableDeserializeToTypeName( x, null ) 
+
+    /// Serialize a particular object to bytestream, allow use of customizable serializer if one is installed. 
+    /// The customized serializer is of typeof<'U>.FullName, even the object passed in is of a derivative type. 
+    [<Extension>]
+    static member SerializeFrom( x : StreamBase<byte>, obj: 'U )=
+        /// x.BinaryFormatterSerializeFromTypeName( obj, typeof<'U>.FullName )
+        StreamBaseExtension.CustomizableSerializeFromTypeName( x, obj, typeof<'U>.FullName ) 
+ 
+    /// Deserialize a particular object from bytestream, allow use of customizable serializer if one is installed.  
+    [<Extension>]
+    static member DeserializeTo<'U>(x : StreamBase<byte>) =
+        // x.BinaryFormatterDeserializeToTypeName( typeof<'U>.FullName ) :?> 'U
+        let obj = StreamBaseExtension.CustomizableDeserializeToTypeName( x, null ) 
+        if Utils.IsNull obj then
+            Unchecked.defaultof<_>
+        else
+            obj :?> 'U

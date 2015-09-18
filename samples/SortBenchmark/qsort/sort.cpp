@@ -1,4 +1,4 @@
-/*	$OpenBSD: qsort.c,v 1.10 2005/08/08 08:05:37 espie Exp $ */
+/*	$OpenBSD: sort.cpp,v 1.10 2005/08/08 08:05:37 espie Exp $ */
 /*-
 * Copyright (c) 1992, 1993
 *	The Regents of the University of California.  All rights reserved.
@@ -34,7 +34,7 @@ static __inline char	*med3(char *, char *, char *, int(*)(const void *, const vo
 static __inline void	 swapfunc(char *, char *, int, int);
 #define min(a, b)	(a) < (b) ? a : b
 /*
-* Qsort routine from Bentley & McIlroy's "Engineering a Sort Function".
+* Quick Sort routine from Bentley & McIlroy's "Engineering a Sort Function".
 */
 #define swapcode(TYPE, parmi, parmj, n) { 		\
 	long i = (n) / sizeof (TYPE); 			\
@@ -72,7 +72,7 @@ med3(char *a, char *b, char *c, int(*cmp)(const void *, const void *))
 		: (cmp(b, c) > 0 ? b : (cmp(a, c) < 0 ? a : c));
 }
 void
-qsort1(void *aa, size_t n, size_t es, int(*cmp)(const void *, const void *))
+quicksort1(void *aa, size_t n, size_t es, int(*cmp)(const void *, const void *))
 {
 	char *pa, *pb, *pc, *pd, *pl, *pm, *pn;
 	int d, r, swaptype, swap_cnt;
@@ -139,12 +139,12 @@ loop:	SWAPINIT(a, es);
 	r = min(pd - pc, pn - pd - (int)es);
 	vecswap(pb, pn - r, r);
 	if ((r = pb - pa) > (int)es)
-		qsort(a, r / es, es, cmp);
+		qsort_s(a, r / es, es, cmp, null);
 	if ((r = pd - pc) > (int)es) {
 		/* Iterate rather than recurse to save stack space */
 		a = pn - r;
 		n = r / es;
 		goto loop;
 	}
-	/*		qsort(pn - r, r / es, es, cmp);*/
+	/*		qsort_s(pn - r, r / es, es, cmp, null);*/
 }

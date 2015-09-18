@@ -276,7 +276,7 @@ type DeploymentSettings() =
     static member val NetworkSARecvQSize = 100 with get, set
     /// The initial # of buffers for shared memory pool used by BufferListStream
     static member val InitBufferListNumBuffers = 128 with get, set
-    // static member val InitBufferListBuffers = 8*1024 with get, set // for sort benchmark
+    //static member val InitBufferListNumBuffers = 8*1024 with get, set // for sort benchmark
     /// The buffer size of buffers in shared memory pool used by BufferListStream
     static member val BufferListBufferSize = 64000 with get, set
     /// Number of threads for network processing

@@ -32,7 +32,7 @@ type internal Crypt() =
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
     static member Encrypt(clearBuf : byte[], pwd : string, keySize : int, blkSize : int) =
-        let rjndn = new RijndaelManaged()
+        let rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
@@ -69,7 +69,7 @@ type internal Crypt() =
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
     static member EncryptWithParams(clearBuf : byte[], pwd : string, ?keySize : int, ?blkSize : int) =
-        let rjndn = new RijndaelManaged()
+        let rjndn = new AesCryptoServiceProvider()
         let keySize = defaultArg keySize Crypt.DefaultKeySize
         let blkSize = defaultArg blkSize Crypt.DefaultBlkSize
         rjndn.BlockSize <- blkSize
@@ -112,7 +112,7 @@ type internal Crypt() =
         outBuf
 
     static member Decrypt(cipherBuf : byte[], pwd : string, keySize : int, blkSize : int) =
-        let rjndn = new RijndaelManaged()
+        let rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
@@ -148,7 +148,7 @@ type internal Crypt() =
         let salt = Array.zeroCreate<byte>(saltBytes)
         ms.ReadBytes(salt) |> ignore
 
-        let rjndn = new RijndaelManaged()
+        let rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
@@ -256,7 +256,7 @@ type internal Crypt() =
     static member RSAFromPrivateKeyStr(privateKeyStr : string, password : string) =
         Crypt.RSAFromKey(Crypt.DecryptStrToBufWithParams(privateKeyStr, password))
 
-    static member Encrypt(rjnd : RijndaelManaged, buf : byte[]) : MemStream =
+    static member Encrypt(rjnd : AesCryptoServiceProvider, buf : byte[]) : MemStream =
         rjnd.GenerateIV()
         let blkBytes = byte (rjnd.BlockSize >>> 3)
         let mutable nPadding = blkBytes - byte (buf.Length % int blkBytes)
@@ -279,7 +279,7 @@ type internal Crypt() =
         cs.Flush()
         ms
 
-    static member Decrypt(rjnd : RijndaelManaged, ms : StreamBase<byte>) : byte[]*int =
+    static member Decrypt(rjnd : AesCryptoServiceProvider, ms : StreamBase<byte>) : byte[]*int =
         let nPadding = ms.ReadByte()
         rjnd.IV <- ms.ReadBytesWLen()
         rjnd.Padding <- PaddingMode.None
@@ -292,7 +292,7 @@ type internal Crypt() =
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         (clearBuf, clearBuf.Length-nPadding)
 
-    static member Decrypt(rjnd : RijndaelManaged, buf : byte[]) : byte[]*int =
+    static member Decrypt(rjnd : AesCryptoServiceProvider, buf : byte[]) : byte[]*int =
         use ms = new MemStream(buf)
         let outParam = Crypt.Decrypt(rjnd, ms)
         ms.DecRef()

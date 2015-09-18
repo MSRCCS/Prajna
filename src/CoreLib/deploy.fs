@@ -139,7 +139,7 @@ type DeploymentSettings() =
             drives |> Seq.find( fun drive -> not (DeploymentSettings.ExcludedDrives.ContainsKey( drive )) )
     static member val internal GetFirstDataDrive = DeploymentSettings.GetFirstDataDriveImpl with get, set
     /// Directory at remote node that holds Prajna operating state. 
-    static member val LocalFolder = Path.Combine(DeploymentSettings.RootFolder, "OneNet") with get
+    static member val LocalFolder = Path.Combine(DeploymentSettings.RootFolder, "Prajna") with get
     /// Directory at remote node that holds strong hashed file of the remote execution roster. 
     static member val HashFolder = @"HashFolder" with get
     static member val internal LogFolder = Path.Combine(DeploymentSettings.LocalFolder, "Log") with get, set
@@ -159,7 +159,7 @@ type DeploymentSettings() =
     static member val internal MasterPort = 1080 with get, set
     static member val internal ControlPort = 1081 with get, set
     /// Directory at remote node that holds Prajna data files
-    static member val DataFolder = @"OneNetData" with get
+    static member val DataFolder = @"PrajnaData" with get
     static member val internal ClusterFolder = "Cluster" with get
     static member val internal AssemblyFolder = Path.Combine(DeploymentSettings.LocalFolder, "Assembly") with get
     static member val internal JobFolder = "Job" with get

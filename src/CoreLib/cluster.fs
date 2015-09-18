@@ -765,25 +765,30 @@ and
 
     member private x.StartCluster (masterFile : string option, cluster : string) =
         let m = localNRegex.Match(cluster)
-        let info =
+        let info, pwd =
             if m.Success then
                 let n = Int32.Parse(m.Groups.[1].Value)
                 let cl = Cluster.CreateLocalCluster((sprintf "local-%i" n), defaultLocalClusterVersion, n)
-                cl.ClusterInfo |> Some
+                cl.ClusterInfo |> Some, None
             else if cluster = "local" then
                 let cl = Cluster.CreateLocalCluster("local-1", defaultLocalClusterVersion)
-                cl.ClusterInfo |> Some
+                cl.ClusterInfo |> Some, None
             else if (not (StringTools.IsNullOrEmpty( cluster ))) && (File.Exists cluster) then 
-                ClusterInfo.Read( cluster )           
+                ClusterInfo.Read( cluster )      
             else
-                None
+                None, None
         if Option.isNone(info) then
             let s= sprintf "Fail to parse cluster specification '%s' correctly" cluster
             Logger.Log( LogLevel.Error, (s))
             failwith (s)
-        
+
+        info.Value.Persist()
         x.StartCluster(masterFile, info.Value)
-        
+        match pwd with
+        | Some p -> let connects : NetworkConnections = Cluster.Connects
+                    connects.InitializeAuthentication(p)
+        | None -> ()
+
     /// <summary>
     /// Construct a Cluster from cluster description.
     /// <param name="cluster">
@@ -857,7 +862,9 @@ and
             if Utils.IsNull clInfo then 
                 failwith ( sprintf "GetSingleNodeCluster: can't find node %s in cluster %A" nodeName x ) 
             else
+                clInfo.Persist()
                 Cluster.ConstructCluster( clInfo )
+    
     /// <summary>
     /// Construct a single node using the existing cluster information. 
     /// </summary>
@@ -870,7 +877,8 @@ and
             if Utils.IsNull clInfo then 
                 null 
             else
-                Cluster.ConstructCluster( clInfo )
+                clInfo.Persist()
+                Cluster.ConstructCluster( clInfo )                
 
     /// <summary>
     /// Construct a single node using the existing cluster information. 
@@ -903,6 +911,7 @@ and
             let newClusterName = "Combined_" + BytesTools.BytesToHex( hash )                       
             let clusterBase = ClusterInfoBase( clType, DateTime( maxTicks ), nodeLists.ToArray(), Name = newClusterName ) 
             let newClusterInfo = ClusterInfo( clusterBase ) 
+            newClusterInfo.Persist()
             Cluster( ClusterInfo = newClusterInfo )
 
     /// <summary>
@@ -1065,7 +1074,7 @@ and
 
     member internal x.ReadClusterInfo( clusterFile:string ) = 
         if not (StringTools.IsNullOrEmpty( clusterFile )) then 
-            let o = ClusterInfo.Read( clusterFile )
+            let o , _ = ClusterInfo.Read( clusterFile )
             match o with 
             | Some ( cl ) -> 
                 x.ReadClusterInfo(cl)

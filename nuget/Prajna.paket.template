@@ -31,6 +31,8 @@ files
     !../src/Client/Client/bin/Releasex64/*.srcsrv
     ../src/Client/ClientExt/bin/Releasex64/PrajnaClientExt* ==> tools/Client
     !../src/Client/ClientExt/bin/Releasex64/*.srcsrv
+    ../scripts ==> tools/Scripts
+    ../src/Toolkit/ClusterStatus/bin/Releasex64 ==> tools/ClusterStatus
 references
     Prajna.dll
     Prajna.Tools.dll

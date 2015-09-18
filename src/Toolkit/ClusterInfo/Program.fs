@@ -28,7 +28,7 @@ let main argv =
     if (dumpClusterFile = true) then
         // dump inputcluster as text to screen
         for i=0 to inputClusterFiles.Length-1 do
-            let info = ClusterInfo.Read(inputClusterFiles.[i])
+            let info, _ = ClusterInfo.Read(inputClusterFiles.[i])
             match info with
                 | None -> printfn "File %A not found" inputClusterFiles.[i]
                 | Some(x) ->
@@ -82,12 +82,13 @@ let main argv =
         clusterInfo.ListOfClients <-
             inputClusterFilesI
             |> Seq.choose (fun (index, inputClusterFile) -> 
-                            match ClusterInfo.Read inputClusterFile with
+                            let clusterInfo, _ = ClusterInfo.Read inputClusterFile
+                            match clusterInfo with
                             | None -> printfn "File %A not found and ignored" inputClusterFile; None
-                            | info -> 
+                            | Some info -> 
                                 let start = if (index < inputStartNode.Length) then inputStartNode.[index] else 0
-                                let stop = if (index < inputEndNode.Length) then inputEndNode.[index] else info.Value.ListOfClients.Length-1
-                                Some(Array.sub info.Value.ListOfClients start (stop-start+1)))
+                                let stop = if (index < inputEndNode.Length) then inputEndNode.[index] else info.ListOfClients.Length-1
+                                Some(Array.sub info.ListOfClients start (stop-start+1)))
             |> Seq.concat
             |> Seq.toArray
         clusterInfo.Save(outputClusterFile)

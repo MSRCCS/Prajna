@@ -300,7 +300,7 @@ type internal Listener =
                             let obj = ClusterInfo.Unpack( ms )
                             match obj with
                             | Some ( cluster ) ->
-                                let fname = cluster.Persist()
+                                cluster.Persist()
                                 if Utils.IsNotNull queuePeer.SetDSetMSG then 
                                     queuePeer.SetDSet( )
                                 else    

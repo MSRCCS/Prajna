@@ -32,6 +32,7 @@ namespace Prajna.Tools
 open System
 open System.IO
 open System.Runtime.CompilerServices
+open System.Runtime.Serialization.Json
 
 [<StructuralEquality; StructuralComparison>]
 type internal UInt128 = 
@@ -327,3 +328,32 @@ type StreamExtension =
         let high = StreamExtension.ReadUInt64( x )
         UInt128( high, low )
 
+    /// Write a json object to bytestream
+    [<Extension>]
+    static member WriteJson( x: Stream, data: 'T ) = 
+        let json = new DataContractJsonSerializer(typedefof<'T>)
+        json.WriteObject(x, data)
+
+    /// Read a json object from bytestream
+    [<Extension>]
+    static member ReadJson( x: Stream ): 'T = 
+        let json = new DataContractJsonSerializer(typedefof<'T>)
+        json.ReadObject(x) :?> 'T
+
+/// Extension Methods for System.String
+[<Extension>]
+type StringExtension =  
+    // Serialize data to json string
+    [<Extension>]
+    static member SerializeToJson( data: 'T ): String = 
+        use ms = new MemoryStream()
+        ms.WriteJson(data)
+        ms.Position <- 0L
+        use sr = new StreamReader(ms)
+        sr.ReadToEnd()
+
+    // Deserialize a json string to data
+    [<Extension>]
+    static member DeserializeFromJson( s: String ): 'T = 
+        use ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(s))
+        ms.ReadJson()

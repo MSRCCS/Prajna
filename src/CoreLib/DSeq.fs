@@ -392,16 +392,16 @@ and [<AllowNullLiteral>]
             failwith msg
     member val internal SyncWriteLocks = ConcurrentDictionary<int, SpinLockSlim>() with get, set
     member val internal SHA512Provider = ConcurrentDictionary<int,SHA512Managed>() with get, set
-    member val internal TDesAlg = ConcurrentDictionary<int,TripleDESCryptoServiceProvider>() with get, set
+    member val internal AesAlg = ConcurrentDictionary<int,AesCryptoServiceProvider >() with get, set
     /// Setup Hash Provider
     member internal x.GetHashProvider( parti: int) = 
         x.SHA512Provider.GetOrAdd( parti, fun _ -> new SHA512Managed() )
     /// Setup Hash Provider
-    member internal x.GetTDesAlg( parti: int) = 
-        x.TDesAlg.GetOrAdd( parti, fun _ -> new TripleDESCryptoServiceProvider() )
+    member internal x.GetAesAlg( parti: int) = 
+        x.AesAlg.GetOrAdd( parti, fun _ -> new AesCryptoServiceProvider() )
     /// Setup Crytography provider if not there. 
     member internal x.GetCryptoProvider parti password = 
-        let tdes = x.GetTDesAlg parti
+        let tdes = x.GetAesAlg parti
         let enc = new System.Text.UTF8Encoding( true, true )
         let bytePassword = enc.GetBytes( x.Password )
         let hashPassword = 
@@ -414,7 +414,7 @@ and [<AllowNullLiteral>]
     member internal x.EncryptBuffer parti (password:string) (msRcvd:StreamBase<byte>) curBufPos (bufRcvdLen:int) = 
         if Utils.IsNotNull password && password.Length>0 then 
             // Encryption content when save to disk
-            let tdes = x.GetTDesAlg parti
+            let tdes = x.GetAesAlg parti
             tdes.IV <- BitConverter.GetBytes( x.Version.Ticks )
             let msCrypt = new MemStream( bufRcvdLen )
             let cStream = new CryptoStream( msCrypt, tdes.CreateEncryptor(tdes.Key,tdes.IV), CryptoStreamMode.Write)
@@ -513,7 +513,7 @@ and [<AllowNullLiteral>]
             x.AllPeerCloseRcvdEvent.Set() |> ignore  
         x.SyncWriteLocks.Clear()
         x.SHA512Provider.Clear() 
-        x.TDesAlg.Clear()
+        x.AesAlg.Clear()
 
     member private x.NetworkReadyImpl( jbInfo: JobInformation ) =     
         if not x.bNetworkInitialized then

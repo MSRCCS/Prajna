@@ -135,15 +135,15 @@ and [<AllowNullLiteral>]
     member val StreamForWriteArray: bool[] = null with get, set 
     // member val SHA512Provider : SHA512CryptoServiceProvider = null with get, set
     member val SHA512Provider = ConcurrentDictionary<int,SHA512Managed>() with get, set
-    member val TDesAlg = ConcurrentDictionary<int,TripleDESCryptoServiceProvider>() with get, set
+    member val AesAlg = ConcurrentDictionary<int,AesCryptoServiceProvider >() with get, set
     member val CurPeerIndex = -1 with get, set
     member val PeerRcvdSpeed = 40000000000L with get, set
     /// Setup Hash Provider
     member x.GetHashProvider( parti: int) = 
         x.SHA512Provider.GetOrAdd( parti, fun _ -> new SHA512Managed() )
     /// Setup Hash Provider
-    member x.GetTDesAlg( parti: int) = 
-        x.TDesAlg.GetOrAdd( parti, fun _ -> new TripleDESCryptoServiceProvider() )
+    member x.GetAesAlg( parti: int) = 
+        x.AesAlg.GetOrAdd( parti, fun _ -> new AesCryptoServiceProvider () )
     // When Set, DSet is called by peer, we will reset 
     // replication state. 
     member x.Reset() = 
@@ -164,7 +164,7 @@ and [<AllowNullLiteral>]
         lastReplicationTimeoutMsg <- Int64.MinValue
         lock ( peerReplicationItems) ( fun _ -> peerReplicationItems.Clear() )
         x.SHA512Provider.Clear()
-        x.TDesAlg.Clear()
+        x.AesAlg.Clear()
     /// Add a Command Queue, check if this is from host
     member x.AddCommandQueue( queue ) = 
         if Utils.IsNotNull queue then 
@@ -487,7 +487,7 @@ and [<AllowNullLiteral>]
                     let writeMs, writepos, writecount = 
                         if Utils.IsNotNull x.Password && x.Password.Length>0 then 
                             // Encryption content when save to disk
-                            let tdes = x.GetTDesAlg parti
+                            let tdes = x.GetAesAlg parti
                             let enc = new System.Text.UTF8Encoding( true, true )
                             let bytePassword = enc.GetBytes( x.Password )
                             let hashPassword = 
@@ -591,7 +591,7 @@ and [<AllowNullLiteral>]
         x.StoreStreamArray <- null
         x.BufferedStreamArray<- null 
         x.SHA512Provider.Clear()
-        x.TDesAlg.Clear()
+        x.AesAlg.Clear()
         if Utils.IsNotNull x.StorageProvider then 
             x.StorageProvider <- null  
     /// Compute active partitions, close streams that are no longer active (i.e., all peers that potentially can write to the partition has called close)

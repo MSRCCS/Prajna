@@ -523,13 +523,13 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
     member internal x.GetInfoId() =
         sprintf "%s:%d" x.Info x.Id
 
-    member private x.GetNewMs() =
+    member internal x.GetNewMs() =
         x.GetNew() :> MemoryStream
 
-    member private x.GetNewMsBuf(buf,pos,len,a,b) =
+    member internal x.GetNewMsBuf(buf,pos,len,a,b) =
         x.GetNew(buf,pos,len,a,b) :> MemoryStream
 
-    member private x.GetNewMsByteBuf(buf : byte[], pos, len, a, b) =
+    member internal x.GetNewMsByteBuf(buf : byte[], pos, len, a, b) =
         if (typeof<'T> = typeof<byte[]>) then
             x.GetNew(box(buf) :?> 'T[], pos, len, a, b) :> MemoryStream
         else
@@ -610,63 +610,8 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
         ms.Append(x, xpos, int64 xlen)
         ms
 
-    member internal x.BinaryFormatterSerializeFromTypeName(obj, fullname) =
-        CustomizedSerialization.BinaryFormatterSerializeFromTypeName(x, x.GetNewMs, x.GetNewMsByteBuf, obj, fullname)
-
-    member internal x.BinaryFormatterDeserializeToTypeName(fullname) =
-        CustomizedSerialization.BinaryFormatterDeserializeToTypeName(x, x.GetNewMs, x.GetNewMsByteBuf, fullname)
-
-    /// Serialize an object to bytestream with BinaryFormatter, support serialization of null. 
-    member internal x.Serialize( obj )=
-        x.BinaryFormatterSerializeFromTypeName(obj, obj.GetType().FullName)
-//        let fmt = new Runtime.Serialization.Formatters.Binary.BinaryFormatter()
-//        if Utils.IsNull obj then 
-//            fmt.Serialize( x, NullObjectForSerialization() )
-//        else
-//            fmt.Serialize( x, obj )
-
-    /// Deserialize an object from bytestream with BinaryFormatter, support deserialization of null. 
-    member internal x.Deserialize() =
-//        let fmt = new Runtime.Serialization.Formatters.Binary.BinaryFormatter()
-        let fmt = CustomizedSerialization.GetBinaryFormatter(x.GetNewMs, x.GetNewMsByteBuf)
-        let o = fmt.Deserialize( x )
-        match o with 
-        | :? NullObjectForSerialization -> 
-            null
-        | _ -> 
-            o
-
-    /// <summary> 
-    /// Serialize a particular object to bytestream using BinaryFormatter, support serialization of null.  
-    /// </summary>
-    member internal x.FormatterSerializeFromTypeName( obj: 'U, fullname:string, fmt: IFormatter )=
-            if Utils.IsNull obj then 
-                fmt.Serialize( x, NullObjectForSerialization() )
-            else
-#if DEBUG
-                if obj.GetType().FullName<>fullname then 
-                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.SerializeFromTypeName, expect type of %s but get %s"
-                                                                    fullname
-                                                                    (obj.GetType().FullName) )     
-#endif
-                fmt.Serialize( x, obj )
-
-    /// <summary> 
-    /// Deserialize a particular object from bytestream using BinaryFormatter, support serialization of null.
-    /// </summary>
-    member internal x.FormatterDeserializeToTypeName(fullname:string, fmt: IFormatter) =
-            let o = fmt.Deserialize( x )
-            match o with 
-            | :? NullObjectForSerialization -> 
-                Unchecked.defaultof<_>
-            | _ -> 
-#if DEBUG
-                if Utils.IsNotNull fullname && o.GetType().FullName<>fullname then 
-                    System.Diagnostics.Trace.WriteLine ( sprintf "!!! Warning !!! MemStream.DeserializeToTypeName, expect type of %s but get %s"
-                                                                    fullname
-                                                                    (o.GetType().FullName) )     
-#endif
-                o 
+    member internal  x.GetValidBuffer() =
+        Array.sub (x.GetBuffer()) 0 (int x.Length)
 
 [<AllowNullLiteral>] 
 type internal StreamReader<'T>(_bls : StreamBase<'T>, _bufPos : int64, _maxLen : int64) =

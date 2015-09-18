@@ -33,8 +33,8 @@ module MemStreamTests =
 //        Assert.AreEqual(2uy, s3.GetValidBuffer().[1])
 
         use s4 = new MemStream(byteArray, false)
-        Assert.AreEqual(4, s3.Length)        
-        Assert.IsFalse(s3.CanWrite)
+        Assert.AreEqual(4, s4.Length)        
+        Assert.IsFalse(s4.CanWrite)
 
         use s5 = new MemStream(byteArray, 1, 2)
         Assert.AreEqual(2, s5.Length)        

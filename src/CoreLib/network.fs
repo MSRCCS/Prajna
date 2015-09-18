@@ -357,8 +357,8 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     member val private Port = 0 with get, set
     member val private ONet : NetworkConnections = null with get, set
     member internal x.Socket with get() = (xgc :> IConn).Socket
-    member val private AESSend : RijndaelManaged = null with get, set
-    member val private AESRecv : RijndaelManaged = null with get, set
+    member val private AESSend : AesCryptoServiceProvider = null with get, set
+    member val private AESRecv : AesCryptoServiceProvider = null with get, set
     /// Connection Status
     member x.ConnectionStatus with get() = connectionStatus
     member private x.ConnectionStatusSet with set(v) = connectionStatus <- v
@@ -655,7 +655,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         xCRecv.GetOrAddProc(name, processItem)
 
     member private x.SetRecvAES(buf : byte[]) =
-        x.AESRecv <- new RijndaelManaged()
+        x.AESRecv <- new AesCryptoServiceProvider()
         let ms = new MemStream(buf)
         x.AESRecv.BlockSize <- ms.ReadInt32()
         x.AESRecv.KeySize <- ms.ReadInt32()
@@ -738,7 +738,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 // generate AES key for encryption / decryption
                 if (x.RequireAuth) then
                     // generate AES key
-                    x.AESSend <- new RijndaelManaged()
+                    x.AESSend <- new AesCryptoServiceProvider()
                     x.AESSend.BlockSize <- Crypt.DefaultBlkSize
                     x.AESSend.KeySize <- Crypt.DefaultKeySize
                     x.AESSend.GenerateKey()

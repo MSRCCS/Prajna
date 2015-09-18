@@ -135,7 +135,7 @@ module internal InteropWithJobObject =
     )
 
     [<DllImport("msvcrt.dll", CharSet=CharSet.Unicode, SetLastError=false)>]
-    extern IntPtr memcpy(IntPtr dst, IntPtr src, IntPtr num)
+    extern IntPtr memcpy_s(IntPtr dst, IntPtr dstSize, IntPtr src, IntPtr num)
 
     type LimitFlags =
          | JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008u

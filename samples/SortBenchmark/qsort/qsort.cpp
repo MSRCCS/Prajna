@@ -1,5 +1,4 @@
-// qsort.cpp : Defines the entry point for the console application.
-//
+// Defines the entry point for the console application.
 
 #include "stdafx.h"
 #include <stdlib.h>     
@@ -35,10 +34,10 @@ bool compareb(const void * a, const void * b)
 }
 
 extern "C" __declspec(dllexport)
-void stdqsort(void* buf, int len, int dim)
+void stdquicksort(void* buf, int len, int dim)
 {
 	dim = d;
-	qsort(buf, len, dim, compare);
+	qsort_s(buf, len, dim, compare, null);
 }
 
 
@@ -75,7 +74,7 @@ int GetIndex(int hashVal)
 
 
 extern "C" __declspec(dllexport)
-void bin(char * buf, int len, int dim, int binNum, int * boundary, int * sPos, char * outBuf)
+void bin(char * buf, int len, int dim, int binNum, int * boundary, int * sPos, char * outBuf, size_t outBufSize)
 {
 	//int hashBitSize = fmax(8, (int)(log2((float)(binNum - 1)) + 1));
 	//hashBytes = (hashBitSize - 1) / 8 + 1;
@@ -109,7 +108,7 @@ void bin(char * buf, int len, int dim, int binNum, int * boundary, int * sPos, c
 	for (int i = 0; i < len; i++)
 	{
 		int index = GetIndex(hash(buf + i * dim));
-		memcpy(outBuf + sPos[index], buf + i * dim, dim);
+		memcpy_s(outBuf + sPos[index], outBufSize - sPos[index], buf + i * dim, dim);
 		sPos[index] += dim;
 	}
 	
@@ -136,11 +135,9 @@ void bin(char * buf, int len, int dim, int binNum, int * boundary, int * sPos, c
 			{
 				sPos[index] += dim;
 			}
-			memcpy(tBuf, buf + sPos[index], dim);
-			memcpy(buf + sPos[index], buf + i * dim, dim);
-			memcpy(buf + i * dim, tBuf, dim);
-
-
+			memcpy_s(tBuf, len*dim, buf + sPos[index], dim);
+			memcpy_s(buf + sPos[index], len*dim - sPos[index], buf + i * dim, dim);
+			memcpy_s(buf + i * dim, len*dim - i*dim, tBuf, dim);
 
 			sPos[index] += dim;
 			while (sPos[index] < len*dim && GetIndex(hash(buf + sPos[index])) == index)
@@ -154,10 +151,10 @@ void bin(char * buf, int len, int dim, int binNum, int * boundary, int * sPos, c
 	//for (int i = 0; i < len; i++)
 	//{
 	//	int index = boundary[hash(buf + i*dim, hashByteSize)];
-	//	memcpy(tbuf + sPos[index], buf + i*dim, dim);
+	//	memcpy_s(tbuf + sPos[index], outBufSize - sPos[index], buf + i*dim, dim);
 	//	sPos[index] += dim;
 	//}
-	//memcpy(buf, tbuf, len*dim);
+	//memcpy_s(buf, len*dim, tbuf, len*dim);
 
 //	delete tbuf;
 
@@ -208,13 +205,13 @@ void stdsort(void* buf, int len, int dim)
 	for (int i = 0; i < len; i++)
 	{
 		//swapcode(char, pointer + i, tbuf + i*dim,dim);
-		memcpy(tbuf + i*dim, pointer[i], dim);
+		memcpy_s(tbuf + i*dim, len*dim-i*dim, pointer[i], dim);
 	}
 
 	for (int i = 0; i < len; i++)
 	{
 		//swapcode(char, (char*)buf + (i*dim), tbuf + i*dim, dim);
-		memcpy((char*)buf + (i*dim), tbuf + i*dim, dim);
+		memcpy_s((char*)buf + (i*dim), len*dim-i*dim, tbuf + i*dim, dim);
 	}
 
 	//delete pointer;
@@ -224,9 +221,9 @@ void stdsort(void* buf, int len, int dim)
 
 
 extern "C" __declspec(dllexport)
-void Mymemcpy(char* srcBuf, int srcOff, char* dest, int destOff, int size)
+void MyMemoryCopy(char* srcBuf, int srcOff, char* dest, int destOff, int dstSize, int size)
 {
-	memcpy(dest + destOff, srcBuf + srcOff, size);
+	memcpy_s(dest + destOff, dstSize, srcBuf + srcOff, size);
 }
 
 

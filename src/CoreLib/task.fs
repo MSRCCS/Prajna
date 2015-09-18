@@ -293,6 +293,9 @@ and [<AllowNullLiteral>]
                             let mutable cmd_line = sprintf "-job %s -ver %d -ticks %d -loopback %d -jobport %d -mem %d -dirlog %s -verbose %d %s" x.SignatureName x.SignatureVersion executeTicks DeploymentSettings.ClientPort nodeInfo.ListeningPort DeploymentSettings.MaxMemoryLimitInMB DeploymentSettings.LogFolder (int Prajna.Tools.Logger.DefaultLogLevel) clientInfo
                             if DeploymentSettings.StatusUseAllDrivesForData then 
                                 cmd_line <- "-usealldrives " + cmd_line
+                            if not (DeploymentSettings.ClientIP.Equals("")) then
+                                cmd_line <- sprintf "%s -loopbackip %s" cmd_line DeploymentSettings.ClientIP
+                                cmd_line <- sprintf "%s -jobip %s" cmd_line DeploymentSettings.ClientIP
                             let (requireAuth, guid, rsaParam, rsaPwd) = Cluster.Connects.GetAuthParam()
                             if (requireAuth) then
                                 cmd_line <- sprintf "%s -auth %b -myguid %s -rsakeyauth %s -rsakeyexch %s -rsapwd %s" cmd_line requireAuth (guid.ToString("N")) (Convert.ToBase64String(fst rsaParam)) (Convert.ToBase64String(snd rsaParam)) rsaPwd
@@ -839,8 +842,7 @@ and [<AllowNullLiteral; Serializable>]
             ()
     member val JobInfoCollections = ConcurrentDictionary<string,JobInformation>() with get
     member val AsyncExecutionEngine = ConcurrentDictionary<string,AsyncExecutionEngine>() with get
-    member val SyncExecutionEngine  = ConcurrentDictionary<string,ThreadPoolWithWaitHandles<int>>() with get
-        
+    member val SyncExecutionEngine  = ConcurrentDictionary<string,ThreadPoolWithWaitHandles<int>>() with get        
 
     member x.BeginAllSync jbInfo ( dset: DSet ) = 
         x.TraverseAllObjects TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset (x.ResetAll jbInfo)
@@ -951,16 +953,20 @@ and [<AllowNullLiteral; Serializable>]
         
 /// Read, Job (DSet) 
     member x.DSetReadAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
-        let readFunc (jbInfo:JobInformation) ( meta, ms:MemStream ) = 
+        let readFunc (jbInfo:JobInformation) ( meta, ms:StreamBase<byte> ) = 
             if Utils.IsNotNull ms then 
                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
-                let msWire = new MemStream( int ms.Length + 1024 )
+                //let msWire = new MemStream( int ms.Length + 1024 )
+                let msWire = ms.GetNew()
+                msWire.Info <- "msWire DSetReadAsSeparateApp"
                 msWire.WriteString( dset.Name )
                 msWire.WriteInt64( dset.Version.Ticks )
                 msWire.WriteVInt32( meta.Partition )
                 msWire.WriteInt64( meta.Serial )
                 msWire.WriteVInt32( meta.NumElems )
-                msWire.Write( ms.GetBuffer(), int ms.Position, int ms.Length - int ms.Position )
+                //msWire.Write( ms.GetBuffer(), int ms.Position, int ms.Length - int ms.Position )
+                msWire.AppendNoCopy(ms, ms.Position, ms.Length-ms.Position)
+                ms.DecRef()
                 let cmd = ControllerCommand( ControllerVerb.Write, ControllerNoun.DSet )
                 let bSendout = ref false
 //                        while Utils.IsNotNull queue && not queue.Shutdown && not !bSendout do
@@ -970,10 +976,11 @@ and [<AllowNullLiteral; Serializable>]
                 while not jbInfo.HostShutDown && not !bSendout do
                     if jbInfo.bAvailableToSend( dset.SendingQueueLimit ) then 
                         jbInfo.ToSendHost( cmd, msWire ) 
+                        msWire.DecRef()
                         bSendout := true
                     else
                         // Flow control kick in
-                        Threading.Thread.Sleep(5)                                                                           
+                        Threading.Thread.Sleep(5)
                 if jbInfo.HostShutDown then 
                     // Attempt to cancel jobs 
                     x.CancellationToken.Cancel() 
@@ -982,9 +989,24 @@ and [<AllowNullLiteral; Serializable>]
                 Task.ClosePartition jbInfo dset meta
 //        let asyncJobs jbInfo parti = 
 //            dset.AsyncEncode jbInfo parti ( readFunc jbInfo)
+
         let syncJobs jbInfo parti ()= 
             dset.SyncEncode jbInfo parti ( readFunc jbInfo)
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) ( fun _ -> () )
+
+        let finalJob (jbInfo:JobInformation) =
+            for i=0 to x.NumBlobs-1 do
+                if (Utils.IsNotNull x.Blobs.[i]) then
+                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
+                        BlobFactory.remove x.Blobs.[i].Hash
+                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
+                        x.Blobs.[i].Stream.DecRef()
+            if (Utils.IsNotNull x.MetadataStream) then
+                x.MetadataStream.DecRef()
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
+            BufferListStream<byte>.DumpStreamsInUse()
+
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) finalJob
             
 /// ReadToNetwork, Job (DSet) 
     member x.DSetReadToNetworkAsSeparateAppSync( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
@@ -1019,7 +1041,7 @@ and [<AllowNullLiteral; Serializable>]
                 let meta, elemObject = param
                 let bNullObject = Utils.IsNull elemObject
                 if not bNullObject || (!bSendNullImmediately) then 
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ReadToNetwork Job %s:%s, DSet %s:%s %s" 
+                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ReadToNetwork Job %s:%s, DSet %s:%s %s" 
                                                                        x.Name x.VersionString dset.Name dset.VersionString (meta.ToString()) ))
                     (!dsetToSendDown).SyncExecuteDownstream jbInfo (meta.Partition) meta elemObject
                 if bNullObject then 
@@ -1027,7 +1049,7 @@ and [<AllowNullLiteral; Serializable>]
             let t1 = PerfADateTime.UtcNow()
             Logger.LogF( LogLevel.MediumVerbose, (fun _ -> sprintf "Start readToNetworkFunci partition %d" parti))
             let ret = dset.SyncIterateProtected jbInfo parti (wrappedFunc jbInfo parti )
-            Logger.LogF( LogLevel.WildVerbose, (fun _ -> 
+            Logger.LogF( LogLevel.MildVerbose, (fun _ -> 
                let t2 = PerfADateTime.UtcNow()
                sprintf "%s End readToNetworkFunci partition %d - start %s elapse %f" (VersionToString(t2)) parti (VersionToString(t1)) (PerfADateTime.UtcNow().Subtract(t1).TotalSeconds)
            ))
@@ -1043,12 +1065,22 @@ and [<AllowNullLiteral; Serializable>]
             else
                 (!dStreamToSendSyncClose).SyncSendCloseDStreamToAll()
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All ReadToNetwork tasks completed for job %s:%s DSet %s:%s, send SyncClose, DStream to all peers !" x.Name x.VersionString dset.Name dset.VersionString))
+            for i=0 to x.NumBlobs-1 do
+                if (Utils.IsNotNull x.Blobs.[i]) then
+                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
+                        BlobFactory.remove x.Blobs.[i].Hash
+                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
+                        x.Blobs.[i].Stream.DecRef()
+            if (Utils.IsNotNull x.MetadataStream) then
+                x.MetadataStream.DecRef()
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
+            BufferListStream<byte>.DumpStreamsInUse()
 
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci
-            beginJob finalJob           
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci beginJob finalJob           
 
 /// Fold, Job (DSet) 
-    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object ) = 
+    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object, ms : StreamBase<byte> ) = 
         let syncFoldFunci (jbInfo:JobInformation) parti param = 
             let meta, elemObject = param
             jbInfo.FoldState.Item( parti ) <- foldFunc.FoldFunc (jbInfo.FoldState.GetOrAdd(parti, fun partitioni -> stateFunc() )) param
@@ -1071,8 +1103,21 @@ and [<AllowNullLiteral; Serializable>]
             let msSend = serializeFunc.SerializeFunc msWire finalState
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All aggregate fold completed for job %s:%s DSet %s:%s, send WriteGV,DSet to client!" x.Name x.VersionString dset.Name dset.VersionString))
             jbInfo.ToSendHost( ControllerCommand( ControllerVerb.WriteGV, ControllerNoun.DSet ), msSend )
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) )
-             beginJob finalJob
+            if (Utils.IsNotNull ms) then
+                ms.DecRef()
+            for i=0 to x.NumBlobs-1 do
+                if (Utils.IsNotNull x.Blobs.[i]) then
+                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
+                        BlobFactory.remove x.Blobs.[i].Hash
+                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
+                        x.Blobs.[i].Stream.DecRef()
+            if (Utils.IsNotNull x.MetadataStream) then
+                x.MetadataStream.DecRef()
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
+            BufferListStream<byte>.DumpStreamsInUse()
+
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) ) beginJob finalJob
 
 
     member val JobFinished = new List<WaitHandle>()
@@ -1182,7 +1227,9 @@ and [<AllowNullLiteral; Serializable>]
                                     (bConnectedBefore : bool ref)
                                     (bTerminateJob : bool ref)
                                     (command : ControllerCommand)
-                                    (ms : MemStream) =
+                                    (ms : StreamBase<byte>) =
+        if (Utils.IsNotNull !task) then
+            ms.Info <- ms.Info + ":ParseQueueCommand:Task:" + (!task).Name
         match (command.Verb, command.Noun ) with
         | ( ControllerVerb.Open, ControllerNoun.Connection ) ->
             let queueSignature = ms.ReadInt64()
@@ -1217,7 +1264,8 @@ and [<AllowNullLiteral; Serializable>]
                 Task.ErrorInSeperateApp "Failed to decoding metadata from Set, Job"
         | ( ControllerVerb.Set, ControllerNoun.Blob ) ->
             let buf, pos, count = ms.GetBufferPosLength()
-            let hash = HashByteArrayWithLength( buf, pos, count )
+            //let hash = HashByteArrayWithLength( buf, pos, count )
+            let hash = buf.ComputeSHA256(int64 pos, int64 count)
             let bSuccess = BlobFactory.receiveWriteBlob( hash, ms, queue.RemoteEndPointSignature )
             if bSuccess then 
                 Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
@@ -1247,12 +1295,13 @@ and [<AllowNullLiteral; Serializable>]
                     else
                         let blob = x.Blobs.[blobi]
                         let pos = ms.Position
-                        let buf = ms.GetBuffer()
+                        //let buf = ms.GetBuffer()
                         Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Write, Blob from job %s:%s, blob %d, pos %d (buf %dB)"
                                                                                x.Name x.VersionString
-                                                                               blobi pos buf.Length ))
+                                                                               blobi pos (ms.Length-ms.Position) ))
 //                        blob.Hash <- HashByteArrayWithLength( buf, int pos, count )
                         blob.Stream <- ms
+                        blob.Stream.AddRef()
                         /// Passthrough DSet is to be decoded at LoadAll() function. 
                         let bSuccessful = x.ClientReceiveBlob( blobi, false )
                         if not bSuccessful then 
@@ -1285,6 +1334,7 @@ and [<AllowNullLiteral; Serializable>]
                     msSend.WriteInt64( x.Version.Ticks ) 
                     msSend.WriteBoolean( bSuccess )
                     queue.ToSend( ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Job ), msSend ) 
+                    msSend.DecRef()
                     if not bSuccess then 
                         let msg = ( sprintf "Error@AppDomain: some blob of the job cannot be loaded: %A" x.AvailThis.AvailVector )
                         failwith msg
@@ -1436,6 +1486,7 @@ and [<AllowNullLiteral; Serializable>]
                                 let foldFunc = ms.Deserialize() :?> FoldFunction // Don't use DeserializeTo, as it may be further derived from FoldFunction
                                 let aggregateFunc = ms.Deserialize() :?> AggregateFunction
                                 let serializeFunc = ms.Deserialize() :?> GVSerialize
+                                //assert(false) // only to trigger debugger
                                 let startpos = ms.Position
                                 let stateTypeName = ms.ReadString() 
                                 let refCount = ref -1  
@@ -1448,20 +1499,20 @@ and [<AllowNullLiteral; Serializable>]
                                 let endpos = ms.Position
                                 let buf, pos, length = 
                                     if bCommonStatePerNode || Utils.IsNull state then 
-                                        null, 0, 0
+                                        null, 0L, 0L
                                     else
-                                        ms.Seek( startpos, SeekOrigin.Begin ) |> ignore 
-                                        let buf, pos, length = ms.GetBufferPosLength( )
-                                        ms.Seek( endpos, SeekOrigin.Begin ) |> ignore
-                                        buf, pos, length                                                                            
+                                        ms.AddRef()
+                                        ms, startpos, endpos-startpos                                                                      
                                 let replicateMsStreamFunc()  = 
                                     if bCommonStatePerNode || Utils.IsNull state then 
                                         null
                                     else 
                                         // Start pos will not be the end of stream, garanteed by state not null 
-                                        let msNew = new MemStream( buf, 0, pos + length, false, true )
-                                        msNew.Seek( int64 pos, SeekOrigin.Begin ) |> ignore 
-                                        msNew
+                                        let ms = new MemoryStreamB()
+                                        ms.Info <- "Replicated stream"
+                                        ms.AppendNoCopy(buf, 0L, pos+length) // this is a write operation, position moves forward
+                                        ms.Seek(pos, SeekOrigin.Begin) |> ignore
+                                        ms
                                 let stateFunc() = 
                                     if bCommonStatePerNode || Utils.IsNull state then 
                                         state
@@ -1473,9 +1524,10 @@ and [<AllowNullLiteral; Serializable>]
                                             let msRead = replicateMsStreamFunc()
                                             // msRead will not be null, as the null condition is checked above
                                             let stateTypeName = msRead.ReadString() 
-                                            msRead.CustomizableDeserializeToTypeName( stateTypeName )
-                                        
-                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc ) )
+                                            let s = msRead.CustomizableDeserializeToTypeName( stateTypeName )
+                                            msRead.DecRef()
+                                            s
+                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc, buf ) )
                             | _ ->
                                 ()
 
@@ -1546,6 +1598,10 @@ and [<AllowNullLiteral; Serializable>]
             // Unparsed message is fine, it may be picked up by other message parsing pipeline. 
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Unparsed Message@AppDomain: %A, %A" command.Verb command.Noun ))
             ()
+        if (Utils.IsNotNull (!task)) then
+            if (Utils.IsNotNull (!task).MetadataStream) then
+                (!task).MetadataStream.DecRef()
+                (!task).MetadataStream <- null
 
     static member val DefaultJobListener = null with get, set
 
@@ -1595,18 +1651,24 @@ and [<AllowNullLiteral; Serializable>]
     /// clientProcessId: the host client's process Id
     /// clientModuleName: the host client's module name
     /// clientStartTimeTicks: the ticks of the host client's start time
-    static member StartTaskAsSeperateApp( sigName:string, sigVersion:int64, port, jobport, authParams, clientProcessId, clientModuleName, clientStartTimeTicks) = 
+    static member StartTaskAsSeperateApp( sigName:string, sigVersion:int64, ip : string, port, jobip, jobport, authParams, clientProcessId, clientModuleName, clientStartTimeTicks) = 
         let (bRequireAuth, guid, rsaParam, pwd) = authParams
         // Start a client. 
         // Only in App Domain that we can load assembly, and deserialize function object. 
         DeploymentSettings.LoadCustomAssebly <- true
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Task %s:%s started" sigName (sigVersion.ToString("X")) ))
-        let queue = Cluster.Connects.AddLoopbackConnect(port, bRequireAuth, guid, rsaParam, pwd)
+        let queue = 
+            if (ip.Equals("", StringComparison.Ordinal)) then
+                Cluster.Connects.AddLoopbackConnect(port, bRequireAuth, guid, rsaParam, pwd)
+            else
+                let qAdd = Cluster.Connects.AddConnect(ip, port)
+                qAdd.AddLoopbackProps(bRequireAuth, guid, rsaParam, pwd)
+                qAdd
         /// Allow exporting to daemon 
         ContractServerQueues.Default.AddQueue( queue )
         let listener = 
             if jobport > 0 then 
-                JobListener.InitializeListenningPort( jobport )
+                JobListener.InitializeListenningPort( jobip, jobport )
             else 
                 null
         if Utils.IsNotNull listener then 
@@ -1636,7 +1698,8 @@ and [<AllowNullLiteral; Serializable>]
             let task : Task ref = ref null
             let procParseQueueTask = (
                 fun (cmd : NetworkCommand) -> 
-                    Task.ParseQueueCommand task queue allConnections allTasks showConnections bConnectedBefore bTerminateJob cmd.cmd (cmd.MemStream())
+                    Task.ParseQueueCommand task queue allConnections allTasks showConnections bConnectedBefore bTerminateJob cmd.cmd (cmd.ms)
+                    ContractStoreAtProgram.Current.ParseContractCommand queue.RemoteEndPointSignature cmd.cmd (cmd.ms)
                     null
             )
             queue.GetOrAddRecvProc("ParseQueue", procParseQueueTask) |> ignore
@@ -1759,11 +1822,13 @@ and [<AllowNullLiteral; Serializable>]
                                         msWire.WriteVInt32( meta.Partition)
                                         msWire.WriteInt64( meta.Serial )
                                         msWire.WriteVInt32( meta.NumElems )
-                                        msWire.Write( ms.GetBuffer(), int ms.Position, int ms.Length - int ms.Position )
+                                        //msWire.Write( ms.GetBuffer(), int ms.Position, int ms.Length - int ms.Position )
+                                        msWire.Append(ms, ms.Position, ms.Length-ms.Position)
                                         let cmd = ControllerCommand( ControllerVerb.Write, ControllerNoun.DSet )
                                         let bSendout = ref false
                                         while Utils.IsNotNull hostQueue && not hostQueue.Shutdown && not !bSendout do
-                                            if hostQueue.CanSend && hostQueue.SendQueueLength<5 && hostQueue.UnProcessedCmdInBytes < int64 curDSet.SendingQueueLimit then 
+                                            //if hostQueue.CanSend && hostQueue.SendQueueLength<5 && hostQueue.UnProcessedCmdInBytes < int64 curDSet.SendingQueueLimit then 
+                                            if hostQueue.CanSend then
                                                 hostQueue.ToSend( cmd, msWire )
                                                 bSendout := true
                                             else
@@ -1878,7 +1943,14 @@ and [<AllowNullLiteral; Serializable>]
                         | _ -> 
                             match registerFuncOpt with 
                             | Some registerFunc -> 
-                                BlobFactory.register( blob.Hash, registerFunc blobi blob, epSignature )
+                                if (Utils.IsNull blob.Stream) then
+                                    BlobFactory.register(blob.Hash, registerFunc blobi blob, epSignature)
+                                blob.Stream
+//                                let msRegistered = BlobFactory.register( blob.Hash, registerFunc blobi blob, epSignature )
+//                                if (Utils.IsNotNull msRegistered) then
+//                                    blob.Stream
+//                                else
+//                                    null
                             | None -> 
                                 null
                     let bExist = not (Utils.IsNull stream)
@@ -1904,7 +1976,9 @@ and [<AllowNullLiteral; Serializable>]
                         else
                             if bExist then 
                                 let buf, pos, count = stream.GetBufferPosLength()
-                                blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
+                                blob.Stream <- stream.GetNew()
+                                blob.Stream.Info <- "BlobKind.PassthroughDSetMetaData"
+                                blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
                                 blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
                                 match availFuncOpt with 
                                 | Some availFunc -> 
@@ -1945,7 +2019,10 @@ and [<AllowNullLiteral; Serializable>]
                         else
                             if bExist then 
                                 let buf, pos, count = stream.GetBufferPosLength()
-                                blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
+                                blob.Stream <- buf.GetNew()
+                                blob.Stream.Info <- "BlobKind.DStream"
+                                blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
+                                //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
                                 blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
 
                                 x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
@@ -1981,16 +2058,18 @@ and [<AllowNullLiteral; Serializable>]
                     x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.NotAvailable
                     bAllAvailable <- false
             x.AvailThis.AllAvailable <-  bAllAvailable 
-    member x.PeekBlobDSet blobi (blob:Blob) (ms:MemStream, epSignature) = 
+    member x.PeekBlobDSet blobi (blob:Blob) (ms:StreamBase<byte>, epSignature) = 
         let pos = ms.Position
         let name, verNumber = DSet.Peek( ms ) 
         blob.Name <- name
         blob.Version <- verNumber
         ms.Seek( pos, SeekOrigin.Begin ) |> ignore
-    member x.ReceiveBlob blobi (blob:Blob) (ms:MemStream, epSignature) = 
+    member x.ReceiveBlob blobi (blob:Blob) (ms:StreamBase<byte>, epSignature) = 
         if not (blob.IsAllocated) then 
             let buf, pos, count = ms.GetBufferPosLength()
-            blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
+            blob.Stream <- ms.GetNew()
+            blob.Stream.Info <- "ReceiveBlob"
+            blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
             blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
             x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
             x.AvailThis.CheckAllAvailable()
@@ -2009,19 +2088,28 @@ and [<AllowNullLiteral; Serializable>]
                                                                            x.AvailThis
                                                                            ))
                 queue.ToSend( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Blob ), msFeedback )
+                msFeedback.DecRef()
         else
             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Receive Blob %A %d from peer %s, but blob has already been allocated" blob.TypeOf blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
+        // once allocated, the input stream is no longer useful
+        //ms.DecRef()
+
     member x.ReceiveBlobNoFeedback blobi blob (ms, epSignature) = 
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd Write, Blob %d from peer %s" blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
         if not (blob.IsAllocated) then 
             let buf, pos, count = ms.GetBufferPosLength()
-            blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
+            blob.Stream <- buf.GetNew()
+            blob.Stream.Info <- "ReceiveBlobNoFeedback"
+            blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
+            //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
             blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
             x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
             x.AvailThis.CheckAllAvailable()
             let bSuccess = x.ClientReceiveBlob( blobi, false ) 
             if not bSuccess then 
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Fail to decode Blob %d from peer %s" blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
+        // once allocated, the input stream is no longer useful
+        //ms.DecRef()
 
     /// Load all Assemblies
     member x.LoadAllAssemblies() = 
@@ -2317,10 +2405,11 @@ and [<AllowNullLiteral; Serializable>]
     /// Process incoming command for the task queue. 
     /// Some: Command parsed, no need to parse this command by the PrajnaClient
     /// None: command not parsed, need to further parse the command
-    member x.ParseCommand( queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms, taskQueue:TaskQueue ) = 
+    member x.ParseCommand( queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms:StreamBase<byte>, taskQueue:TaskQueue ) = 
         let msSend = new MemStream( 1024 )
         msSend.WriteString( x.Name )
         msSend.WriteInt64( x.Version.Ticks )
+        ms.Info <- ms.Info + ":Task:" + x.Name
         match (cmd.Verb, cmd.Noun) with 
         | ControllerVerb.Unknown, _ -> 
             Some( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )  
@@ -2352,7 +2441,7 @@ and [<AllowNullLiteral; Serializable>]
         | ControllerVerb.Write, ControllerNoun.Blob ->
             let blobi = ms.ReadVInt32()
             let pos = ms.Position
-            let buf = ms.GetBuffer()
+            //let buf = ms.GetBuffer()
 //            let hash = HashByteArrayWithLength( buf, int pos, lenblob )
             Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Write, Blob for job %s:%s blob %d " 
                                                                        (x.Blobs.[blobi].Name) x.VersionString
@@ -2514,7 +2603,7 @@ and [<AllowNullLiteral; Serializable>]
             else 
                 let st = new MemStream( 4096 ) 
                 x.Pack( st )
-                st
+                st :> StreamBase<byte>
         let queue = x.QueueAtClient
         if Utils.IsNotNull queue && queue.CanSend then 
             if Interlocked.CompareExchange( x.JobStarted, 1, 0 ) = 0 then 
@@ -2545,7 +2634,7 @@ and [<AllowNullLiteral; Serializable>]
 
 and internal ContainerAppDomainLauncher() = 
     inherit System.MarshalByRefObject() 
-    member x.Start(name, ver, bUseAllDrive, ticks, memory_size, port, jobport, logdir, verbose_level:int, jobdir:string, jobenvvars:List<string*string>,
+    member x.Start(name, ver, bUseAllDrive, ticks, memory_size, ip, port, jobip, jobport, logdir, verbose_level:int, jobdir:string, jobenvvars:List<string*string>,
                    authParams : bool*Guid*(byte[]*byte[])*string) = 
         // Need to setup monitoring too  
         DeploymentSettings.ClientPort <- port     
@@ -2571,13 +2660,14 @@ and internal ContainerAppDomainLauncher() =
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Environment variable %s <-- %s " var value ))
         // MakeFileAccessible( logfname )
 //        let task = Task( SignatureName=name, SignatureVersion=ver )
-        Task.StartTaskAsSeperateApp( name, ver, port, jobport, authParams, None, None, None)
+        Task.StartTaskAsSeperateApp( name, ver, ip, port, jobip, jobport, authParams, None, None, None)
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ContainerAppDomainLauncher.Start returns"))
 and [<AllowNullLiteral>]
     internal ContainerAppDomainInfo() =
     member val Name = "" with get, set
     member val Version = 0L with get, set  
     member val Ticks = DateTime.MinValue.Ticks with get, set          
+    member val JobIP = "" with get, set
     member val JobPort = -1 with get, set          
     member val JobDir = "" with get, set  
     member val JobEnvVars = null with get, set
@@ -2606,7 +2696,7 @@ and [<AllowNullLiteral>]
                     let proxy = ad2.CreateInstanceFromAndUnwrap( exeAssembly.Location, fullTypename ) 
                     let mbrt = proxy :?> ContainerAppDomainLauncher
                     mbrt.Start( x.Name, x.Version, DeploymentSettings.StatusUseAllDrivesForData, 
-                        x.Ticks, DeploymentSettings.MaxMemoryLimitInMB, DeploymentSettings.ClientPort, x.JobPort, DeploymentSettings.LogFolder, int (Prajna.Tools.Logger.DefaultLogLevel), x.JobDir, x.JobEnvVars, Cluster.Connects.GetAuthParam() ) 
+                        x.Ticks, DeploymentSettings.MaxMemoryLimitInMB, DeploymentSettings.ClientIP, DeploymentSettings.ClientPort, x.JobIP, x.JobPort, DeploymentSettings.LogFolder, int (Prajna.Tools.Logger.DefaultLogLevel), x.JobDir, x.JobEnvVars, Cluster.Connects.GetAuthParam() ) 
                     Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ContainerAppDomainLauncher.Start has returned, current domain is '%s'" AppDomain.CurrentDomain.FriendlyName)
                 else
                     failwith "Can't find ContainerAppDomainLauncher in Assemblies"
@@ -2649,7 +2739,7 @@ and internal TaskQueue() =
         executionTable.IsEmpty    
     /// Whether there are any remote container attached to daemon. 
     member val EvEmptyExecutionTable = new ManualResetEvent(true) with get
-    member val JobManagement = JobListeningPortManagement.Initialize( DeploymentSettings.JobPortMin, DeploymentSettings.JobPortMax ) with get
+    member val JobManagement = JobListeningPortManagement.Initialize( DeploymentSettings.JobIP, DeploymentSettings.JobPortMin, DeploymentSettings.JobPortMax ) with get
     /// TODO: JinL
     /// We intentionally set a low job limit for debugging purpose, this limit will be raised considering the capacity of the machines. 
     /// Current # of Light Jobs. 
@@ -2730,7 +2820,13 @@ and internal TaskQueue() =
         else
             // Never executed. 
             taskAdd
-    member x.RemoveTask( ta:Task ) = 
+    member x.RemoveTask( ta:Task ) =
+        if (Utils.IsNotNull ta && Utils.IsNotNull ta.MetadataStream) then
+            ta.MetadataStream.DecRef()
+            ta.MetadataStream <- null
+            for b in ta.Blobs do
+                if (Utils.IsNotNull b.Stream) then
+                    b.Stream.DecRef()
         lookupTable.TryRemove( (ta.Name, ta.Version), ref Unchecked.defaultof<_> ) |> ignore
             
     member x.LinkQueueAndTask( ta:Task, queue: NetworkCommandQueue ) = 
@@ -2745,15 +2841,16 @@ and internal TaskQueue() =
     /// Process incoming command for the task queue. 
     /// Some: Command parsed, no need to parse this command by the PrajnaClient
     /// None: command not parsed, need to further parse the command
-    member x.ParseCommand( queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms:MemStream ) = 
+    member x.ParseCommand( queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms:StreamBase<byte> ) = 
         let mutable fullname = null
         let mutable cb = null
         let mutable callbackItem = null
+        ms.Info <- ms.Info + ":ParseCommand:" + queue.EPInfo
         // The command that will be processed by this callback. 
         match (cmd.Verb,cmd.Noun) with 
         // Set, Job (name is not parsed)
         | ControllerVerb.Set, ControllerNoun.Job ->
-            let task = Task()
+            let task = new Task()
 //            task.GetIncomingQueueNumber( queue ) |> ignore
             let bRet = task.UnpackToBlob( ms )
             task.ClientAvailability(queue.RemoteEndPointSignature, Some task.ReceiveBlob, Some task.PeekBlobDSet )  
@@ -2860,7 +2957,8 @@ and internal TaskQueue() =
         | ControllerVerb.Set, ControllerNoun.Blob -> 
             // Blob not attached to job
             let buf, pos, count = ms.GetBufferPosLength()
-            let hash = HashByteArrayWithLength( buf, pos, count )
+            //let hash = HashByteArrayWithLength( buf, pos, count )
+            let hash = buf.ComputeSHA256(int64 pos, int64 count)
             let bSuccess = BlobFactory.receiveWriteBlob( hash, ms, queue.RemoteEndPointSignature )
             if bSuccess then 
                 Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
@@ -3478,8 +3576,12 @@ type internal ContainerLauncher() =
         let argv2 = Array.concat (seq { yield (Array.copy argv); yield [|"-log"; logFileName|] })
         let parse = ArgumentParser(argv2)
 
+        let jobip = parse.ParseString( "-jobip", "" )        
+        Prajna.Core.Cluster.Connects.IpAddr <- jobip
         let jobport = parse.ParseInt( "-jobport", -1 )
         let ver = parse.ParseInt64( "-ver", 0L )
+        let ip = parse.ParseString( "-loopbackip", "" )
+        DeploymentSettings.ClientIP <- ip
         let port = parse.ParseInt( "-loopback", DeploymentSettings.ClientPort )
         DeploymentSettings.ClientPort <- port
         let requireAuth = parse.ParseBoolean( "-auth", false )
@@ -3509,7 +3611,7 @@ type internal ContainerLauncher() =
         Logger.Log( LogLevel.Info, ( sprintf "Verbose level = %A, parameters %A " (Logger.DefaultLogLevel) orgargv ))
     //    MakeFileAccessible( logfname )
     //        let task = Task( SignatureName=name, SignatureVersion=ver )
-        Task.StartTaskAsSeperateApp( name, ver, port, jobport, (requireAuth, guid, rsaKey, rsaKeyPwd), clientId |> Some, clientModuleName |> Some, clientStartTimeTicks |> Some)
+        Task.StartTaskAsSeperateApp( name, ver, ip, port, jobip, jobport, (requireAuth, guid, rsaKey, rsaKeyPwd), clientId |> Some, clientModuleName |> Some, clientStartTimeTicks |> Some)
         0 // return an integer exit code
         
 /// Access state of RemoteContainer 

@@ -32,7 +32,7 @@ type internal Crypt() =
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
     static member Encrypt(clearBuf : byte[], pwd : string, keySize : int, blkSize : int) =
-        let rjndn = new RijndaelManaged()
+        let rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
@@ -63,11 +63,13 @@ type internal Crypt() =
         let cs = new CryptoStream(ms, rjndn.CreateEncryptor(), CryptoStreamMode.Write)
         cs.Write(clearBuf, 0, clearBuf.Length)
         cs.Flush() // should flush underlying MemStream
-        Array.sub (ms.GetBuffer()) 0 (int ms.Length)
+        let outBuf = Array.sub (ms.GetBuffer()) 0 (int ms.Length)
+        ms.DecRef()
+        outBuf
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
     static member EncryptWithParams(clearBuf : byte[], pwd : string, ?keySize : int, ?blkSize : int) =
-        let rjndn = new RijndaelManaged()
+        let rjndn = new AesCryptoServiceProvider()
         let keySize = defaultArg keySize Crypt.DefaultKeySize
         let blkSize = defaultArg blkSize Crypt.DefaultBlkSize
         rjndn.BlockSize <- blkSize
@@ -105,10 +107,12 @@ type internal Crypt() =
         let cs = new CryptoStream(ms, rjndn.CreateEncryptor(), CryptoStreamMode.Write)
         cs.Write(clearBuf, 0, clearBuf.Length)
         cs.Flush() // should flush underlying MemStream
-        Array.sub (ms.GetBuffer()) 0 (int ms.Length)
+        let outBuf = Array.sub (ms.GetBuffer()) 0 (int ms.Length)
+        ms.DecRef()
+        outBuf
 
     static member Decrypt(cipherBuf : byte[], pwd : string, keySize : int, blkSize : int) =
-        let rjndn = new RijndaelManaged()
+        let rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
@@ -128,11 +132,13 @@ type internal Crypt() =
         let cs = new CryptoStream(ms, rjndn.CreateDecryptor(), CryptoStreamMode.Read)
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-Crypt.SaltBytes)
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
-        Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
+        let outBuf = Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
+        ms.DecRef()
+        outBuf
 
     // no need to separately send parameters being used
     static member DecryptWithParams(cipherBuf : byte[], pwd : string) =
-        let ms = new MemStream(cipherBuf)
+        use ms = new MemStream(cipherBuf)
         // read parameters
         let saltBytes = ms.ReadInt32()
         let deriveByteIter = ms.ReadInt32()
@@ -142,7 +148,7 @@ type internal Crypt() =
         let salt = Array.zeroCreate<byte>(saltBytes)
         ms.ReadBytes(salt) |> ignore
 
-        let rjndn = new RijndaelManaged()
+        let rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
@@ -157,7 +163,9 @@ type internal Crypt() =
         let cs = new CryptoStream(ms, rjndn.CreateDecryptor(), CryptoStreamMode.Read)
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-(int ms.Position))
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
-        Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
+        let outBuf = Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
+        ms.DecRef()
+        outBuf
 
     static member EncryptStr(str : string, pwd : string) =
         let strBuf = Text.Encoding.UTF8.GetBytes(str)
@@ -195,14 +203,14 @@ type internal Crypt() =
         let buf = System.Convert.FromBase64String(str)
         Crypt.DecryptWithParams(buf, pwd)
 
-    static member SHA1Str(str : string) =
-        let sha = new SHA1CryptoServiceProvider()
+    static member SHAStr(str : string) =
+        let sha = new SHA256Managed()
         let strBuf = Text.Encoding.UTF8.GetBytes(str)
-        let sha1 = sha.ComputeHash(strBuf)
-        System.Convert.ToBase64String(sha1)
+        let sha = sha.ComputeHash(strBuf)
+        System.Convert.ToBase64String(sha)
 
-    static member SHA1BufStr(buf : byte[]) =
-        let sha = new SHA1CryptoServiceProvider()
+    static member SHABufStr(buf : byte[]) =
+        let sha = new SHA256Managed()
         System.Convert.ToBase64String(sha.ComputeHash(buf))
 
     static member RSAGetNewKey(keyNumber : KeyNumber) : byte[]*byte[] =
@@ -248,7 +256,7 @@ type internal Crypt() =
     static member RSAFromPrivateKeyStr(privateKeyStr : string, password : string) =
         Crypt.RSAFromKey(Crypt.DecryptStrToBufWithParams(privateKeyStr, password))
 
-    static member Encrypt(rjnd : RijndaelManaged, buf : byte[]) : MemStream =
+    static member Encrypt(rjnd : AesCryptoServiceProvider, buf : byte[]) : MemStream =
         rjnd.GenerateIV()
         let blkBytes = byte (rjnd.BlockSize >>> 3)
         let mutable nPadding = blkBytes - byte (buf.Length % int blkBytes)
@@ -271,8 +279,7 @@ type internal Crypt() =
         cs.Flush()
         ms
 
-    static member Decrypt(rjnd : RijndaelManaged, buf : byte[]) : byte[]*int =
-        let ms = new MemStream(buf)
+    static member Decrypt(rjnd : AesCryptoServiceProvider, ms : StreamBase<byte>) : byte[]*int =
         let nPadding = ms.ReadByte()
         rjnd.IV <- ms.ReadBytesWLen()
         rjnd.Padding <- PaddingMode.None
@@ -285,3 +292,8 @@ type internal Crypt() =
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         (clearBuf, clearBuf.Length-nPadding)
 
+    static member Decrypt(rjnd : AesCryptoServiceProvider, buf : byte[]) : byte[]*int =
+        use ms = new MemStream(buf)
+        let outParam = Crypt.Decrypt(rjnd, ms)
+        ms.DecRef()
+        outParam

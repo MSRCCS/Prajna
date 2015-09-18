@@ -52,7 +52,7 @@ type internal JobDependency() =
             bSame
 
     /// Compute the signature of the file
-    /// we use the last 8B of SHA1 Hash as signature
+    /// we use the last 8B of Hash as signature
     member x.ComputeHash( buf: byte[] ) = 
         if (Utils.IsNull x.Hash) then
             x.Hash <- HashLengthPlusByteArray( buf )
@@ -63,7 +63,7 @@ type internal JobDependency() =
         x.ComputeHash(ReadBytesFromFile(x.Location))
 
     /// Pack file to stream 
-    member x.Pack( ms:MemStream ) =
+    member x.Pack( ms:StreamBase<byte> ) =
         let bytearr = ReadBytesFromFile( x.Location )
         ms.WriteBytesWLen( bytearr )
 
@@ -94,7 +94,7 @@ type internal JobDependency() =
         AssemblyCollection.Current.ReflectionOnlyLoadFrom( jobLocation, x.Hash, true )
 
     /// Unpack file from stream 
-    member x.Unpack( ms:MemStream ) = 
+    member x.Unpack( ms:StreamBase<byte> ) = 
         let bytearr = ms.ReadBytesWLen()
         try
             WriteBytesToFileConcurrentCreate x.Location bytearr
@@ -218,9 +218,6 @@ type JobTaskKind =
 type JobDependencies() =
     // File Dependency Hash
     let mutable depHash = [||]
-    let shaCompute = new System.Security.Cryptography.SHA1Managed()
-    let shaAddBlock(buf : byte[]) =
-        shaCompute.TransformBlock(buf, 0, buf.Length, buf, 0)
     let mutable bFinal = false
     /// Current execution roster
     static member val Current = JobDependencies() with get, set
@@ -252,13 +249,16 @@ type JobDependencies() =
     /// It will be used to set ProcessStartInfo.EnvironmentVariables during the launch of the remote container
     member val EnvVars : List<string*string> = new List<string*string>() with get
     
-    /// Job File Dependencies SHA1 Hash
+    /// Job File Dependencies Hash
     member internal x.JobDependencySHA256() =
         use ms = new MemStream( ) 
         for dep in x.FileDependencies do 
             ms.WriteBytes( System.Text.Encoding.UTF8.GetBytes(dep.Name) ) |> ignore 
             ms.WriteBytes( dep.Hash ) |> ignore 
-        x.Hash <- HashByteArrayWithLength( ms.GetBufferPosLength() )
+        let (buf, pos, cnt) = ms.GetBufferPosLength()
+        x.Hash <- ms.ComputeSHA256(int64 pos, int64 cnt)
+        //x.Hash <- HashByteArrayWithLength( ms.GetBufferPosLength() )
+        ms.DecRef()
         x.Hash
 
     /// Get Hash version string
@@ -289,11 +289,6 @@ type JobDependencies() =
                                          Location = local)
         jobDep.ComputeHash() |> ignore
         if (not (x.JobDependencyContains(jobDep))) then
-//            let buf = Text.UTF8Encoding().GetBytes(jobDep.Name)
-//            shaAddBlock(buf) |> ignore
-//            shaAddBlock(jobDep.Hash) |> ignore
-            //fileDependencyHashBuffer <- Array.append fileDependencyHashBuffer (Text.UTF8Encoding().GetBytes(jobDep.Name))
-            //fileDependencyHashBuffer <- Array.append fileDependencyHashBuffer jobDep.Hash
             x.FileDependencies.Add(jobDep)
             System.Threading.Interlocked.Increment( x.nDependencyChanged ) |> ignore 
 
@@ -310,8 +305,6 @@ type JobDependencies() =
             let remote = Path.GetFileName(local)
             x.AddLocalRemote((local, remote))   
     
-
-
     /// Add referenced assemblies of the current program into dependency. The remote assembly will be located under current JobDirectory.
     /// If bAddPdb flag is true, PDB file is added to the remote  JobDirectory too. 
     member x.AddRefAssem(bAddPdb : bool) =
@@ -477,7 +470,7 @@ type JobDependencies() =
         let wrappedEncodeFunc (o:Object, ms ) = 
             encodeFunc ( o :?> 'Type, ms )    
         x.InstallWrappedSerializer( id, typeof<'Type>.FullName, wrappedEncodeFunc, bAllowReplicate)
-    member internal x.InstallWrappedSerializer(id, fullname, wrappedEncodeFunc, bAllowReplicate) =
+    member internal x.InstallWrappedSerializer(id, fullname, wrappedEncodeFunc , bAllowReplicate) =
         let tuple = fullname, wrappedEncodeFunc
         let oldTuple = x.SerializerCollection.GetOrAdd( id, tuple )
         if not (Object.ReferenceEquals( oldTuple, tuple )) then 

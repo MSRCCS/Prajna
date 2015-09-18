@@ -48,11 +48,11 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
     inherit NetworkCommandQueue( socket, onet )
     member val internal BlockOnClusterInfo = 0x01 with get
     member val internal BlockOn = 0 with get, set
-    member val internal SetDSetMSG: MemStream = null with get, set
+    member val internal SetDSetMSG: StreamBase<byte> = null with get, set
     member val internal CallOnClose = List<OnPeerClose>() with get
     member val internal CloseCommandQueuePeerCalled = false with get, set
     /// Write DSet Metadata to disk
-    member internal x.SetDSet( ?inputStream: MemStream ) = 
+    member internal x.SetDSet( ?inputStream: StreamBase<byte> ) = 
         let ms = 
             match inputStream with 
             | Some ( stream ) -> if Utils.IsNotNull stream then stream else x.SetDSetMSG
@@ -62,7 +62,9 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
             ( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.ClusterInfo ), null )
         else
             // Replicate the whole stream so that it can be read again, don't forget to copy the pointer. 
-            let readStream = new MemStream( ms.GetBuffer(), 0, int ms.Length, false, true )
+            //let readStream = new MemStream( ms.GetBuffer(), 0, int ms.Length, false, true )
+            let readStream = new MemStream()
+            readStream.AppendNoCopy(ms, 0L, ms.Length)
             readStream.Seek( ms.Position, SeekOrigin.Begin ) |> ignore
             let dsetOption, errMsg, msSend = DSetPeer.Unpack( readStream, true, x )
             match errMsg with 
@@ -82,9 +84,11 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
                 let retCmd = ControllerCommand( ControllerVerb.Error, ControllerNoun.Message )
                 ( retCmd, msSend )
     /// Update DSet meta data, when the peer finished writing. 
-    member internal x.UpdateDSet( ms: MemStream ) = 
+    member internal x.UpdateDSet( ms: StreamBase<byte> ) = 
         // Replicate the whole stream so that it can be read again, don't forget to copy the pointer. 
-        let readStream = new MemStream( ms.GetBuffer(), 0, int ms.Length, false, true )
+        //let readStream = new MemStream( ms.GetBuffer(), 0, int ms.Length, false, true )
+        let readStream = new MemStream()
+        readStream.AppendNoCopy(ms, 0L, ms.Length)
         readStream.Seek( ms.Position, SeekOrigin.Begin ) |> ignore
         let dsetOption, errMsg, msSend = DSetPeer.Unpack( readStream, true, x )
         match errMsg with 

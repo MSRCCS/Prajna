@@ -267,6 +267,19 @@ type DSet<'U> () =
     member x.InitS(initFunc : Func<int*int, 'U>, partitionSize) =
         DSet<_>(x.DSet.InitS(initFunc.ToFSharpFunc(), partitionSize))
 
+    /// <summary>
+    /// Create a distributed dataset on the distributed cluster, with each element created by a functional delegate, using
+    /// a given number of parallel execution per node.
+    /// <param name="initFunc"> The functional delegate that create each element in the dataset, the integer index passed to the function 
+    /// indicates the partition, and the second integer passed to the function index (from 0) element within the partition. 
+    /// </param> 
+    /// <param name="partitionSizeFunc"> The functional delegate that returns the size of the partition,  the integer index passed to the function 
+    /// indicates the partition. 
+    /// </param> 
+    /// </summary> 
+    member x.InitN(initFunc : Func<int*int, 'U>, partitionSizeFunc : Func<int, int, int>) =
+        DSet<_>(x.DSet.InitN(initFunc.ToFSharpFunc(), partitionSizeFunc.ToFSharpFunc()))
+
     /// <summary> 
     /// Generate a distributed dataset through a customerized seq functional delegate running on each of the machine. 
     /// Each node runs a local instance of the functional delegate, which generates a seq('U) that forms one partition of DSet('U).

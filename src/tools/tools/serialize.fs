@@ -126,23 +126,23 @@ module internal Serialize =
     // ===================================================
 
     // compiler should hopefully optimize since typeof<'V> resolves at compile-time
-    let Deserialize<'V> (ms : MemoryStream) =
+    let Deserialize<'V> (s : Stream) =
         if (SupportedConvert<'V>()) then
             let buf = Array.zeroCreate<byte> sizeof<'V>
-            ms.Read(buf, 0, sizeof<'V>) |> ignore
+            s.Read(buf, 0, sizeof<'V>) |> ignore
             ConvertTo<'V> buf
         else
             let fmt = BinaryFormatter()
-            fmt.Deserialize(ms) :?> 'V
+            fmt.Deserialize(s) :?> 'V
 
     // could make non-generic (without 'V) by using x.GetType() instead of typeof<'V>
     // but typeof<'V> resolves at compile time and is probably more performant
-    let Serialize<'V> (ms : MemoryStream) (x : 'V) =
+    let Serialize<'V> (s : Stream) (x : 'V) =
         if (SupportedConvert<'V>()) then
-            ms.Write(ConvertFrom x, 0, sizeof<'V>)
+            s.Write(ConvertFrom x, 0, sizeof<'V>)
         else
             let fmt = BinaryFormatter()
-            fmt.Serialize(ms, x)
+            fmt.Serialize(s, x)
 
     // =======================================================
 
@@ -345,13 +345,17 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         | _ -> failwith <| sprintf "Unknown primitive type %A" (obj.GetType())
 
     let writeMemoryBlittableArray (elType: Type, arrObj: Array, memStream: MemoryStream) =
-        let sizeInBytes = arrObj.Length * Marshal.SizeOf(elType)
-        let curPos = int memStream.Position
-        let newLen = int64 (curPos + sizeInBytes)
-        memStream.SetLength newLen
-        let buffer = memStream.GetBuffer()
-        Buffer.BlockCopy(arrObj, 0, buffer, curPos, sizeInBytes)
-        memStream.Position <- newLen
+        match memStream with
+            | :? BufferListStream<byte> as ms ->
+                ms.WriteArrT(arrObj, 0, arrObj.Length)
+            | _ as memStream ->
+                let sizeInBytes = arrObj.Length * Marshal.SizeOf(elType)
+                let curPos = int memStream.Position
+                let newLen = int64 (curPos + sizeInBytes)
+                memStream.SetLength newLen
+                let buffer = memStream.GetBuffer()
+                Buffer.BlockCopy(arrObj, 0, buffer, curPos, sizeInBytes)
+                memStream.Position <- newLen
 
     let writePrimitiveArray : Type * int[] * int[] * Array -> unit = 
         let writePrimitiveArrayOneByOne(elType: Type, lowerBounds: int[], lengths: int[], arrObj: Array) = 
@@ -510,10 +514,14 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
         | _ -> failwith <| sprintf "Unknown primitive type %A" objType
 
     let readMemoryBlittableArray (elType: Type, arrObj: Array, memStream: MemoryStream) =
-        let buffer = memStream.GetBuffer()
-        let sizeInBytes = arrObj.Length * Marshal.SizeOf(elType)
-        Buffer.BlockCopy(buffer, int memStream.Position, arrObj, 0, sizeInBytes)
-        memStream.Position <- memStream.Position + int64 sizeInBytes
+        match memStream with
+            | :? BufferListStream<byte> as ms ->
+                ms.ReadArrT(arrObj, 0, arrObj.Length) |> ignore
+            | _ as memStream ->
+                let buffer = memStream.GetBuffer()
+                let sizeInBytes = arrObj.Length * Marshal.SizeOf(elType)
+                Buffer.BlockCopy(buffer, int memStream.Position, arrObj, 0, sizeInBytes)
+                memStream.Position <- memStream.Position + int64 sizeInBytes
 
     let readPrimitiveArray : Type -> Array -> unit = 
         let readPrimitiveArrayOneByOne (elType: Type) (arrObj: Array) = 

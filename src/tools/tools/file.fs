@@ -224,29 +224,29 @@ module  FileTools =
     /// if that is the case, one of the process will verify (read) the file and make sure that is the same content 
     /// that is to be written. 
     let internal WriteBytesToFileConcurrentPCompare filename bytes offset len bComp = 
-        let mutable bExist = false
-        let mutable message = ""
+        let bExist = ref false
+        let message = ref ""
         if File.Exists( filename ) then 
-            bExist <- true 
-            else
-                Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: create and write file '%s'" filename)
-                try 
-                    use fileStream = CreateFileStreamForWrite( filename )
-                    fileStream.Write( bytes, offset, len )
-                    fileStream.Close() 
-                with 
-                | e -> 
-                    message <- e.Message
-                    bExist <- true
-                Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: complete create and write file '%s' (exists = %b)" filename bExist)
-        if bExist && bComp then 
+            bExist := true 
+        else
+            Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: create and write file '%s'" filename)
+            try 
+                use fileStream = CreateFileStreamForWrite( filename )
+                fileStream.Write( bytes, offset, len )
+                fileStream.Close() 
+            with 
+            | e -> 
+                message := e.Message
+                bExist := true
+            Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: complete create and write file '%s' (exists = %b)" filename !bExist)
+        if !bExist && bComp then 
             Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: verify file '%s'" filename)
-            let mutable nVerified = 0
+            let nVerified = ref 0
             let mutable lastTicksRead = (PerfADateTime.UtcNowTicks())
             let maxVerifiedOnce = 1<<<20
             let bufread = Array.zeroCreate<_> maxVerifiedOnce
             /// Try to verify the bytestream being written to the new file 
-            while nVerified >= 0 && nVerified < len do
+            while !nVerified >= 0 && !nVerified < len do
                 use fileStream= 
                     let mutable bDone = false
                     let mutable retFileStream = null
@@ -260,9 +260,9 @@ module  FileTools =
                             let curTicks = (PerfADateTime.UtcNowTicks())
                             let secondsElapse = int (( curTicks - lastTicksRead ) / TimeSpan.TicksPerSecond)
                             if secondsElapse > 4 + ( len >>> 20 ) then 
-                                message <- sprintf "WriteBytesToFileConcurrentP: timeout to wait for file %s to be readable (towrite=%dB, wait %d sec), last exception is %A"
+                                message := sprintf "WriteBytesToFileConcurrentP: timeout to wait for file %s to be readable (towrite=%dB, wait %d sec), last exception is %A"
                                                         filename len secondsElapse e
-                                nVerified <- -1 
+                                nVerified := -1 
                                 bDone <- true
                             else
                                 Threading.Thread.Sleep( 10 )
@@ -272,46 +272,46 @@ module  FileTools =
                     let filelen = int (fileStream.Seek( 0L, SeekOrigin.End ))
                     if filelen > len then 
                         bDoneVerify <- true
-                        nVerified <- -1
-                        message <- sprintf "The length of file %s is %d, which is larger than %dB written requested by WriteBytesToFileConcurrentP" 
+                        nVerified := -1
+                        message := sprintf "The length of file %s is %d, which is larger than %dB written requested by WriteBytesToFileConcurrentP" 
                                             filename filelen len
                     else
-                        if filelen > nVerified then 
+                        if filelen > !nVerified then 
                             /// Something to read
-                            fileStream.Seek( int64 nVerified, SeekOrigin.Begin ) |> ignore
+                            fileStream.Seek( int64 !nVerified, SeekOrigin.Begin ) |> ignore
                             while not bDoneVerify do 
-                                let nMaxRead = Math.Min( maxVerifiedOnce, filelen - nVerified )
+                                let nMaxRead = Math.Min( maxVerifiedOnce, filelen - !nVerified )
                                 let readlen = fileStream.Read( bufread, 0, nMaxRead )
                                 if readlen > 0 then 
                                     let mutable cmp = 0
                                     let mutable bComp = true
                                     while bComp && cmp < readlen do
-                                        if bytes.[ nVerified + cmp ]=bufread.[cmp] then 
+                                        if bytes.[ !nVerified + cmp ]=bufread.[cmp] then 
                                             cmp <- cmp + 1
                                         else
                                             bComp <- false
                                     bDoneVerify <- not bComp
                                     if not bDoneVerify then 
                                         // Verification still continues 
-                                        nVerified <- nVerified + readlen
-                                        bDoneVerify <- nVerified >= filelen
+                                        nVerified := !nVerified + readlen
+                                        bDoneVerify <- !nVerified >= filelen
                                     else
-                                        message <- sprintf "The file %s is different from what is written to WriteBytesToFileConcurrentP at byte %d (filelen=%d, towrite=%d)." 
-                                                            filename (nVerified + cmp ) filelen len
-                                        nVerified <- -1 
+                                        message := sprintf "The file %s is different from what is written to WriteBytesToFileConcurrentP at byte %d (filelen=%d, towrite=%d)." 
+                                                            filename (!nVerified + cmp ) filelen len
+                                        nVerified := -1 
                             lastTicksRead <- (PerfADateTime.UtcNowTicks())
                         else
                             let curTicks = PerfADateTime.UtcNowTicks()
                             let elapseTicks = curTicks - lastTicksRead
                             if elapseTicks > TimeSpan.TicksPerSecond then 
-                                message <- sprintf "The file %s is of length %d and hasn't been written for more than 1 seconds, the expected length of WriteBytesToFileConcurrentP is %d." 
+                                message := sprintf "The file %s is of length %d and hasn't been written for more than 1 seconds, the expected length of WriteBytesToFileConcurrentP is %d." 
                                                     filename filelen len
-                                nVerified <- -1 
+                                nVerified := -1 
                             else
                                 Threading.Thread.Sleep( 5 )
-            Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: done verify file '%s' (verified = %d), detail: %s" filename nVerified message)
-            if nVerified < 0 then 
-                failwith message
+            Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: done verify file '%s' (verified = %d), detail: %s" filename !nVerified !message)
+            if !nVerified < 0 then 
+                failwith !message
 
     /// Write a byte[] to file, with possibility of multiple processes are writing the exact same file at the same 
     /// time. Such situation occurs for the Prajna daemon to write cluster metadata, DKV metadata, 

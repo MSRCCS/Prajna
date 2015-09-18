@@ -22,6 +22,8 @@
  ---------------------------------------------------------------------------*)
 namespace Prajna.Tools
 
+open System.IO
+
 // Record types used to record the assembly binding informations (we only care about redirects for now)
 type internal BindingRedirect = { OldVersion : string;  NewVersion : string}
 type internal AssemblyIdentity = { Name : string; PublicKeyToken : string option; Culture : string option; ProcessorArchitecture : string option}
@@ -210,7 +212,7 @@ module internal ConfigurationUtils =
         | ex -> Logger.LogF(LogLevel.Warning, fun _ -> sprintf "Fail to get/parse the configuration for '%s' due to an unexpected exception: %A" exePath ex)
 
     // Pack asm binding
-    let PackAsmBinding (ms : MemStream) (a: AssemblyBinding option) =
+    let PackAsmBinding (ms : Stream) (a: AssemblyBinding option) =
         match a with 
         | None ->  ms.WriteInt32(0)
         | Some v ->
@@ -244,7 +246,7 @@ module internal ConfigurationUtils =
                 )
 
     // Unpack asm binding information
-    let UnpackAsmBinding (ms : MemStream) =
+    let UnpackAsmBinding (ms : Stream) =
         let daCount = ms.ReadInt32()
         if daCount = 0 then
             None

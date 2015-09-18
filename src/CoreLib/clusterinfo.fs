@@ -68,13 +68,15 @@ type internal NetworkSocket(socket:TcpClient) =
         x.NetStream.WriteAsync( sendBuf, 0, sendBuf.Length)
     member x.SendRawStringAsync( s:string ) =
         x.SendRawAsync( System.Text.Encoding.ASCII.GetBytes( s ) )
-    member x.Send( sendBuf ) =
+    member x.Send( sendBuf, offset, count ) =
         if not bShutdownCalled then 
             x.CurSendInfo <- sendBuf
             let sendL = IPAddress.HostToNetworkOrder( sendBuf.Length )
             let bytes = BitConverter.GetBytes( sendL )
             x.NetStream.Write( bytes, 0, bytes.Length)
-            x.NetStream.Write( x.CurSendInfo, 0, x.CurSendInfo.Length)
+            x.NetStream.Write( x.CurSendInfo, offset, count)
+    member x.Send( sendBuf ) =
+        x.Send(sendBuf, 0, sendBuf.Length)
     member x.SendString( s:string ) =
         x.Send( System.Text.Encoding.ASCII.GetBytes( s ) )
     member x.RcvdRaw(len) =
@@ -350,8 +352,8 @@ type internal HomeInClient( versionInfo, datadrive, reportingServer:List<string*
                             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Home in server at %s:%d with %s" servername port sendInfo))
                             use sendStream = new MemStream( 1024 )
                             clientStatus.Pack(sendStream)
-                            let sendbuf = sendStream.ForWriteConvertToByteArray()
-                            socket.Send(sendbuf)
+                            let _, strmPos, strmCnt = sendStream.GetBufferPosLength()
+                            socket.Send(sendStream.GetBuffer(), strmPos, strmCnt)
                             try
                                 let readstr = socket.RcvdString()
                                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "From server at %s:%d, returned %s" servername port readstr ) )
@@ -367,6 +369,7 @@ type internal HomeInClient( versionInfo, datadrive, reportingServer:List<string*
                                 //let readstr = System.Text.ASCIIEncoding.ASCII.GetString( bytebuf )
                                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Exception read from server at %s:%d" servername port) )
                                 ()
+                            sendStream.DecRef()
                         else
                             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Home in server at %s:%d failed." servername port ))
                     with
@@ -694,6 +697,7 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
         ms.Write( DeploymentSettings.ClusterInfoPlainGuid.ToByteArray(), 0, 16 )
         ms.Serialize( x :> ClusterInfoBase )
         WriteBytesToFileConcurrentP name (ms.GetBuffer()) 0 (int ms.Length)
+        ms.DecRef()
     member x.DumpString() =
         let mutable str = ""
         str <- sprintf "%sClusterInfoPlainV2Guid: %A\n" str DeploymentSettings.ClusterInfoPlainV2Guid
@@ -753,7 +757,7 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
             b0 <- b0 + 256
         sprintf "%d.%d.%d.%d" b0 b1 b2 b3
     /// Pack Cluster Information        
-    member x.Pack(ms:MemStream) = 
+    member x.Pack(ms:StreamBase<byte>) = 
         ms.Write( DeploymentSettings.ClusterInfoPlainV2Guid.ToByteArray(), 0, 16 )
         ms.WriteString( x.Name )
         ms.WriteVInt32( int x.ClusterType )
@@ -792,12 +796,14 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
         x.Pack( ms )
         let bytearray = Array.zeroCreate<byte> (int ms.Length)
         Array.Copy( ms.GetBuffer(), bytearray, int ms.Length ) 
+        ms.DecRef()
         bytearray
     /// New Cluster Format
     member x.Save(name) = 
         let ms = new MemStream( 102400 )
         x.Pack( ms ) 
         WriteBytesToFileConcurrentP name (ms.GetBuffer()) 0 (int ms.Length)
+        ms.DecRef()
     /// Read the current cluster from file 
     static member ReadOld (name:string) = 
         try
@@ -817,7 +823,7 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
             Logger.Log( LogLevel.Error, ( sprintf "Fail to open file %s or parse it correctly with %A" name e ))
             None
     /// Unpack the current cluster from MemStream
-    static member Unpack( ms:MemStream ) = 
+    static member Unpack( ms:StreamBase<byte> ) = 
         try
             let guid = Array.zeroCreate<byte> 16
             ms.Read( guid, 0, 16 ) |> ignore
@@ -887,13 +893,17 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
     /// Unpack to cluster information. 
     static member Unpack( bytearray:byte[] ) = 
         let ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
-        ClusterInfo.Unpack( ms )        
+        let outParam = ClusterInfo.Unpack( ms )   
+        ms.DecRef()
+        outParam
     /// Read the current cluster from file 
     static member Read (name:string) = 
         try
             let bytearray = ReadBytesFromFile( name ) 
             let ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
-            ClusterInfo.Unpack( ms )
+            let outParam = ClusterInfo.Unpack( ms )
+            ms.DecRef()
+            outParam
         with
         | e ->
             Logger.Log( LogLevel.Error, ( sprintf "Fail to open file %s or parse it correctly with %A" name e ))
@@ -1203,6 +1213,7 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
                         HomeInServer.ListOfClients.Add( c.Name, c )
                         HomeInServer.Updated <- true
             )
+            rcvdMemStream.DecRef()
             Logger.Log( LogLevel.MildVerbose, (sprintf "Rcvd %dB from %A..." rcvdBuf.Length socket ))
         with
         | _ -> () 

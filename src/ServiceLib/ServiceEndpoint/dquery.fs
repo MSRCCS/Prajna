@@ -112,7 +112,7 @@ type NetworkPerformance() =
     /// The ticks that the connection is initialized. 
     member x.StartTime with get() = startTime
     /// Wrap header for RTT estimation 
-    member x.WriteHeader( ms: MemStream ) = 
+    member x.WriteHeader( ms: StreamBase<byte> ) = 
         let diff = x.TickDiffsInReceive
         ms.WriteInt64( diff )
         let curTicks = (PerfADateTime.UtcNowTicks())
@@ -120,21 +120,20 @@ type NetworkPerformance() =
         Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "to send packet, diff = %d" 
                                                                    diff ))
     /// Validate header for RTT estimation 
-    member x.ReadHeader( ms: MemStream ) = 
+    member x.ReadHeader( ms: StreamBase<byte> ) = 
         let tickDIffsInReceive = ms.ReadInt64( ) 
         let sendTicks = ms.ReadInt64()
         x.PacketReport( tickDIffsInReceive, sendTicks )
     /// Write end marker 
-    member x.WriteEndMark( ms: MemStream ) = 
+    member x.WriteEndMark( ms: StreamBase<byte> ) = 
         ms.WriteBytes( NetworkPerformance.BlobIntegrityGuid.ToByteArray() )
         x.SendPacket()
     /// Validate end marker
-    member x.ReadEndMark( ms: MemStream) = 
+    member x.ReadEndMark( ms: StreamBase<byte>) = 
         let data = Array.zeroCreate<_> 16
         ms.ReadBytes( data ) |> ignore
         let guid = Guid( data )
         guid = NetworkPerformance.BlobIntegrityGuid
-
 
 /// <summary>
 /// QueryPerformance provides a performance statistics instance for the underlying operation. 
@@ -204,7 +203,7 @@ type SingleQueryPerformance() =
     /// Additional Message
     member val Message : string = null with get, set
     /// Serialize SingleQueryPerformance
-    static member Pack( x:SingleQueryPerformance, ms:MemStream ) = 
+    static member Pack( x:SingleQueryPerformance, ms:StreamBase<byte> ) = 
         let inQueue = if x.InQueue < 0 then 0 else if x.InQueue > 65535 then 65535 else x.InQueue
         let inProc = if x.InProcessing < 0 then 0 else if x.InProcessing > 65535 then 65535 else x.InProcessing
         ms.WriteUInt16( uint16 inQueue )
@@ -212,7 +211,7 @@ type SingleQueryPerformance() =
         ms.WriteVInt32( x.NumItemsInQueue )
         ms.WriteVInt32( x.NumSlotsAvailable )
     /// Deserialize SingleQueryPerformance
-    static member Unpack( ms:MemStream ) = 
+    static member Unpack( ms:StreamBase<byte> ) = 
         let inQueue = int (ms.ReadUInt16())
         let inProcessing = int (ms.ReadUInt16())
         let numItems = ms.ReadVInt32()

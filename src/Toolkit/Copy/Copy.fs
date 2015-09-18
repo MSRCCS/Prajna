@@ -179,7 +179,7 @@ module PrajnaCopy =
                   (echoArrays : uint64[][]) (bError : bool ref) (lenEcho : int) (n : int) 
                   (command : NetworkCommand) =
         let cmd = command.cmd
-        let ms = command.MemStream()
+        let ms = command.ms
 
         match ( cmd.Verb, cmd.Noun ) with 
         | ( ControllerVerb.EchoReturn, ControllerNoun.Message ) ->
@@ -386,10 +386,10 @@ module PrajnaCopy =
                             hseq 
                             |> Seq.iter ( 
                                 fun (filename, payload ) -> 
-                                    let md5hash, flen = payload
+                                    let hash, flen = payload
                                     nTotal := !nTotal + (uint64 filename.Length) + (uint64 flen ) 
                                     nFiles := !nFiles + 1
-                                    Logger.Log( LogLevel.Info, ( sprintf "File %s ... %dB (Hash %08x) " filename (filename.Length+flen) md5hash ))
+                                    Logger.Log( LogLevel.Info, ( sprintf "File %s ... %dB (Hash %08x) " filename (filename.Length+flen) hash ))
                                )
                             ( !nFiles, !nTotal )
                     let t2 = (DateTime.UtcNow)
@@ -840,7 +840,7 @@ module PrajnaCopy =
                         let client = listOfClients.[n]
                         queues.[n] <- connects.AddConnect( client.MachineName, client.MachinePort )
                         // processing happens below, leave it here for now
-                        queues.[n].GetOrAddRecvProc ("ParseEcho", parseEcho queues.[n] countEcho countEchoArr countRcvd nTotalRcvd echoArrays bError lenEcho n) |> ignore
+                        queues.[n].AddRecvProc (parseEcho queues.[n] countEcho countEchoArr countRcvd nTotalRcvd echoArrays bError lenEcho n) |> ignore
                         queues.[n].Initialize()
                         if Utils.IsNotNull queues.[n] then 
                             queues.[n].MaxTokenSize <- int64 bucketSize

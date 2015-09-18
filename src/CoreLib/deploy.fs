@@ -178,8 +178,10 @@ type DeploymentSettings() =
     static member internal  ClusterLstName( name, cur ) = name  + ".lst"
     /// remove inactive DSet Peer after 600 seconds 
     static member val internal DSetPeerTimeout = 600 with get, set
+    static member val internal ClientIP = "" with get, set
     static member val internal ClientPort = 1082 with get, set
     /// Port range for JobPort
+    static member val internal JobIP = "" with get, set
     static member val internal JobPortMin = 1100 with get, set
     static member val internal JobPortMax = 1150 with get, set
     //500ms: 10GB*0.5/8
@@ -217,10 +219,10 @@ type DeploymentSettings() =
     /// ReSerialization For Cache
     static member val internal DefaultCacheSerializationLimit = 1 with get, set
     /// ReSerialization For Cache
-    static member val internal DefaultIOMaxQueue = 10 with get, set
+    static member val internal DefaultIOMaxQueue = 100 with get, set
     /// ReSerialization For Cache
-    static member val internal DefaultIOQueueReadUnblocking = 5 with get, set
-    static member val internal DefaultIOQueueWriteUnblocking = 5 with get, set
+    static member val internal DefaultIOQueueReadUnblocking = 2 with get, set
+    static member val internal DefaultIOQueueWriteUnblocking = 100 with get, set
     /// Track seen partitions
     static member val internal TrackSeenKeyValue = false with get, set
     /// Save Initial Metadata?
@@ -256,9 +258,27 @@ type DeploymentSettings() =
     /// Maximum combined buffer devoted to sending queue (in bytes) 
     static member val MaxSendingQueueLimit = 1024 * 1024 * 50 with get, set
     /// Maximum network stack memory (total across all connections), 0 means unbounded (in bytes)
-    static member val MaxNetworkStackMemory = 1024 * 1024 * 1024
+    static member val MaxNetworkStackMemory = 1024 * 1024 * 1024 * 4 with get, set
     /// Maximum network stack memory (total across all connections) as percentage of total (as percent)
-    static member val MaxNetworkStackMemoryPercentage = 0.1
+    static member val MaxNetworkStackMemoryPercentage = 0.5 with get, set
+    /// The buffer size used by SocketAsyncEventArgs
+    static member val NetworkSocketAsyncEventArgBufferSize = 128000 with get, set
+    /// The initial # of buffers in SocketAsyncEventArg stack
+    static member val InitNetworkSocketAsyncEventArgBuffers = 128 with get, set
+    //static member val InitNetworkSocketAsyncEventArgBuffers = 8*1024 // for sort benchmark
+    /// The size of network command queue for sending
+    static member val NetworkCmdSendQSize = 100 with get, set
+    /// The size of network command queue for receiving
+    static member val NetworkCmdRecvQSize = 100 with get, set
+    /// The size of network socket async event args queue for sending
+    static member val NetworkSASendQSize = 100 with get, set
+    /// The size of network socket async event args queue for receiving
+    static member val NetworkSARecvQSize = 100 with get, set
+    /// The initial # of buffers for shared memory pool used by BufferListStream
+    static member val InitBufferListNumBuffers = 128 with get, set
+    //static member val InitBufferListNumBuffers = 8*1024 with get, set // for sort benchmark
+    /// The buffer size of buffers in shared memory pool used by BufferListStream
+    static member val BufferListBufferSize = 64000 with get, set
     /// Number of threads for network processing
     static member val NumNetworkThreads = DeploymentSettings.NumParallelJobs(Environment.ProcessorCount) with get, set
     /// Monitor Flow Control 
@@ -298,8 +318,6 @@ type DeploymentSettings() =
     static member val internal TimeOutJobPortReservation = 1800. with get, set // in second
     /// Timeout to wait for DefaultJobInfo in DStream to be filled (in milliseconds) 
     static member val internal TimeOutWaitDefaultJobInfo = 1000. with get, set 
-    /// Minimum Interval between parsing of acknoledgement in a cluster (in microsecond ) 
-    static member val internal MicrosecondBetweenParseCommand = 10 with get, set
     /// Maximum time to wait before the a job start in the current peer (in second)
     static member val internal WarningJobStartTimeSkewAmongPeers = 30. with get, set
     /// Maximum time to wait before the a job start in the current peer (in second)
@@ -326,9 +344,9 @@ type DeploymentSettings() =
     /// set the parameter to LogLevel.Info will touch dependecy/assembly when they are written. 
     static member val ExecutionLevelTouchAssembly = LogLevel.ExtremeVerbose with get, set
     /// Travel Level for Blob Send/Receive 
-    static member val internal TraceLevelBlobIO = LogLevel.WildVerbose with get, set
+    static member val internal TraceLevelBlobIO = LogLevel.MediumVerbose with get, set
     /// Validate Hash 
-    static member val internal TraceLevelBlobValidateHash = LogLevel.WildVerbose with get, set
+    static member val internal TraceLevelBlobValidateHash = LogLevel.MediumVerbose with get, set
     /// Trace Level to Monitor Seq Function
     static member val internal TraceLevelSeqFunction = LogLevel.MildVerbose with get, set
     /// Trace level for WaitHandle

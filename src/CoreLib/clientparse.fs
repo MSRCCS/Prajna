@@ -191,6 +191,7 @@ type internal RemoteConfig() =
 [<AllowNullLiteral>]
 type internal Listener = 
     val port : int 
+    val ip : string
     val connects : ClientConnections
     val listener : Socket
     val callback : Dictionary<Object, ( Object -> bool) >
@@ -209,8 +210,9 @@ type internal Listener =
     [<DefaultValue>]
     static val mutable private _Current : Listener 
     // The only constructor is declared private, to ensure that the only way to create a lister is to call StartListener
-    private new ( listenerPort ) = 
+    private new ( listenIP : string, listenerPort : int ) = 
         {
+            ip = listenIP
             port = listenerPort;
             connects = 
                 let c = new ClientConnections()
@@ -218,7 +220,10 @@ type internal Listener =
                 c
             listener =
                 let soc = Listener.SocketForListenWloopback()    
-                soc.Bind( IPEndPoint( IPAddress.Any, listenerPort ) )
+                if (listenIP.Equals("", StringComparison.Ordinal)) then
+                    soc.Bind( IPEndPoint( IPAddress.Any, listenerPort ) )
+                else
+                    soc.Bind( IPEndPoint( IPAddress.Parse(listenIP), listenerPort ) )
                 soc.Listen( 30 )
                 soc
             InListeningState = false
@@ -245,16 +250,17 @@ type internal Listener =
         ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msgError )
 
     static member Current with get() = Listener._Current
-    static member StartListener( ?listenerPort ) = 
+    static member StartListener( ?listenerIP, ?listenerPort ) = 
+        let ip = defaultArg listenerIP DeploymentSettings.ClientIP
         let port = defaultArg listenerPort DeploymentSettings.ClientPort
-        Listener._Current <- (new Listener(port) )
+        Listener._Current <- (new Listener(ip, port) )
         Listener._Current
     static member NullReturn( ) : ControllerCommand * MemStream = 
         ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null    
 
     member x.ParseServerCommand (queuePeer : NetworkCommandQueuePeer) 
                                 (command : ControllerCommand)
-                                (ms : MemStream) =
+                                (ms : StreamBase<byte>) =
         let queue = queuePeer :> NetworkCommandQueue
         Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Command: %A" command))
         let returnCmd, messageSendBack = 
@@ -431,7 +437,8 @@ type internal Listener =
                                 msTask.WriteIPEndPoint( queue.RemoteEndPoint :?> IPEndPoint )
                                 msTask.WriteVInt32( int FunctionParamType.DSet )
                                 ms.Seek( int64 bufPos, SeekOrigin.Begin ) |> ignore
-                                let msForward = ms.InsertBefore( msTask )
+                                ms.InsertBefore( msTask ) |> ignore
+                                let msForward = msTask
                                 msSend.WriteString( name )
                                 msSend.WriteInt64( verNumber )                                                    
                                 match (command.Verb, command.Noun ) with
@@ -513,11 +520,11 @@ type internal Listener =
                         let mutable bCanStart = true
                         let socket = queue.Socket
                         let ipEndPoint = queue.RemoteEndPoint :?> Net.IPEndPoint
-                        if ipEndPoint.Address=Net.IPAddress.Loopback then 
-                            () // JinL: Loopback is set before Listen operation. 
-                        else
-                            bCanStart <- false
-                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Link, Program is not called to a loop back interface: %A" ipEndPoint.Address ))
+//                        if ipEndPoint.Address=Net.IPAddress.Loopback then 
+//                            () // JinL: Loopback is set before Listen operation. 
+//                        else
+//                            bCanStart <- false
+//                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Link, Program is not called to a loop back interface: %A" ipEndPoint.Address ))
                         if not bCanStart then 
                             ( ControllerCommand( ControllerVerb.Close, ControllerNoun.Program ), null )    
                         else
@@ -550,7 +557,7 @@ type internal Listener =
                         let sigName = ms.ReadString()
                         let sigVersion = ms.ReadInt64()
                         let ipEndPoint = queue.RemoteEndPoint :?> Net.IPEndPoint
-                        if ipEndPoint.Address=Net.IPAddress.Loopback then 
+                        if ipEndPoint.Address=Net.IPAddress.Loopback || true then 
                             x.TaskQueue.DelinkSeparateProgram( queue, sigName, sigVersion )                                                      
                         else
                             let msg = sprintf "Stop, Program is not called to a loop back interface: %A" ipEndPoint.Address
@@ -600,10 +607,11 @@ type internal Listener =
                         let cmdVerb = ms.ReadByte()
                         let cmdNoun = ms.ReadByte()
                         let cmd = ControllerCommand( enum<_>(cmdVerb), enum<_>(cmdNoun) ) 
+                        let startPos = ms.Position
                         for i = 0 to endPoints.Length - 1 do 
                             let queueSend = x.Connects.LookforConnect( endPoints.[i] )
                             if Utils.IsNotNull queueSend && queueSend.CanSend then 
-                                queueSend.ToSend( cmd, ms )
+                                queueSend.ToSendFromPos( cmd, ms, startPos )
                                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Forward command %A (%dB) to %A ... " 
                                                                                    cmd ms.Length
                                                                                    (LocalDNS.GetShowInfo(queueSend.RemoteEndPoint)) ))
@@ -637,6 +645,8 @@ type internal Listener =
         if queue.CanSend then 
             if returnCmd.Verb<>ControllerVerb.Unknown then 
                 queue.ToSend( returnCmd, messageSendBack )
+        if (Utils.IsNotNull messageSendBack) then
+            messageSendBack.DecRef()
 //        match ( returnCmd.Verb, returnCmd.Noun) with 
 //        | ( ControllerVerb.Error, _ )
 //        | ( ControllerVerb.Close, ControllerNoun.DSet ) ->
@@ -755,10 +765,10 @@ type internal Listener =
                 // add processing for command 
                 let procItem = (
                     fun (cmd : NetworkCommand) -> 
-                        x.ParseServerCommand queue cmd.cmd (cmd.MemStream())
+                        x.ParseServerCommand queue cmd.cmd (cmd.ms)
                         null
                 )
-                queue.GetOrAddRecvProc("ParseServer", procItem ) |> ignore
+                queue.AddRecvProc procItem |> ignore
                 // set queue to initialized
                 queue.Initialize()
                 // Post another listening request. 

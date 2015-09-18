@@ -188,7 +188,7 @@ module  StringTools =
         |]
 
     let private GetHashCodeUInt64( s:string ) = 
-        let sha = new SHA1CryptoServiceProvider()
+        let sha = new SHA256Managed()
         let data = System.Text.UTF8Encoding().GetBytes( s )
         let result = sha.ComputeHash( data )
         BitConverter.ToUInt64( result, 0 )

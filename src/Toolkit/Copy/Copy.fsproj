@@ -30,7 +30,8 @@
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Debugx64\PrajnaCopy.XML</DocumentationFile>
     <Prefer32Bit>false</Prefer32Bit>
-    <StartArguments>-cluster c:\onenet\cluster\b.inf -echo 1 -ecount 1 -con -verbose 4</StartArguments>
+    <StartArguments>
+    </StartArguments>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
@@ -42,7 +43,8 @@
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Releasex64\PrajnaCopy.XML</DocumentationFile>
     <Prefer32Bit>false</Prefer32Bit>
-    <StartArguments>-cluster C:\Prajna\Cluster\verari-g11-608.inf -localdir "e:\data\1012_pick" -remote "jinl\1012_pick" -out -verbose 6 -spattern  ".*" -hash -persist</StartArguments>
+    <StartArguments>
+    </StartArguments>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <Choose>
@@ -61,7 +63,6 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Copy.fs" />
-    <Content Include="Debugging parameter.txt" />
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>

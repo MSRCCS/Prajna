@@ -99,7 +99,7 @@ type internal DetailedConfig() =
 
     static let generatedMachineId = lazy (
         let mutable machineId = 0L
-        let sha = new SHA1CryptoServiceProvider()
+        let sha = new SHA256Managed()
         let nics = NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
         //    Array.Sort( nics, { new IComparer<NetworkInformation.NetworkInterface> with member this.Compare(x, y) = x.GetPhysicalAddress.ToString().CompareTo( y.GetPhysicalAddress.ToString()) } )
         for nic in nics do

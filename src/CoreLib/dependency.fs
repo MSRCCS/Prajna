@@ -52,7 +52,7 @@ type internal JobDependency() =
             bSame
 
     /// Compute the signature of the file
-    /// we use the last 8B of SHA1 Hash as signature
+    /// we use the last 8B of Hash as signature
     member x.ComputeHash( buf: byte[] ) = 
         if (Utils.IsNull x.Hash) then
             x.Hash <- HashLengthPlusByteArray( buf )
@@ -249,7 +249,7 @@ type JobDependencies() =
     /// It will be used to set ProcessStartInfo.EnvironmentVariables during the launch of the remote container
     member val EnvVars : List<string*string> = new List<string*string>() with get
     
-    /// Job File Dependencies SHA1 Hash
+    /// Job File Dependencies Hash
     member internal x.JobDependencySHA256() =
         use ms = new MemStream( ) 
         for dep in x.FileDependencies do 

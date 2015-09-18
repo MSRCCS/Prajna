@@ -106,6 +106,14 @@ This section describes how to use provided Powershell scripts to deploy and laun
 
   To enable authentication, add an extra "-Password" parameter to pass in a string of desired password
 
+    If an explict credential is required for executing powershell command on remote machines, 
+    
+    PS> $Cred = Get-Credential
+    
+    It will prompt a dialog for input the credential. Here also assumes that the credential is the same for all remote machines. Then
+    
+    PS> .\Deploy-Clients.ps1 -ComputerNames @("Machine1", "Machine2", "Machine3") -SourceLocation ..\..\Client -ClientLocation C:\Deployment\PrajnaClient -Port 1005 -JobPortRange 1250-1299 -Cred $Cred
+
 ---------------------------------------------------------
 2.4 Other scripts
 ---------------------------------------------------------
@@ -113,7 +121,7 @@ This section describes how to use provided Powershell scripts to deploy and laun
   * Start-Clients.ps1 : start clients on machines by specify the location of the clients on the machines, for example
   
      PS> .\Start-Clients.ps1 -ComputerNames @("Machine1", "Machine2", "Machine3") -ClientLocation C:\Deployment\PrajnaClient -Port 1005 -JobPortRange 1250-1299 -ShutdownRunningClients $true
-     
+  
   * Stop-Clients.ps1: stop clients on machines by specify the location of the clients on the machines
      
      pS> .\Stop-Clients.ps1 -ComputerNames @("Machine1", "Machine2", "Machine3") -ClientLocation C:\Deployment\PrajnaClient

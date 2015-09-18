@@ -909,10 +909,6 @@ and [<AllowNullLiteral>]
 
                         x.MonitorSendPeerStatus peeri peerQueue bCansend
                         if ( bCansend || (peerQueue.CanSend && bForceSend) ) then 
-//                            Logger.LogF(LogLevel.MildVerbose, (fun _ -> 
-//                                let qq = peerQueue.CompSend.Q :?> OneNet.Tools.Queue.FixedSizeQ<NetworkCommand>
-//                                sprintf "QSize current: %d max: %d" qq.CurrentSize qq.MaxSize
-//                            ))
                             peerQueue.ToSend( cmd, ms )
                             if (Utils.IsNotNull ms) then
                                 ms.DecRef()

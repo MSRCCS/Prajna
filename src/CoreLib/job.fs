@@ -1713,7 +1713,7 @@ and
                 let clOpt = ClusterInfo.Unpack( stream )
                 match clOpt with 
                 | Some( clusterinfo ) ->
-                    clusterinfo.Persist() |> ignore
+                    clusterinfo.Persist()
                     let cluster = ClusterFactory.FindCluster( clusterinfo.Name, clusterinfo.Version.Ticks )
                     blob.Object <- cluster
                     x.Clusters.[blob.Index] <- cluster

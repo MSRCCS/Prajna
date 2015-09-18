@@ -1340,6 +1340,12 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
         if Utils.IsNotNull dirpath then
             FileTools.DirectoryInfoCreateIfNotExists (dirpath) |> ignore
 
+    /// Initialize authentication using a shared secret password 
+    member x.InitializeAuthentication (pwd : string) : unit =
+        let keyFile =  Path.Combine( [| DeploymentSettings.LocalFolder; "Keys";  Guid.NewGuid().ToString("D") |] )
+        let keyFilePwd = Guid.NewGuid().ToString("D")
+        x.InitializeAuthentication(pwd, keyFile, keyFilePwd)
+
     /// Initialize authentication / security information from keyfile (encrypted with keyfilePwd)
     /// while also allowing for shared secret (password) to be used for authentication.
     /// <param name="pwd">A shared secret password which can be used for authentication</param>
@@ -1377,12 +1383,14 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             ms.WriteBytesWLen(exchangePrivateKey)
             File.WriteAllBytes(mykeyfile, ms.GetValidBuffer())
             ms.DecRef()
+            Logger.LogF (LogLevel.MildVerbose, fun _ -> sprintf "InitializeAuthentication: write to key file: %s" mykeyfile)
         else
             let ms = new MemStream(File.ReadAllBytes(mykeyfile))
             x.MyGuid <- new Guid(ms.ReadBytes(sizeof<Guid>))
             x.MyAuthRSA <- Crypt.RSAFromPrivateKey(ms.ReadBytesWLen(), x.KeyFilePassword)
             x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(ms.ReadBytesWLen(), x.KeyFilePassword)
             ms.DecRef()
+            Logger.LogF (LogLevel.MildVerbose, fun _ -> sprintf "InitializeAuthentication: read from key file: %s" mykeyfile)
         // add self to allowed list
         x.AllowedConnections.[x.MyGuid] <- (Crypt.RSAToPublicKey(x.MyAuthRSA), Crypt.RSAToPublicKey(x.MyExchangeRSA))
 

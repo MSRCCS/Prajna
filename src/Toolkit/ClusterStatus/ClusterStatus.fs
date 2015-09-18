@@ -394,6 +394,13 @@ module Main =
     
     // The UI window type
     type ClusterStatusWindow(xamlFile : string) =
+        do 
+            Logger.ParseArgs([| "-verbose"; "6"; 
+                                "-log" ; Path.Combine([| DeploymentSettings.LocalFolder; 
+                                                         "Log"; 
+                                                         "ClusterStatus"; 
+                                                         "ClusterStatus_" + DateTime.UtcNow.ToString("yyMMdd_HHmmss.ffffff") + ".log" |])|])
+
         let loadXamlWindow (xamlFile : string) =
             use t = new LogTimer("loadXamlWindow")
             if (not (File.Exists xamlFile)) then failwith(xamlFile + " does not exist!")
@@ -703,11 +710,18 @@ module Main =
 
             Async.StartAsTask( updateNodesViewAsync ) |> ignore
 
+        let reset () =
+            clusterStatus <- None
+            diskUsage <- None
+            prajnaLocalFolderUsage <- None
+            prajnaDataFolderUsage <- None
+            clearRightGrid()
+
         let openClusterFile () =
             use t = new LogTimer("openClusterFile")
             let dlg = new Microsoft.Win32.OpenFileDialog()
-            dlg.DefaultExt <- "*.inf"
-            dlg.Filter <- "Cluster Information Files|*.inf"
+            dlg.DefaultExt <- "*.lst"
+            dlg.Filter <- "Cluster List File (.lst)|*.lst|Cluster Information File (.inf)|*.inf"
             let r = dlg.ShowDialog()
             if r.HasValue && r.Value = true 
             then 
@@ -717,8 +731,12 @@ module Main =
                    viewMenuItem.Visibility <- Visibility.Hidden
                    Cluster.StartCluster( file )
                    cluster <- Cluster.Current 
+                   reset()
                with
                   | ex -> showWarning ("Fail to start cluster with '" + file + "': " + ex.Message)
+
+            // For only allow open the cluster file once. There're issues on opening another cluster in the same process
+            openMenuItem.IsEnabled <- false
 
             if Option.isSome cluster 
             then                 

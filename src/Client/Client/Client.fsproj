@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -43,11 +43,6 @@
     <ProjectReference Include="..\..\Tools\Tools\Tools.fsproj">
       <Name>Tools</Name>
       <Project>{159bb552-8346-4313-8e10-43b88beca63b}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\ClientExt\ClientExt.fsproj">
-      <Name>ClientExt</Name>
-      <Project>{ea8c1f76-66da-4aad-ade8-3ab016672ff5}</Project>
       <Private>True</Private>
     </ProjectReference>
   </ItemGroup>

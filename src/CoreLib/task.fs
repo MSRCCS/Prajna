@@ -3608,7 +3608,13 @@ type internal ContainerLauncher() =
         Logger.Log( LogLevel.Info, ( sprintf "%s executing in new Executable Environment ...................... %s, %d MB " 
                                                    (Process.GetCurrentProcess().MainModule.FileName) DeploymentSettings.PlatformFlag (DeploymentSettings.MaxMemoryLimitInMB) ))
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Current working directory <-- %s " (Directory.GetCurrentDirectory()) ))
-        Logger.Log( LogLevel.Info, ( sprintf "Verbose level = %A, parameters %A " (Logger.DefaultLogLevel) orgargv ))
+
+        let argsToLog = Array.copy orgargv
+        for i in 0..argsToLog.Length-1 do
+            if String.Compare(argsToLog.[i], "-rsapwd", StringComparison.InvariantCultureIgnoreCase) = 0 then
+                argsToLog.[i + 1] <- "****"
+
+        Logger.Log( LogLevel.Info, ( sprintf "Verbose level = %A, parameters %A " (Logger.DefaultLogLevel) argsToLog ))
     //    MakeFileAccessible( logfname )
     //        let task = Task( SignatureName=name, SignatureVersion=ver )
         Task.StartTaskAsSeperateApp( name, ver, ip, port, jobip, jobport, (requireAuth, guid, rsaKey, rsaKeyPwd), clientId |> Some, clientModuleName |> Some, clientStartTimeTicks |> Some)

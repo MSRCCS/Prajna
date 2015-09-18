@@ -528,8 +528,10 @@ type internal ClusterInfoBase( clusterType, version, listOfClients ) =
     member val ReplicationType = ClusterInfoBase.SetReplicationType( clusterType ) with get, set
     new ( ) = 
         ClusterInfoBase( ClusterType.StandAlone, DateTime.MinValue, null )
-    new ( y: ClusterInfoBase ) =
+    new ( y: ClusterInfoBase ) as cl =
         ClusterInfoBase( y.ClusterType, y.Version, y.ListOfClients )
+        then
+            cl.Name <- y.Name
     new ( y: ClusterInfoBase, nodeName: string ) as cl = 
         ClusterInfoBase( y.ClusterType, y.Version, y.ListOfClients |> Array.filter( fun cl -> String.Compare( cl.MachineName, nodeName, StringComparison.OrdinalIgnoreCase)=0 ) )
         then 
@@ -675,6 +677,20 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
             )
     static member ClusterInfoFolder () = 
         Path.Combine( DeploymentSettings.LocalFolder, DeploymentSettings.ClusterFolder )
+
+    // find the latest cluster info file for cluster with name 'name'
+    static member private FindLatestClusterInfoFile (name) =
+        let folder = ClusterInfo.ClusterInfoFolder()
+        if Directory.Exists folder then
+            // The pattern is "ClusterName_Cluster_150917_045810.019677"
+            let files = Directory.GetFiles(folder, name + "_Cluster_*_*.*.inf") |> Array.sort
+            if not (Array.isEmpty files) then
+                files.[files.Length - 1] |> Some
+            else
+                None
+        else
+            None
+
     /// ver = DateTime.MinValue, just use a shorter filename for ease of remembering (don't save ver into filename)s
     static member ConstructClusterInfoFileNameWithVersion( name, ver ) = 
         let folder = ClusterInfo.ClusterInfoFolder()
@@ -683,8 +699,11 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
             if ver<>DateTime.MinValue then 
                 Path.Combine( folder, name + "_" + DeploymentSettings.ClusterInfoName( ver) )
             else
-                Path.Combine( folder, name + ".inf" )
+                match ClusterInfo.FindLatestClusterInfoFile(name) with
+                | Some f -> f
+                | None -> Path.Combine( folder, name + ".inf" )
         fname1
+
     /// Construct the name to save the cluster info
     member x.ConstructClusterInfoFilename() = 
         ClusterInfo.ConstructClusterInfoFileNameWithVersion( x.Name, x.Version ) 
@@ -890,6 +909,45 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
         | e ->
             Logger.Log( LogLevel.Error, ( sprintf "Cluster Information File is shorter than 16B, with content %A" (ms.GetBuffer()) ))
             None
+    
+    static member private ParseListFile(file : string ) =
+        let lines = File.ReadAllLines(file)
+        if lines.Length < 2 then
+            failwith (sprintf "Cluster list file is invalid, it needs to specify the cluster information at line 1, and at least specify one node")
+
+        // The first line:   Name,Port,Passwd   (Port and Passwd is optional)
+        let clusterItems = lines.[0].Split([|','|])
+        if clusterItems.Length < 2 && clusterItems.Length > 3 then
+            failwith (sprintf "Cluster list file is invalid, the first line on cluster information is invalid : %s" lines.[0])
+
+        let clusterName = clusterItems.[0]
+        if clusterName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 then
+            // Must be able to be a file name
+            failwith (sprintf "Cluster Name '%s' is not valid." clusterName)
+
+        let b, port = Int32.TryParse(clusterItems.[1])
+        if not b then 
+            failwith (sprintf "Cluster list file has specified an invalid port at line 1: %s" clusterItems.[1])
+
+        let passwd = if clusterItems.Length = 3 then clusterItems.[2] |> Some else None
+
+        let clients = [|
+                for i in 2..lines.Length do
+                    // each line has the format  machine-name
+                    let items = lines.[i - 1].Split([|','|])
+                    if items.Length <> 1 then
+                        failwith (sprintf "Cluster list file has a invalid line (line %d): %s" i lines.[i - 1])
+                    let machineName = items.[0]
+                    
+                    // Generate machine id from machine name
+                    let ba = let arr = System.Text.Encoding.ASCII.GetBytes(machineName)
+                             if arr.Length >= 8 then arr
+                             else Array.zeroCreate<byte> 8 |> Array.mapi ( fun i v -> if i < arr.Length then arr.[i] else v )
+                    let id = BitConverter.ToUInt64(ba, 0) 
+                    yield ClientInfo(ClientStatus(Name = machineName, InternalPort = port, MachineID = id))
+            |]
+        ClusterInfo(ListOfClients = clients, Name = clusterName) |> Some, passwd
+
     /// Unpack to cluster information. 
     static member Unpack( bytearray:byte[] ) = 
         let ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
@@ -899,15 +957,22 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
     /// Read the current cluster from file 
     static member Read (name:string) = 
         try
-            let bytearray = ReadBytesFromFile( name ) 
-            let ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
-            let outParam = ClusterInfo.Unpack( ms )
-            ms.DecRef()
-            outParam
+            let ext = Path.GetExtension(name)
+            if String.Compare(ext, ".lst", StringComparison.InvariantCultureIgnoreCase) = 0 then
+                // It's a lst file
+                ClusterInfo.ParseListFile(name)
+            else
+                let bytearray = ReadBytesFromFile( name ) 
+                let ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
+                let outParam = ClusterInfo.Unpack( ms )
+                ms.DecRef()
+                let passwd = None // inf file does not support password yet
+                outParam, passwd
         with
         | e ->
-            Logger.Log( LogLevel.Error, ( sprintf "Fail to open file %s or parse it correctly with %A" name e ))
-            None
+            let msg = sprintf "Fail to open file %s or parse it correctly with %A" name e
+            Logger.Log( LogLevel.Error, msg)
+            failwith msg
 
     /// Read the current cluster 
     static member Read (name, ver:DateTime ) = 
@@ -915,7 +980,7 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
         if File.Exists name then 
             ClusterInfo.Read( name ) 
         else
-            None   
+            None, None  
     /// Save the current ClusterInfoBase to file, with default name
     member x.Save() = 
         x.Save( x.ConstructClusterInfoFilename() )
@@ -924,12 +989,32 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
         x.Save( ClusterInfo.ConstructClusterInfoFileNameWithVersion( x.Name, DateTime.MinValue )  )
 
     /// Save the current ClusterInfoBase if the current cluster doesn't exist 
-    /// Return: name of the ClusterInfo file
+    /// if the version is not specified (DateTime.MinValue), then search for the latst version of inf file for the same cluster (by name)
+    /// If the info is the same, nothing to persist. Otherwise, create a new version. 
+    /// If the version is specified, save it.
     member x.Persist() =
-        let fname = x.ConstructClusterInfoFilename()
-        if not ( File.Exists fname ) then 
-            x.Save( fname )
-        fname
+        let fname = 
+            if x.Version = DateTime.MinValue then
+                let latestInfoFile = ClusterInfo.FindLatestClusterInfoFile(x.Name)
+                let isSame = 
+                    match latestInfoFile with
+                    | Some infoFile -> let clusterInfo, _ = ClusterInfo.Read(infoFile)
+                                       match clusterInfo with
+                                       | Some info -> info.Version <- DateTime.MinValue
+                                                      info = x
+                                       | None -> false
+                    | None -> false
+                if not isSame then 
+                    ClusterInfo.ConstructClusterInfoFileNameWithVersion( x.Name, DateTime.UtcNow ) |> Some
+                else 
+                    None
+            else                
+                x.ConstructClusterInfoFilename() |> Some
+            
+        match fname with
+        | Some f ->   if not ( File.Exists f ) then 
+                          x.Save( f )
+        | None -> ()
 
     /// Save the current Client list 
     member x.SaveLst( fname:string ) = 
@@ -1008,7 +1093,8 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
             let files = dir.GetFiles( "*.inf" )
             for file in files do 
                 try 
-                    let cluster = ClusterInfo.Read( file.FullName )
+                    // HomeInServer is not dealing with passwd yet
+                    let cluster, _ = ClusterInfo.Read( file.FullName )
                     match cluster with 
                     | Some ( cl ) ->
                         let mutable cname = file.Name

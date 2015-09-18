@@ -203,14 +203,14 @@ type internal Crypt() =
         let buf = System.Convert.FromBase64String(str)
         Crypt.DecryptWithParams(buf, pwd)
 
-    static member SHA1Str(str : string) =
-        let sha = new SHA1CryptoServiceProvider()
+    static member SHAStr(str : string) =
+        let sha = new SHA256Managed()
         let strBuf = Text.Encoding.UTF8.GetBytes(str)
-        let sha1 = sha.ComputeHash(strBuf)
-        System.Convert.ToBase64String(sha1)
+        let sha = sha.ComputeHash(strBuf)
+        System.Convert.ToBase64String(sha)
 
-    static member SHA1BufStr(buf : byte[]) =
-        let sha = new SHA1CryptoServiceProvider()
+    static member SHABufStr(buf : byte[]) =
+        let sha = new SHA256Managed()
         System.Convert.ToBase64String(sha.ComputeHash(buf))
 
     static member RSAGetNewKey(keyNumber : KeyNumber) : byte[]*byte[] =

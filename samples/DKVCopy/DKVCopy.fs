@@ -168,10 +168,10 @@ let main orgargs =
                         hseq 
                         |> Seq.iter ( 
                             fun (filename, payload ) -> 
-                                let md5hash, flen = payload
+                                let hash, flen = payload
                                 nTotal := !nTotal + (uint64 filename.Length) + (uint64 flen ) 
                                 nFiles := !nFiles + 1
-                                Logger.Log( LogLevel.Info, ( sprintf "File %s ... %dB (Hash %08x) " filename (filename.Length+flen) md5hash ))
+                                Logger.Log( LogLevel.Info, ( sprintf "File %s ... %dB (Hash %08x) " filename (filename.Length+flen) hash ))
                            )
                         ( !nFiles, !nTotal )
                 let t2 = (DateTime.UtcNow)

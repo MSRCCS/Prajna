@@ -43,5 +43,6 @@ frameworkAssemblies
     System.Management
     System.Xml
     System.Xml.Linq
+    System.Runtime.Serialization
 dependencies
     FSharp.Core >= 3.1.2

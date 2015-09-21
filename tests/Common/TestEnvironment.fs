@@ -23,11 +23,11 @@ type TestEnvironment private () =
 
     do
         Environment.Init()
-        let dirLog = Path.Combine ([| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
-        let fileLog = Path.Combine( dirLog, "UnitTestApp_" + StringTools.UtcNowToString() + ".log" )
+        let logdir = Path.Combine ([| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
+        let fileLog = Path.Combine( logdir, "UnitTestApp_" + StringTools.UtcNowToString() + ".log" )
         let args = [| "-verbose"; "5"; 
                        "-log"; fileLog |]
-        let dirInfo= FileTools.DirectoryInfoCreateIfNotExists dirLog
+        let dirInfo= FileTools.DirectoryInfoCreateIfNotExists logdir
         let dirs = dirInfo.GetDirectories()
          // Remove related versions. 
         for dir in dirs do

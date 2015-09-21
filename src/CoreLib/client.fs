@@ -46,11 +46,11 @@ type internal ClientLauncher() =
     inherit System.MarshalByRefObject() 
     static let Usage = "PrajnaClient \n\
         Command line arguments:\n\
-        -dirlog  the dir for the log files\n\
+        -logdir  the dir for the log files\n\
         -pwd     the passwd used for job request authentication\n\
         -mem     maximum memory size in MB allowed for the client\n\
         -port    the port that is used to listen the request\n\
-        -jobport the range of ports for jobs\n\
+        -jobports the range of ports for jobs\n\
         "
 
     // The name of the semaphore that is informing the test host that the client is ready to serve
@@ -84,8 +84,19 @@ type internal ClientLauncher() =
 
     static member Main orgargs = 
         let args = Array.copy orgargs
-        let firstParse = ArgumentParser(args, false)  
-        let logdir = firstParse.ParseString( "-dirlog", (DeploymentSettings.LogFolder) )
+        let firstParse = ArgumentParser(args, false)
+        
+        let logdir = 
+            // Keep "-dirlog" to not break existing scripts
+            let d1 = firstParse.ParseString( "-dirlog", String.Empty )
+            let d2 = firstParse.ParseString( "-logdir", String.Empty )
+            if d1 = String.Empty && d2 = String.Empty then
+                DeploymentSettings.LogFolder
+            else if d2 <> String.Empty then
+                d2
+            else
+                d1
+
         DeploymentSettings.LogFolder <- logdir
         let logdirInfo = FileTools.DirectoryInfoCreateIfNotExists( logdir ) 
         let logFileName = Path.Combine( logdir, VersionToString( (PerfDateTime.UtcNow()) ) + ".log" )
@@ -140,7 +151,15 @@ type internal ClientLauncher() =
 
         let jobip = parse.ParseString("-jobip", "")
         DeploymentSettings.JobIP <- jobip
-        let jobport = parse.ParseString( "-jobport", "" )
+        
+        let jobport = 
+            // Keep "-jobport" to not break existing scripts
+            let j = parse.ParseString( "-jobports", String.Empty )
+            if j <> String.Empty then
+                j
+            else
+                parse.ParseString( "-jobport", String.Empty )
+
         if Utils.IsNotNull jobport && jobport.Length > 0 then 
             let jobport2 = jobport.Split(("-,".ToCharArray()), StringSplitOptions.RemoveEmptyEntries )
             if jobport2.Length >= 2 then 

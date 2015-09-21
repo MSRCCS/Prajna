@@ -30,7 +30,6 @@
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Debugx64\Prajna.BasicService.XML</DocumentationFile>
     <PlatformTarget>x64</PlatformTarget>
-    <StartArguments>-mem 48000 -verbose 7 -dirlog c:\BasicService\Log\JinL -homein JINL4 -port 1002 -jobport 1100,1149</StartArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
     <DebugType>pdbonly</DebugType>

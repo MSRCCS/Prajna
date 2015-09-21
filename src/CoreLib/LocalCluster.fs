@@ -74,9 +74,9 @@ type internal LocalCluster (name, version, numClients, containerMode, clientPath
         let dirLog = Path.Combine( [| DeploymentSettings.LogFolder; "LocalCluster"; name; "Client-" + ((string)client.MachinePort) |] )
         let args = [ "-mem"; "48000"; 
                      "-verbose"; ((int ) DeploymentSettings.LocalClusterTraceLevel).ToString();
-                     "-dirlog"; dirLog;
+                     "-logdir"; dirLog;
                      "-port";  (string)client.MachinePort;
-                     "-jobport"; sprintf "%i-%i" client.JobPortMin client.JobPortMax;
+                     "-jobports"; sprintf "%i-%i" client.JobPortMin client.JobPortMax;
                      "-local"  ]
         let allArgs = if containerMode = LocalClusterContainerMode.AppDomain then "-allowad"::args else args
         Array.ofList allArgs    

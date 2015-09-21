@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -30,7 +30,6 @@
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Debugx64\Prajna.XML</DocumentationFile>
     <PlatformTarget>x64</PlatformTarget>
-    <StartArguments>-mem 48000 -verbose 7 -dirlog c:\Prajna\Log\JinL -homein JINL4 -port 1002 -jobport 1100,1149</StartArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
     <DebugType>pdbonly</DebugType>

@@ -1,4 +1,4 @@
-#### 0.0.1.4-alpha - September 18 2015
+#### 0.0.1.5-alpha - September 21 2015
 * new binary serializer
 * new shared memory stream
 * Include deployment scripts for windows domain clusters

@@ -30,6 +30,7 @@
 namespace Prajna.Service.ServiceEndpoint
 
 open System
+open System.IO
 open System.Net
 open System.Collections.Generic
 open System.Collections.Concurrent
@@ -205,9 +206,9 @@ type ServiceInstance<'Request, 'Reply>() =
     member val ExecutionMode = QueryExecutionMode<'Request,'Reply>.UndefinedQueryExecution with get, set
 
 /// Action to serialize the collection of service 
-type EncodeCollectionAction = Action<seq<ServiceInstanceBasic>*MemStream>
+type EncodeCollectionAction = Action<seq<ServiceInstanceBasic>*Stream>
 /// Action to deserialize the collection of service 
-type DecodeCollectionFunction = Func< StreamBase<byte>, seq<ServiceInstanceBasic> >
+type DecodeCollectionFunction = Func< Stream, seq<ServiceInstanceBasic> >
    
 /// <summary>
 /// This class contains the parameter used to start the back end service. The class (and if you have derived from the class, any additional information) 
@@ -382,7 +383,7 @@ type BackEndInstance< 'StartParamType
             let collections = x.ServiceCollection.Values |> Seq.collect ( Operators.id )
             // Pack information on service 
             let msCollection = new MemStream() 
-            param.EncodeServiceCollectionAction.Invoke( collections, msCollection ) 
+            param.EncodeServiceCollectionAction.Invoke( collections, msCollection :> Stream ) 
             initialMsg.Add( ControllerCommand( ControllerVerb.Set, ControllerNoun.QueryReply ), msCollection ) 
             x.InitialMessage <- initialMsg.ToArray()
             // Export backend information

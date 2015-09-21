@@ -132,6 +132,20 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Gateway", "src\ServiceLib\G
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ServiceEndpoint", "src\ServiceLib\ServiceEndpoint\ServiceEndpoint.fsproj", "{45959765-A1FA-4277-BC68-024CAD648546}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "scripts", "scripts", "{012ABB28-19FD-4935-AB0B-9E34D8B93D92}"
+	ProjectSection(SolutionItems) = preProject
+		scripts\README.txt = scripts\README.txt
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "WindowsDomainCluster", "WindowsDomainCluster", "{24176C7F-6562-4D88-80C9-56A5DD4C431D}"
+	ProjectSection(SolutionItems) = preProject
+		scripts\WindowsDomainCluster\Deploy-Clients.ps1 = scripts\WindowsDomainCluster\Deploy-Clients.ps1
+		scripts\WindowsDomainCluster\Start-Client.ps1 = scripts\WindowsDomainCluster\Start-Client.ps1
+		scripts\WindowsDomainCluster\Start-Clients.ps1 = scripts\WindowsDomainCluster\Start-Clients.ps1
+		scripts\WindowsDomainCluster\Stop-Client.ps1 = scripts\WindowsDomainCluster\Stop-Client.ps1
+		scripts\WindowsDomainCluster\Stop-Clients.ps1 = scripts\WindowsDomainCluster\Stop-Clients.ps1
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -590,5 +604,6 @@ Global
 		{A68BD032-F86B-49B6-B7ED-7300DB353705} = {B018B59D-85F0-419B-88B2-680E4126D5FD}
 		{C588134A-466C-4453-89AB-7DD7CEC58F06} = {B6B1E5E2-9BE5-4542-92C5-E85DE984C7D6}
 		{45959765-A1FA-4277-BC68-024CAD648546} = {B6B1E5E2-9BE5-4542-92C5-E85DE984C7D6}
+		{24176C7F-6562-4D88-80C9-56A5DD4C431D} = {012ABB28-19FD-4935-AB0B-9E34D8B93D92}
 	EndGlobalSection
 EndGlobal

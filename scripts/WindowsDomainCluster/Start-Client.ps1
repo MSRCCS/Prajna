@@ -71,10 +71,10 @@ $Sb = {
     }
 
     
-    $Cmd = "$ClientPath -mem $MemorySize -verbose $LogLevel -port $Port -jobport $JobPortRange"
+    $Cmd = "$ClientPath -mem $MemorySize -verbose $LogLevel -port $Port -jobports $JobPortRange"
     if ($LogDir)
     {
-        $Cmd = $Cmd + " -dirlog $LogDir"
+        $Cmd = $Cmd + " -logdir $LogDir"
     }
     if ($Password)
     {

@@ -290,7 +290,7 @@ and [<AllowNullLiteral>]
                         if Utils.IsNotNull nodeInfo then 
                             let proc = Process.GetCurrentProcess()
                             let clientInfo = sprintf "-clientId %i -clientModuleName %s -clientStartTimeTicks %i" proc.Id proc.MainModule.ModuleName proc.StartTime.Ticks
-                            let mutable cmd_line = sprintf "-job %s -ver %d -ticks %d -loopback %d -jobport %d -mem %d -dirlog %s -verbose %d %s" x.SignatureName x.SignatureVersion executeTicks DeploymentSettings.ClientPort nodeInfo.ListeningPort DeploymentSettings.MaxMemoryLimitInMB DeploymentSettings.LogFolder (int Prajna.Tools.Logger.DefaultLogLevel) clientInfo
+                            let mutable cmd_line = sprintf "-job %s -ver %d -ticks %d -loopback %d -jobport %d -mem %d -logdir %s -verbose %d %s" x.SignatureName x.SignatureVersion executeTicks DeploymentSettings.ClientPort nodeInfo.ListeningPort DeploymentSettings.MaxMemoryLimitInMB DeploymentSettings.LogFolder (int Prajna.Tools.Logger.DefaultLogLevel) clientInfo
                             if DeploymentSettings.StatusUseAllDrivesForData then 
                                 cmd_line <- "-usealldrives " + cmd_line
                             if not (DeploymentSettings.ClientIP.Equals("")) then
@@ -3568,7 +3568,7 @@ type internal ContainerLauncher() =
         let argv = Array.copy orgargv
         let firstParse = ArgumentParser(argv, false)
 
-        let logdir = firstParse.ParseString( "-dirlog", (DeploymentSettings.LogFolder) )
+        let logdir = firstParse.ParseString( "-logdir", (DeploymentSettings.LogFolder) )
         let name = firstParse.ParseString( "-job", "" )
         let ticks = firstParse.ParseInt64( "-ticks", (DateTime.MinValue.Ticks) )
         let logFileName = Path.Combine( logdir, name + "_exe_" + VersionToString( DateTime(ticks) ) + ".log"  )

@@ -25,7 +25,7 @@ This document describes the basics on Prajna deployment.
 
   To launch the client, use the following arguments
 
-      -port 1005 -jobport 1250-1300
+      -port 1005 -jobports 1250-1300
 
   An extra argument can be provided it request authentication is desired.
 

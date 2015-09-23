@@ -274,13 +274,16 @@ type internal DSetAction() =
             curDSet.ToClose()
             curDSet.PartitionAnalysis()
             curDSet.Cluster.UnRegisterCallback( curDSet.Name, curDSet.Version.Ticks,  [| ControllerCommand( ControllerVerb.Unknown, ControllerNoun.DSet);
-                                                                                      ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition);
+                                                                                         ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Service);
+                                                                                         ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition);
                                                                                       |] )
         for cluster in x.Job.Clusters do 
             // Catch all calls to the GV.
             cluster.UnRegisterCallback( null, 0L, [| ControllerCommand( ControllerVerb.Unknown, ControllerNoun.GV);      // All DSet command
                          |] )
         x.ReferencedDSet.Clear()
+        x.Job.End()
+
     abstract member EndAction : unit -> unit
     default x.EndAction() = 
         x.BaseEndAction()

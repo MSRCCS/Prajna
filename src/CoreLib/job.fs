@@ -1662,6 +1662,15 @@ and
     member x.UnallocateAllBlobs( ) = 
         for blobi=0 to x.Blobs.Length - 1 do
             x.UnallocateBlob( blobi ) 
+
+    member x.End() =
+        for cluster in x.Clusters do 
+            cluster.UnRegisterCallback(x.Name, x.Version.Ticks, 
+                                      [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata ); 
+                                         ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Job ); 
+                                         ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Blob ) |])
+        x.UnallocateAllBlobs()
+
     /// When a blob is written, the blob name & version can change (especially for DSet). We thus need to update the associated blob information. 
     member x.UpdateBlobInfo( blobi ) = 
         let blob = x.Blobs.[blobi]

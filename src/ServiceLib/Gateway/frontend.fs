@@ -213,8 +213,10 @@ type RequestHolder() =
     let numReplySentRef = ref 0 
     /// ID of the service provider to be performed 
     member val ProviderID = Guid.Empty with get, set
-    /// ID of the schema to be performed 
-    member val SchemaID = Guid.Empty with get, set
+    /// ID that represents the coding of the input 
+    member val InputSchemaID = Guid.Empty with get, set
+    /// ID that represents the coding of the input 
+    member val OutputSchemaID = Guid.Empty with get, set
     /// ID of the service to be performed 
     member val ServiceID = Guid.Empty with get, set
     /// Guid governs how many backend are involved in servicing the request. 
@@ -363,13 +365,9 @@ type FrontEndInstance< 'StartParamType
     /// </summary> 
     member val ClientTrackingTimeOutInMS = 600000 with get, set
     /// <summary> 
-    /// Service collection. map Remote Singature -> serviceID, so that when the remote node leaves, we may be able to remove the corresponding service. 
-    /// </summary>
-    member val ServiceCollectionByQueueSignature = ConcurrentDictionary<_,ConcurrentQueue<_>>() with get
-    /// <summary> 
     /// Service collection by ServiceID 
     /// </summary>
-    member val ServiceCollectionByID = ConcurrentDictionary<_,ConcurrentDictionary<_,_>>() with get
+    member val ServiceCollectionByID = ConcurrentDictionary<_,ConcurrentDictionary<_,ConcurrentDictionary<_,_>>>() with get
     /// Statistics Queue holds statistics of the request that is served. 
     member val StatisticsCollection = ConcurrentDictionary<_,_>() with get
     /// Keep statistics of most recent certain seconds worth of requests
@@ -431,12 +429,11 @@ type FrontEndInstance< 'StartParamType
     /// Add a single service instance, allow serviceID to be different than used in serviceInstance (e.g., used in mega services). 
     /// </summary> 
     member x.AddServiceInstanceGuid( remoteSignature, serviceID, serviceInstance ) =
-        let oneServiceCollection = x.ServiceCollectionByID.GetOrAdd( serviceID, fun _ -> ConcurrentDictionary<_,_>() )
+        let oneSchemaCollection = x.ServiceCollectionByID.GetOrAdd( (serviceInstance.InputSchemaID,serviceInstance.OutputSchemaID), fun _ -> ConcurrentDictionary<_,_>() )
+        let oneServiceCollection = oneSchemaCollection.GetOrAdd( serviceID, fun _ -> ConcurrentDictionary<_,_>() )
         // Note: if there is multiple service with the same serviceID from the same remote endpoint, only the first is added, the rest are thrown away
         let addedInstance = oneServiceCollection.GetOrAdd( remoteSignature, serviceInstance ) 
         if Object.ReferenceEquals( addedInstance, serviceInstance ) then 
-            let allServiceID = x.ServiceCollectionByQueueSignature.GetOrAdd( remoteSignature, fun _ -> ConcurrentQueue<_>() )
-            allServiceID.Enqueue( serviceID )
             true
         else
             Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "service instance of %A is automatically throw away as there is already another service with the same service ID from %s"
@@ -460,19 +457,23 @@ type FrontEndInstance< 'StartParamType
     /// Remove service of a particular backend
     /// </summary>
     member x.RemoveServiceInstance( remoteSignature ) = 
-        let bExist, allServiceID = x.ServiceCollectionByQueueSignature.TryRemove( remoteSignature )
-        if bExist then 
-            for serviceID in allServiceID do 
-                let bExist, oneServiceCollection = x.ServiceCollectionByID.TryGetValue( serviceID )
+        for pair0 in x.ServiceCollectionByID do 
+            let schemaInfo = pair0.Key
+            let oneSchemaCollection = pair0.Value
+            for pair1 in oneSchemaCollection do 
+                let serviceID = pair1.Key
+                let oneServiceCollection = pair1.Value
+                let bExist, serviceInstance = oneServiceCollection.TryRemove( remoteSignature ) 
                 if bExist then 
-                    let bExist, serviceInstance = oneServiceCollection.TryRemove( remoteSignature ) 
-                    if bExist then 
-                        x.OnRemoveServiceInstanceExecutor.Trigger( (remoteSignature, serviceInstance), ( fun _ -> sprintf "Instance %A from %s" (serviceInstance.ServiceID.ToString()) 
-                                                                                                                   (LocalDNS.GetShowInfo( LocalDNS.Int64ToIPEndPoint(remoteSignature) )) ) )
+                    x.OnRemoveServiceInstanceExecutor.Trigger( (remoteSignature, serviceInstance), ( fun _ -> sprintf "Instance %A from %s" (serviceInstance.ServiceID.ToString()) 
+                                                                                                                (LocalDNS.GetShowInfo( LocalDNS.Int64ToIPEndPoint(remoteSignature) )) ) )
 
-                        /// If after removal, collection is empty remove the upper level serviceID. 
-                        if oneServiceCollection.IsEmpty then 
-                            x.ServiceCollectionByID.TryRemove( serviceID ) |> ignore
+                    /// If after removal, collection is empty remove the upper level serviceID. 
+                    if oneServiceCollection.IsEmpty then 
+                        oneSchemaCollection.TryRemove( serviceID ) |> ignore 
+                        if oneSchemaCollection.IsEmpty then 
+                            x.ServiceCollectionByID.TryRemove( schemaInfo ) |> ignore 
+                            
     /// Delegate function that will be called when the instance starts
     member val OnStartFrontEnd = List< FrontEndOnStartFunction<'StartParamType> >() with get
     /// Delegate function that will be called when the instance shutdown
@@ -766,7 +767,8 @@ type FrontEndInstance< 'StartParamType
     /// RTTSentByClient: network RTT of the request, 
     /// IPAddress, port: IP 
     /// </summary> 
-    member x.ReceiveRequest( reqID: Guid, providerID, schemaID, serviceID, distributionPolicy, aggregationPolicy, 
+    member x.ReceiveRequest( reqID: Guid, providerID, inputSchemaID, outputSchemaID, 
+                                serviceID, distributionPolicy, aggregationPolicy, 
                                 reqObject, 
                                 ticksSentByClient, 
                                 rttSentByClient, 
@@ -776,7 +778,8 @@ type FrontEndInstance< 'StartParamType
         let ticksCur = (PerfADateTime.UtcNowTicks())
         // ReqID is the only one that is not in the reqHolder, it is being used like a key
         let reqHolder = RequestHolder( ProviderID = providerID, 
-                                        SchemaID = schemaID, 
+                                        InputSchemaID = inputSchemaID, 
+                                        OutputSchemaID = outputSchemaID, 
                                         ServiceID = serviceID, 
                                         DistributionPolicy = distributionPolicy, 
                                         AggregationPolicy = aggregationPolicy, 
@@ -905,48 +908,56 @@ type FrontEndInstance< 'StartParamType
         if bAny then 
             let bExist, reqHolder = x.InProcessRequestCollection.TryGetValue( reqID ) 
             if bExist then 
+                let schemaInfo = reqHolder.InputSchemaID, reqHolder.OutputSchemaID
+                let bSchema, oneSchemaCollection = x.ServiceCollectionByID.TryGetValue( schemaInfo )
+                if bSchema then 
                 // Otherwise, the request is timeout, 
-                let serviceID = reqHolder.ServiceID
-                let bService, oneServiceCollection = x.ServiceCollectionByID.TryGetValue( serviceID )
-                if bService then 
-                    let bAnyOtherObject = not x.PrimaryQueue.IsEmpty
-                    // Ensure ExamineServiceQueueOnce is executed 
-                    let lst = List<_>(oneServiceCollection.Count)
-                    for pair in oneServiceCollection do 
-                        let remoteSignature = pair.Key
-                        let bExist, health = x.BackEndHealth.TryGetValue( remoteSignature ) 
-                        let queue = Cluster.Connects.LookforConnectBySignature( remoteSignature )
-                        if bExist && not (Utils.IsNull queue) then 
-                            lst.Add( queue, health, pair.Value )
-                    let examinedService = lst.ToArray()
-                    let del = x.FindDistributionPolicy( reqHolder.DistributionPolicy ) 
-                    let remoteArr = del.Invoke( reqHolder, examinedService )
-                    let len = if Utils.IsNull remoteArr then 0 else remoteArr.Length
-                    let mutable bRequestSend = false
-                    for i = 0 to len - 1 do 
-                        // bRequestSend become true if any of the request is sent 
-                        bRequestSend <- bRequestSend || x.SendRequest( reqID, reqHolder, remoteArr.[i] )
+                    let serviceID = reqHolder.ServiceID
+                    let bService, oneServiceCollection = oneSchemaCollection.TryGetValue( serviceID )
+                    if bService then 
+                        let bAnyOtherObject = not x.PrimaryQueue.IsEmpty
+                        // Ensure ExamineServiceQueueOnce is executed 
+                        let lst = List<_>(oneServiceCollection.Count)
+                        for pair in oneServiceCollection do 
+                            let remoteSignature = pair.Key
+                            let bExist, health = x.BackEndHealth.TryGetValue( remoteSignature ) 
+                            let queue = Cluster.Connects.LookforConnectBySignature( remoteSignature )
+                            if bExist && not (Utils.IsNull queue) then 
+                                lst.Add( queue, health, pair.Value )
+                        let examinedService = lst.ToArray()
+                        let del = x.FindDistributionPolicy( reqHolder.DistributionPolicy ) 
+                        let remoteArr = del.Invoke( reqHolder, examinedService )
+                        let len = if Utils.IsNull remoteArr then 0 else remoteArr.Length
+                        let mutable bRequestSend = false
+                        for i = 0 to len - 1 do 
+                            // bRequestSend become true if any of the request is sent 
+                            bRequestSend <- bRequestSend || x.SendRequest( reqID, reqHolder, remoteArr.[i] )
                     
-                    // Don't find any service
-                    if not bRequestSend then 
-                        let msg = sprintf "After distribution policy, the service collection %A has 0 availabe service" serviceID
-                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Req %A %s" 
-                                                                           reqID msg ))
-                        let perfQ = SingleQueryPerformance( Message = msg )
+                        // Don't find any service
+                        if not bRequestSend then 
+                            let msg = sprintf "After distribution policy, the service collection %A has 0 availabe service" serviceID
+                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Req %A %s" 
+                                                                               reqID msg ))
+                            let perfQ = SingleQueryPerformance( Message = msg )
+                            reqHolder.ReceivedReply( perfQ, null )
+                            x.AddPerfStatistics( reqID, reqHolder, "NoService", null )
+                            x.InProcessRequestCollection.TryRemove( reqID ) |> ignore
+                        else
+                            reqHolder.RequestAssignedFlag := 1
+                        bRequestSend || bAnyOtherObject
+                    else
+                        let perfQ = SingleQueryPerformance( Message = sprintf "Failed to find service collection %A" serviceID )
+                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Req %A has an invalid service ID %A." 
+                                                                           reqID serviceID ))
                         reqHolder.ReceivedReply( perfQ, null )
                         x.AddPerfStatistics( reqID, reqHolder, "NoService", null )
-                        x.ServiceCollectionByID.TryRemove( reqID ) |> ignore
-                    else
-                        reqHolder.RequestAssignedFlag := 1
-                    bRequestSend || bAnyOtherObject
+                        // Remove request
+                        x.InProcessRequestCollection.TryRemove( reqID ) |> ignore
+                        true
                 else
-                    let perfQ = SingleQueryPerformance( Message = sprintf "Failed to find service collection %A" serviceID )
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Req %A has an invalid service ID %A." 
-                                                                       reqID serviceID ))
-                    reqHolder.ReceivedReply( perfQ, null )
-                    x.AddPerfStatistics( reqID, reqHolder, "NoService", null )
-                    // Remove request
-                    x.ServiceCollectionByID.TryRemove( reqID ) |> ignore
+                    // Service ID doesn't exist, something wrong, as it should not be enqueued in the first place. 
+                    Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "request Schema %A,%A doesn't exist!!!" 
+                                                               (fst schemaInfo) (snd schemaInfo) ))
                     true
             else
                 // Service ID doesn't exist, something wrong, as it should not be enqueued in the first place. 

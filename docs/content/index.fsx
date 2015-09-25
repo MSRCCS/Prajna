@@ -20,41 +20,35 @@ Documentation
   <div class="span1"></div>
 </div>
 
-Example
--------
 
-This example demonstrates using a function defined in this sample library.
-
-*)
-#r "Prajna.dll"
-open Prajna
-
-// Examples TO-DO
-
-(**
-Some more info
-
-Samples & documentation
+Documentation
 -----------------------
 
  * [Paper](paper/Prajna_v1.pdf) contains a paper that describes the technical components of the project. 
-
- * [Tutorial](tutorial.html) contains a further explanation of this sample library.
 
  * [API Reference](reference/index.html) contains automatically generated documentation for all types, modules
    and functions in the library. This includes additional brief samples on using most of the
    functions.
  
-Contributing and copyright
+ * [Wiki][wiki]
+
+Examples
+-------
+
+* [C# Examples][csexamples]
+
+* [F# Examples][fsexamples]
+ 
+Contributing
 --------------------------
 
 The project is hosted on [GitHub][gh] where you can [report issues][issues], fork 
-the project and submit pull requests. If you're adding a new public API, please also 
-consider adding [samples][content] that can be turned into a documentation. You might
-also want to read the [library design notes][readme] to understand how it works.
+the project and submit pull requests. To contribute, please read the wiki page on [Contribute][contrib]
 
-The library is available under Public Domain license, which allows modification and 
-redistribution for both commercial and non-commercial purposes. For more information see the 
+License
+--------------------------
+
+Prajna is licensed under the [Apache license v2.0][license]. For more information see the 
 [License file][license] in the GitHub repository. 
 
   [content]: https://github.com/MSRCCS/Prajna/tree/master/docs/content
@@ -62,4 +56,8 @@ redistribution for both commercial and non-commercial purposes. For more informa
   [issues]: https://github.com/MSRCCS/Prajna/issues
   [readme]: https://github.com/MSRCCS/Prajna/blob/master/README.md
   [license]: https://github.com/MSRCCS/Prajna/blob/master/LICENSE.txt
+  [wiki]: https://github.com/MSRCCS/Prajna/wiki
+  [csexamples]: https://github.com/MSRCCS/Prajna/wiki/C%23-Examples
+  [fsexamples]: https://github.com/MSRCCS/Prajna/wiki/F%23-Examples
+  [contrib]: https://github.com/MSRCCS/Prajna/wiki/Contribute
 *)

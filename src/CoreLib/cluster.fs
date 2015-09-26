@@ -652,12 +652,11 @@ type internal NetworkCommandCallback =
     ///     Controller Command [V, N]
     ///     Peeri
     ///     Payload
-    abstract Callback : ControllerCommand * int * StreamBase<byte> * string * int64 * Cluster -> bool   
+    abstract Callback : ControllerCommand * int * StreamBase<byte> * Guid * string * int64 * Cluster -> bool   
 //    abstract CallbackEx : ControllerCommand * int * MemStream * string * int64 * Object -> unit
 //    default x.CallbackEx( cmd, peeri, ms, name, verNumber, cl ) = 
 //        x.Callback( cmd, peeri, ms, name, verNumber )
     
-
 and 
  /// <summary> 
  /// Cluster represents a set of remote nodes in either a private cloud or a public cloud. It is the class that govern 
@@ -689,8 +688,9 @@ and
     let endpointToPeer = new ConcurrentDictionary<IPEndPoint,int>()
 
     // Command to call for DSet
-    static let commandCallback = new ConcurrentDictionary<ControllerCommand, ConcurrentDictionary<string*int64, Cluster*NetworkCommandCallback>>()
-    
+    static let commandCallback = new ConcurrentDictionary<ControllerCommand, ConcurrentDictionary<Guid, (int64 ref) * ConcurrentDictionary<string*int64, Cluster*NetworkCommandCallback>>>()
+    // Parser to try to call when we fails to find a valid callback 
+    static let staticCallback = new ConcurrentDictionary<ControllerCommand, ConcurrentQueue<NetworkCommandCallback>>()
     // The factory method to create a local cluster, to be specified by code defined later
     static let mutable createLocalCluster : string * DateTime * int * LocalClusterContainerMode * (string option) * int  * (int * int) -> ILocalCluster = 
         (fun (name, version, numClients, containerMode, clientPath, numJobPortsPerClient, portsRange) -> failwith "not initialized, please call Environment.Init when program starts")
@@ -725,12 +725,12 @@ and
     // Create a local cluster from a specified config
     static member internal CreateLocalCluster config = 
         Cluster.CreateLocalCluster (config.Name,
-                                    config.Version,
-                                    config.NumClients, 
-                                    (if config.ContainerInAppDomain then LocalClusterContainerMode.AppDomain else LocalClusterContainerMode.Process),
-                                    config.ClientPath,
-                                    config.NumJobPortsPerClient,
-                                    config.PortsRange)
+                                          config.Version,
+                                          config.NumClients, 
+                                          (if config.ContainerInAppDomain then LocalClusterContainerMode.AppDomain else LocalClusterContainerMode.Process),
+                                          config.ClientPath,
+                                          config.NumJobPortsPerClient,
+                                          config.PortsRange)
 
     member val internal MsgToHost=List<(ControllerCommand*MemStream)>() with get
     member internal x.Queues with get() = queues
@@ -774,21 +774,21 @@ and
                 let cl = Cluster.CreateLocalCluster("local-1", defaultLocalClusterVersion)
                 cl.ClusterInfo |> Some, None
             else if (not (StringTools.IsNullOrEmpty( cluster ))) && (File.Exists cluster) then 
-                ClusterInfo.Read( cluster )      
+                ClusterInfo.Read( cluster )           
             else
                 None, None
         if Option.isNone(info) then
             let s= sprintf "Fail to parse cluster specification '%s' correctly" cluster
             Logger.Log( LogLevel.Error, (s))
             failwith (s)
-
+        
         info.Value.Persist()
         x.StartCluster(masterFile, info.Value)
         match pwd with
         | Some p -> let connects : NetworkConnections = Cluster.Connects
                     connects.InitializeAuthentication(p)
         | None -> ()
-
+        
     /// <summary>
     /// Construct a Cluster from cluster description.
     /// <param name="cluster">
@@ -878,7 +878,7 @@ and
                 null 
             else
                 clInfo.Persist()
-                Cluster.ConstructCluster( clInfo )                
+                Cluster.ConstructCluster( clInfo )
 
     /// <summary>
     /// Construct a single node using the existing cluster information. 
@@ -1285,8 +1285,10 @@ and
         x.FlushCommunication()
         for i = 0 to x.Queues.Length-1 do
             x.CloseQueueAndRelease( i ) 
-
-
+    static member internal RegisterStaticParser( commandset, callbackClass ) = 
+        for command in commandset do
+            let jobCommandQueue = staticCallback.GetOrAdd( command, fun _ -> ConcurrentQueue<_>() )
+            jobCommandQueue.Enqueue( callbackClass )
     /// Register Callback for Cluster
     /// commandset: a set of command (usually in the form of array) that the call back function will interpret
     ///     Wildcard is allowed in the form of Verb.Unknown*_, _*Noun.Unknown
@@ -1294,31 +1296,51 @@ and
     ///     For each command, the Parsecommand will first read a string and a int64 parameter, 
     ///     it will matches with callback.
     ///         string*int64, wildcard is allowed in the form ofstring*0L, null*int64, or null*0L
-    member internal x.RegisterCallback( name, ver, commandset, callbackClass ) =
+    member internal x.RegisterCallback( jobID, name, ver, commandset, callbackClass ) =
         for command in commandset do
-            let commandSet = commandCallback.GetOrAdd( command, fun _ -> new ConcurrentDictionary<_,_>( (StringTComparer<int64>(StringComparer.Ordinal)) ) )
+            let jobCommandSet = commandCallback.GetOrAdd( command, fun _ -> new ConcurrentDictionary<_,_>())
+            let _, commandSet = jobCommandSet.GetOrAdd( jobID, fun _ -> ref DateTime.UtcNow.Ticks, new ConcurrentDictionary<_,_>( (StringTComparer<int64>(StringComparer.Ordinal)) ) )
             commandSet.Item( (name, ver) ) <- (x, callbackClass)
-        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Register %s:%d commands %A " name ver commandset ))
+        Logger.LogF( jobID, LogLevel.WildVerbose, ( fun _ -> sprintf "Register commands %A for job %A" commandset jobID))
     /// Unregister Callback
-    member internal x.UnRegisterCallback( name, ver, commandset:seq<ControllerCommand> ) = 
+    member internal x.UnRegisterCallback( jobID, commandset:seq<ControllerCommand> ) = 
         if Utils.IsNotNull commandset && Seq.length(commandset)>0 then 
             for command in commandset do
-                let dicRef = ref Unchecked.defaultof<_>
-                if commandCallback.TryGetValue(command, dicRef) then 
-                    let dic = !dicRef
-                    dic.TryRemove((name, ver), ref Unchecked.defaultof<_> ) |> ignore
-                    if Utils.IsNull name || ver=0L then 
-                        let allitems = dic |> Seq.toArray
-                        for pair in allitems do 
-                            let itemname, itemver = pair.Key
-                            if (Utils.IsNull name || itemname=name) && (ver=0L || itemver=ver) then 
-                                dic.TryRemove( (itemname, itemver) ) |> ignore    
-                    if dic.IsEmpty then 
+                let bExist, dic = commandCallback.TryGetValue(command)
+                if bExist then 
+                    let bRemove, jobCommandSet = dic.TryRemove( jobID )
+                    if bRemove && dic.IsEmpty then  
                         commandCallback.TryRemove(command) |> ignore
         else
             let callbackArray = commandCallback.Keys |> Seq.toArray
-            x.UnRegisterCallback( name, ver, callbackArray )
-        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Unregister %s:%d commands %A" name ver commandset ))
+            x.UnRegisterCallback( jobID, callbackArray )
+        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Unregister commands %A for job %A" commandset jobID ))
+    /// Unregister Callback
+    member internal x.UnRegisterOneCallback( jobID, name, ver, commandset:seq<ControllerCommand> ) = 
+        if Utils.IsNotNull commandset && Seq.length(commandset)>0 then 
+            for command in commandset do
+                let bExist, dic = commandCallback.TryGetValue(command)
+                if bExist then 
+                    let bExist, tuple = dic.TryGetValue( jobID )
+                    if bExist then 
+                        let _, jobCommandSet = tuple 
+                        jobCommandSet.TryRemove( (name, ver) ) |> ignore 
+                        if Utils.IsNull name || ver=0L then 
+                            let allitems = jobCommandSet |> Seq.toArray 
+                            for pair in allitems do  
+                                let itemname, itemver = pair.Key 
+                                if (Utils.IsNull name || (String.CompareOrdinal( itemname,name)=0 ) )  && (ver=0L || itemver=ver) then  
+                                    jobCommandSet.TryRemove( (itemname, itemver) ) |> ignore
+                        if jobCommandSet.IsEmpty then 
+                            let bRemove, jobCommandSet = dic.TryRemove( jobID )
+                            ()
+//                            JinL: 9/10/2015, we don't further remove the command entry, so that received network command towards cancelled job will be thrown away ... 
+//                            if bRemove && dic.IsEmpty then  
+//                                commandCallback.TryRemove(command) |> ignore
+        else
+            let callbackArray = commandCallback.Keys |> Seq.toArray
+            x.UnRegisterOneCallback( jobID, name, ver, callbackArray )
+        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Unregister commands %A for job %A" commandset jobID ))
 
     static member internal ParseHostCommand (q : NetworkCommandQueue) (i : int) (command : NetworkCommand) =
         if Utils.IsNull q then 
@@ -1340,8 +1362,10 @@ and
             | Some( cmd, ms ) ->
                 let orgpos = ms.Position
                 let mutable bNotBlocked = true
+                let mutable bJobIDFound = true 
                 Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "ParseHostCommand, from %A, received Command %A... " q.RemoteEndPoint cmd ))
                 try 
+                    let jobIDRef = ref Guid.Empty
                     let mutable name = null
                     let mutable ver = 0L
                     let mutable fullname = null
@@ -1355,18 +1379,32 @@ and
                         commandCallback.TryGetValue( ControllerCommand( ControllerVerb.Unknown, cmd.Noun), cbItem ) |> ignore
                         if Utils.IsNull !cbItem then 
                             commandCallback.TryGetValue( ControllerCommand( cmd.Verb, ControllerNoun.Unknown), cbItem ) |> ignore
-                    let callbackItem = !cbItem
-                    if not (Utils.IsNull callbackItem) then 
+                    let jobCommandSet = !cbItem
+                    if not (Utils.IsNull jobCommandSet) then 
+                        jobIDRef := ms.ReadGuid()
                         name <- ms.ReadString()
                         ver <- ms.ReadInt64()
-                        let ret = callbackItem.TryGetValue( (name, ver), cbRefTuple )
-                        if (not ret) then
-                            let ret = callbackItem.TryGetValue( (name, 0L), cbRefTuple )
+                        let bExist, tuple = jobCommandSet.TryGetValue( !jobIDRef ) 
+                        if bExist then 
+                            let ticksRef, callbackItem = tuple 
+                            ticksRef := DateTime.UtcNow.Ticks
+                            let ret = callbackItem.TryGetValue( (name, ver), cbRefTuple )
                             if (not ret) then
-                                let ret = callbackItem.TryGetValue( (null, ver), cbRefTuple )
+                                let ret = callbackItem.TryGetValue( (name, 0L), cbRefTuple )
                                 if (not ret) then
-                                    let ret = callbackItem.TryGetValue( (null, 0L), cbRefTuple )
-                                    if (ret) then
+                                    let ret = callbackItem.TryGetValue( (null, ver), cbRefTuple )
+                                    if (not ret) then
+                                        let ret = callbackItem.TryGetValue( (null, 0L), cbRefTuple )
+                                        if (ret) then
+                                            x <- fst !cbRefTuple
+                                            cb <- snd !cbRefTuple
+                                        else
+                                            // We find an entry of the jobCommandSet, but doesn't find particular DSet (name, ver)
+                                            // It is possible that the job are being cancelled. 
+                                            bJobIDFound <- false 
+                                            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "(OK, job may be cancelled) Receive cmd %A from peer %d with job ID %A payload of %dB, but there is no parsing logic, command will be discarded!" 
+                                                                                                    cmd i !jobIDRef (ms.Length) ))
+                                    else
                                         x <- fst !cbRefTuple
                                         cb <- snd !cbRefTuple
                                 else
@@ -1376,13 +1414,24 @@ and
                                 x <- fst !cbRefTuple
                                 cb <- snd !cbRefTuple
                         else
-                            x <- fst !cbRefTuple
-                            cb <- snd !cbRefTuple
+                            // Receive a command that we should parse, but the corresponding jobID has been eliminated .. 
+                            bJobIDFound <- false 
+                            // Can't find the jobID associated with the return command, we assume that the job has already been cancelled, and the command may be thrown away 
+                            // The log level can be reduced later when the code stablize
+                            Logger.LogF( !jobIDRef, LogLevel.MildVerbose, (fun _ -> sprintf "(OK, job may be cancelled) Receive cmd %A from peer %d with payload of %dB, but there is no parsing logic!" 
+                                                                                            cmd i (ms.Length) ))
                         if Utils.IsNotNull cb then 
-        //                                        cb.CallbackEx( cmd, i, ms, name, ver, x )
-                            bNotBlocked <- cb.Callback( cmd, i, ms, name, ver, x )
-                            ()
-                    if Utils.IsNull cb then 
+                            bNotBlocked <- cb.Callback( cmd, i, ms, !jobIDRef, name, ver, x )
+                        else 
+                            let bExist, staticCommandCallback = staticCallback.TryGetValue( cmd )
+                            if bExist then 
+                                let mutable bProccessed = false
+                                for callback in staticCommandCallback do 
+                                    if not bProccessed then 
+                                        bProccessed <- callback.Callback( cmd, i, ms, !jobIDRef, name, ver, null )
+                                        if bProccessed then 
+                                            bJobIDFound <- false     
+                    if Utils.IsNull cb && bJobIDFound then 
                         match ( cmd.Verb, cmd.Noun ) with
                         | ( ControllerVerb.Unknown, _ ) ->
                             ()
@@ -1391,7 +1440,10 @@ and
                             let msg = 
                                 try ms.ReadString() with e -> "Failed when try to parse return Error message."
                             Logger.Log( LogLevel.Info, ( sprintf "From peer %d, Error received... Command %A...  %s" i cmd msg ))
-                            q.MarkFail()
+                            // q.MarkFail()
+                            // We are not going to swallow error, and will simply stop the process. 
+                            let ex = System.Runtime.Remoting.RemotingException( msg )
+                            raise (ex )
                         | ( ControllerVerb.Warning, _ ) ->
                             let msglen = ms.Length
                             let msg = 
@@ -1414,7 +1466,7 @@ and
                         | ( ControllerVerb.Echo2, ControllerNoun.Job ) ->
                             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Echo2, Job from client"))
                         | _ -> 
-                            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Receive cmd %A from peer %d with payload %A, but there is no parsing logic!" cmd i (ms.GetBuffer()) ))
+                            Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "(OK, parsed by other parser) Receive cmd %A from peer %d with payload %A, but there is no parsing logic!" cmd i (ms.GetBuffer()) ))
                     if not bNotBlocked then 
                     // JinL: 06/24/2014
                     // Blocking, the command cannot be further processed (e.g., too many read pending, will need to block further read of the receiving queue 
@@ -1430,8 +1482,8 @@ and
                                           i ))
                            ) )
                 with
-                | e ->
-                    let msg = (sprintf "Receive cmd %A from peer %d, during processing, incur exception %A " cmd i e )    
+                | ex ->
+                    let msg = (sprintf "Receive cmd %A from peer %d, during processing, incur exception %A " cmd i ex )    
                     Logger.Log( LogLevel.Info, msg )
                     let msError = new MemStream( 1024 )
                     msError.WriteString( msg )

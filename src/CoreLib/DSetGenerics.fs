@@ -203,10 +203,10 @@ type DSet<'U> () =
     // ============================================================================================================
 
     /// Store a sequence to a persisted DSet
-    member x.Store (o:seq<('U)>) = 
+    member x.StoreInternal (o:seq<('U)> ) = 
         try 
             x.Initialize()
-            x.BeginWrite()
+            x.BeginWriteToNetwork()
             let written = Array.zeroCreate<int> x.NumPartitions
             let endCalled = Array.create x.NumPartitions false
             let arr = Array.init x.NumPartitions ( fun i -> List<'U>() )
@@ -214,10 +214,11 @@ type DSet<'U> () =
                 x.ClearTimeout( parti ) 
                 let wLen = Math.Min( arr.[parti].Count, x.SerializationLimit )
                 if wLen > 0 then 
-                    let ms = new MemStream()
+                    use ms = new MemStream()
                     // Write DSet begins with Name + Version
                     // Write DSet format
                     // Name, Version, partition, serial, number of KVs
+                    ms.WriteGuid( x.WriteIDForCleanUp )
                     ms.WriteString( x.Name )
                     ms.WriteInt64( x.Version.Ticks )
                     ms.WriteVInt32(parti)
@@ -260,10 +261,10 @@ type DSet<'U> () =
                                 if arr.[parti].Count >= x.SerializationLimit * x.TimeoutMultiple then 
                                     if not (x.IsTimeout(parti)) then 
                                         Threading.Thread.Sleep( x.TimeoutSleep )
-                                        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Partition %d timeout triggered. No peer can be found to write out content, write operation back up to %d records." parti arr.[parti].Count ))
+                                        Logger.LogF( x.WriteIDForCleanUp, LogLevel.WildVerbose, ( fun _ -> sprintf "Partition %d timeout triggered. No peer can be found to write out content, write operation back up to %d records." parti arr.[parti].Count ))
                                     else
                                         let msg = ( sprintf "Partition %d timeout. No peer can be found to write out content, write operation back up to %d records." parti arr.[parti].Count )
-                                        Logger.LogF( LogLevel.Error, ( fun _ -> msg ))
+                                        Logger.LogF( x.WriteIDForCleanUp, LogLevel.Error, ( fun _ -> msg ))
                                         failwith msg
                             else
                                 let msg = ( sprintf "No valid peer to write out partition %d. There are %d records in partition. " parti arr.[parti].Count )
@@ -286,7 +287,7 @@ type DSet<'U> () =
                                 if arr.[parti].Count >= x.SerializationLimit * x.TimeoutMultiple then 
                                     if not (x.IsTimeout(parti)) then 
                                         Threading.Thread.Sleep( x.TimeoutSleep )
-                                        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "During flush, partition %d timeout triggered. No peer can be found to write out content, write operation back up to %d records." parti arr.[parti].Count ))
+                                        Logger.LogF( x.WriteIDForCleanUp, LogLevel.WildVerbose, ( fun _ -> sprintf "During flush, partition %d timeout triggered. No peer can be found to write out content, write operation back up to %d records." parti arr.[parti].Count ))
                                     else
                                         let msg = ( sprintf "Partition %d timeout. No peer can be found to write out content, write operation back up to %d records." parti arr.[parti].Count )
                                         Logger.Log( LogLevel.Error, msg )
@@ -330,18 +331,27 @@ type DSet<'U> () =
                                         else
                                             x.ReportDSet( 0, Array.create 1 (parti, 0, 0L), false )
                             endCalled.[parti] <- true    
-            let retVal = x.EndWrite( x.MaxWait )
+            let retVal = x.EndWriteToNetwork( x.MaxWait )
             if not retVal then 
-                Logger.Log( LogLevel.Info, ( sprintf "Not all Key-Values have been successfully written to DSet.Store..." ))
+                Logger.LogF( x.WriteIDForCleanUp, LogLevel.Info, ( fun _ -> sprintf "Not all Key-Values have been successfully written to DSet.Store..." ))
             x.Cluster.FlushCommunication()
         with 
-        | e -> 
-            if Utils.IsNotNull e then 
-                Logger.Log( LogLevel.Error, ( sprintf "DSet.Store is interrupted by exception %A" e ))
+        | ex -> 
+            if Utils.IsNotNull ex then 
+                Logger.LogF( x.WriteIDForCleanUp, LogLevel.Error, ( fun _ -> sprintf "DSet.Store is interrupted by exception %A" ex ))
             else
-                Logger.Log( LogLevel.Error, ( sprintf "DSet.Store is interrupted by exception with null e" ))
+                Logger.LogF( x.WriteIDForCleanUp, LogLevel.Error, ( fun _ -> sprintf "DSet.Store is interrupted by exception with null e" ))
+            x.CancelWriteByException( ex )
+            reraise()
         ()
-
+    /// Store a sequence to a persisted DSet
+    member x.Store (o:seq<('U)> ) = 
+        x.BeginWriteJob( )
+        x.StoreInternal( o )
+    /// Store a sequence to a persisted DSet
+    member x.Store (o:seq<('U)>, cts:CancellationToken ) = 
+        x.BeginWriteJob( cts) 
+        x.StoreInternal( o )
     /// Store a sequence to a persisted DSet
     static member store (x:DSet<'U>) o = 
         x.Store( o ) 
@@ -374,7 +384,7 @@ type DSet<'U> () =
 
     /// Convert DSet to a sequence seq<'U>
     member x.ToSeq() = 
-        mkSeq ( fun _ -> new DSetEnumerator<_>(x) :> IEnumerator<_> )    
+        mkSeq ( fun _ -> new DSetEnumerator<_>(x.IfSourceIdentity() ) :> IEnumerator<_> )    
   
     /// Convert DSet to a sequence seq<'U>
     static member toSeq (x:DSet<'U>) = 
@@ -385,7 +395,7 @@ type DSet<'U> () =
     /// at client end
     member private y.FoldAction (foldFunc: 'GV -> 'U -> 'GV) (aggrFunc: 'GV -> 'GV -> 'GV) = 
         let x = y.IfSourceIdentity()
-        let action = DSetFoldAction<'U, 'GV >( CommonStatePerNode = true, Param=x, 
+        use action = new DSetFoldAction<'U, 'GV >( CommonStatePerNode = true, Param=x, 
                                                     FoldFunc=FoldFunction<'U, 'GV >(  foldFunc ), 
                                                     AggreFunc=AggregateFunction<'GV>( aggrFunc ) )
         x.Action <- action :> DSetAction
@@ -412,7 +422,7 @@ type DSet<'U> () =
     /// <param name="state"> initial state for each partition </param>
     member public y.Fold (foldFunc: 'GV -> 'U -> 'GV, aggrFunc: 'GV -> 'GV -> 'GV, state:'GV) = 
         let x = y.IfSourceIdentity()
-        let action = DSetFoldAction<'U, 'GV >(  Param=x, 
+        use action = new DSetFoldAction<'U, 'GV >(  Param=x, 
                                                     FoldFunc=FoldFunction<'U, 'GV >(  foldFunc ), 
                                                     AggreFunc=AggregateFunction<'GV>( aggrFunc ) )
         x.Action <- action :> DSetAction

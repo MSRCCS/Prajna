@@ -225,16 +225,16 @@ type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:st
             x.BeginAction()
             let useDSet = x.ParameterList.[0]
             if x.Job.ReadyStatus && useDSet.NumPartitions>0 then 
-                useDSet.RemappingCommandCallback <- x.RemappingCommandToLaunchService
+                x.GetJobInstance(useDSet).RemappingCommandCallback <- x.RemappingCommandToLaunchService
                 // Send out the fold command. 
                 x.RemappingDSet() |> ignore   
-                while not (x.Timeout()) && not (useDSet.AllDSetsRead()) do
+                while not (x.Timeout()) && not (x.GetJobInstance(useDSet).AllDSetsRead()) do
                     x.RemappingDSet() |> ignore
                     // Wait for result to come out. 
                     Thread.Sleep( 3 )
                 if x.Timeout() then 
                     Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Timeout for DSetFoldAction ............." ))
-                x.EndAction()
+                x.OrderlyEndAction()
             else
                 x.CloseAndUnregister()
                 let status, msg = x.Job.JobStatus()
@@ -243,16 +243,17 @@ type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:st
                 else
                     Logger.Log( LogLevel.Warning, msg )
                     failwith msg
-    member x.RemappingCommandToLaunchService( peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
-        let msPayload = new MemStream( 1024 )
+    member x.RemappingCommandToLaunchService( queue, peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
+        use msPayload = new MemStream( 1024 )
+        msPayload.WriteGuid( x.Job.JobID )
         msPayload.WriteString( curDSet.Name )
         msPayload.WriteInt64( curDSet.Version.Ticks )
         msPayload.WriteString( serviceName )
         msPayload.Serialize( serviceClass ) // Don't use Serialize From
         msPayload.SerializeObjectWithTypeName( param )
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Start, Service issued to peer %d partition %A" peeri peeriPartitionArray ))
-        ControllerCommand( ControllerVerb.Start, ControllerNoun.Service), msPayload
-    member x.LaunchServiceCallback( cmd, peeri, msRcvd, name, verNumber, cl ) = 
+        Logger.LogF( x.Job.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Start, Service issued to peer %d partition %A" peeri peeriPartitionArray ))
+        queue.ToSend( ControllerCommand( ControllerVerb.Start, ControllerNoun.Service), msPayload )
+    member x.LaunchServiceCallback( cmd, peeri, msRcvd, jobID, name, verNumber, cl ) = 
         try
             let curDSet = x.ResolveDSetByName( name, verNumber )
             if Utils.IsNotNull curDSet then 
@@ -260,10 +261,10 @@ type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:st
                 match ( cmd.Verb, cmd.Noun ) with 
                 | ( ControllerVerb.ConfirmStart, ControllerNoun.Service ) ->
                     let bSuccess = msRcvd.ReadBoolean()
-                    curDSet.PeerCmdComplete( peeri ) 
+                    x.GetJobInstance(curDSet).PeerCmdComplete( peeri ) 
                     if not bSuccess then 
-                        curDSet.bPeerFailed.[peeri] <- true
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Receive ConfirmStart, Service for service %s from peer %d with %A" curDSet.Name peeri bSuccess ))
+                        x.GetJobInstance(curDSet).bPeerFailed.[peeri] <- true
+                    Logger.LogF( x.Job.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Receive ConfirmStart, Service for service %s from peer %d with %A" curDSet.Name peeri bSuccess ))
                 | _ ->
                     ()
         with
@@ -301,10 +302,10 @@ type internal DSetStopServiceAction(cl:Cluster, serviceName:string)=
             x.BeginActionWithLaunchMode(TaskLaunchMode.DonotLaunch)
             let useDSet = x.ParameterList.[0]
             if x.Job.ReadyStatus && useDSet.NumPartitions>0 then 
-                useDSet.RemappingCommandCallback <- x.RemappingCommandToStopService
+                x.GetJobInstance(useDSet).RemappingCommandCallback <- x.RemappingCommandToStopService
                 // Send out the fold command. 
                 x.RemappingDSet() |> ignore       
-                while not (x.Timeout()) && not (useDSet.AllDSetsRead()) do
+                while not (x.Timeout()) && not (x.GetJobInstance(useDSet).AllDSetsRead()) do
                     x.RemappingDSet() |> ignore
                     // Wait for result to come out. 
                     Thread.Sleep( 3 )
@@ -319,14 +320,15 @@ type internal DSetStopServiceAction(cl:Cluster, serviceName:string)=
                 else
                     Logger.Log( LogLevel.Warning, msg )
                     failwith msg                            
-    member x.RemappingCommandToStopService( peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
-        let msPayload = new MemStream( 1024 )
+    member x.RemappingCommandToStopService( queue, peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
+        use msPayload = new MemStream( 1024 )
+        msPayload.WriteGuid( x.Job.JobID )
         msPayload.WriteString( curDSet.Name )
         msPayload.WriteInt64( curDSet.Version.Ticks )
         msPayload.WriteString( serviceName )
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Stop, Service issued to peer %d partition %A" peeri peeriPartitionArray ))
-        ControllerCommand( ControllerVerb.Stop, ControllerNoun.Service), msPayload
-    member x.StopServiceCallback( cmd, peeri, msRcvd, name, verNumber, cl ) = 
+        queue.ToSend( ControllerCommand( ControllerVerb.Stop, ControllerNoun.Service), msPayload )
+    member x.StopServiceCallback( cmd, peeri, msRcvd, jobID, name, verNumber, cl ) = 
         try
             let curDSet = x.ResolveDSetByName( name, verNumber )
             if Utils.IsNotNull curDSet then 
@@ -334,9 +336,9 @@ type internal DSetStopServiceAction(cl:Cluster, serviceName:string)=
                 match ( cmd.Verb, cmd.Noun ) with 
                 | ( ControllerVerb.ConfirmStop, ControllerNoun.Service ) ->
                     let bSuccess = msRcvd.ReadBoolean()
-                    curDSet.PeerCmdComplete( peeri ) 
+                    x.GetJobInstance(curDSet).PeerCmdComplete( peeri ) 
                     if not bSuccess then 
-                        curDSet.bPeerFailed.[peeri] <- true
+                        x.GetJobInstance(curDSet).bPeerFailed.[peeri] <- true
                     Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Receive ConfirmStop, Service for service %s from peer %d with %A" curDSet.Name peeri bSuccess ))
 
                 | _ ->
@@ -367,7 +369,7 @@ type internal Service() =
         /// serviceClass: OnStart(param), OnStop(), Run(), IsRunning() call for the initiating of the service. 
         /// </summary>
         static member startServiceOnClusterWithParam (cl:Cluster) (serviceName:string) (serviceClass:WorkerRoleEntryPoint) (param:'StartParam) =
-            let curJob = DSetStartServiceAction<'StartParam>( cl, serviceName, serviceClass, param )
+            use curJob = new DSetStartServiceAction<'StartParam>( cl, serviceName, serviceClass, param )
             curJob.StartService()
 
         /// <summary>
@@ -385,7 +387,7 @@ type internal Service() =
         /// serviceClass: OnStart(param), OnStop(), Run(), IsRunning() call for the initiating of the service. 
         /// </summary>
         static member startServiceOnCluster (cl:Cluster) (serviceName:string) (serviceClass:WorkerRoleEntryPoint) =
-            let curJob = DSetStartServiceAction<unit>( cl, serviceName, serviceClass, () )
+            use curJob = new DSetStartServiceAction<unit>( cl, serviceName, serviceClass, () )
             curJob.StartService()
 
         /// <summary>
@@ -404,7 +406,7 @@ type internal Service() =
         /// registeredDSets: each registered DSet has information on dsetName, dsetVersion, 
         /// </summary>
         static member stopServiceOnCluster (cl:Cluster) (serviceName:string) =
-            let curJob = DSetStopServiceAction( cl, serviceName )
+            use curJob = new DSetStopServiceAction( cl, serviceName )
             curJob.StopService()
 
         /// <summary>

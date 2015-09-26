@@ -135,6 +135,12 @@ type ControllerVerb =
     | LimitSpeed = 64        // network speed
     /// Decrypt
     | Decrypt = 65
+    /// Cancel a Job
+    | Cancel = 66
+    /// Failure/exception on a single partition (the job may still be able to execute on other node). 
+    | FailedPartition = 245
+    /// Exception 
+    | Exception = 246
     /// NonExist
     | NonExist = 247
     /// Verbose

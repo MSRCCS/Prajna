@@ -227,7 +227,7 @@ and [<AllowNullLiteral>]
     /// A copy of input stream ms is made so that if the deserialization is unsuccessful with some missing argument, the missing argument be requested from communication partner. 
     /// After that, the ms stream can be attempted to be unpacked again. 
     /// Rewritten to use the DSet.Unpack
-    static member Unpack( readStream: StreamBase<byte>, bIncludeSavePassword, hostQueue ) = 
+    static member Unpack( readStream: StreamBase<byte>, bIncludeSavePassword, hostQueue, jobID: Guid ) = 
         let sendStream = new MemStream( 1024 )
         try 
             // Source DSet ( used by DSetPeer ), always do not instantiate function. 
@@ -249,6 +249,7 @@ and [<AllowNullLiteral>]
 //                    // We have received an update of the DSet 
 //                    DSetPeerFactory.Remove( curDSet.Name + curDSet.VersionString )
                 if ( Utils.IsNull curDSet.Cluster ) then 
+                    sendStream.WriteGuid( jobID )
                     sendStream.WriteString( curDSet.Name )
                     sendStream.WriteInt64( curDSet.Version.Ticks )
                     ( None, ClientBlockingOn.Cluster, sendStream )
@@ -257,36 +258,39 @@ and [<AllowNullLiteral>]
                     dsetPeer.CopyMetaData( curDSet, DSetMetadataCopyFlag.Copy )
 //                    DSetPeerFactory.CacheDSetPeer( dsetPeer )  |> ignore
                     // Confirmation message: send Name + version
+                    sendStream.WriteGuid( jobID )
                     sendStream.WriteString( dsetPeer.Name )
                     sendStream.WriteInt64( dsetPeer.Version.Ticks )
                     if Utils.IsNotNull hostQueue then 
                         dsetPeer.AddCommandQueue( hostQueue )
-
                     ( Some( dsetPeer) , ClientBlockingOn.None, sendStream )
-
 //                    let msg = (sprintf "Multiple DSetPeer with same name %s, but different content found in DSetPeerFactory" (curDSet.Name + curDSet.VersionString) )
 //                    Logger.Log(LogLevel.Error, msg)
 //                    // Error message is just a string
 //                    sendStream.WriteString( msg )
 //                    ( None, ClientBlockingOn.Undefined, sendStream )                   
         with       
-        | e -> 
-            let msg = (sprintf "DSetPeer.Unpack encounter exception %A" e )
+        | ex -> 
+            let msg = (sprintf "Job %A DSetPeer.Unpack encounter exception %A" jobID ex )
             Logger.Log( LogLevel.Error, msg )
+            ex.Data.Add( "@DSetPeer.Unpack", msg )
             // Error message is just a string
-            sendStream.WriteString( msg )
+            sendStream.WriteGuid( jobID )
+            sendStream.WriteString( "Unknown" )
+            sendStream.WriteInt64( DateTime.MinValue.Ticks )
+            sendStream.WriteException( ex )
             ( None, ClientBlockingOn.Undefined, sendStream ) 
         
     /// Read from Meta Data file
-    static member ReadFromMetaData( stream:Stream, useHostQueue ) = 
+    static member ReadFromMetaData( stream:Stream, useHostQueue, jobID ) = 
         let byte = BytesTools.ReadToEnd stream
         let ms = new MemStream( byte, 0, byte.Length, false, true )
-        DSetPeer.Unpack( ms, false, useHostQueue )
+        DSetPeer.Unpack( ms, false, useHostQueue, jobID )
     /// Read from Meta Data file
-    static member ReadFromMetaData( name, useHostQueue ) = 
+    static member ReadFromMetaData( name, useHostQueue, jobID ) = 
         let byte = FileTools.ReadBytesFromFile name
         let ms = new MemStream( byte, 0, byte.Length, false, true )
-        DSetPeer.Unpack( ms, false, useHostQueue )
+        DSetPeer.Unpack( ms, false, useHostQueue, jobID )
     member x.Setup( ) = 
         let msSend = new MemStream( 1024 )
         let nodes = x.Cluster.Nodes
@@ -641,12 +645,14 @@ and [<AllowNullLiteral>]
     /// bReplicate = true,  ReplicateClose, DSet is called (from other peer)
     ///            = false, Close, DSet is called (from host) 
     /// no need to further call to ReplicateClose. 
-    member x.CloseDSet( ms: StreamBase<byte>, queue:NetworkCommandQueue, bReplicate, callback ) =
+    member x.CloseDSet( jobID, ms: StreamBase<byte> , queue:NetworkCommandQueue, bReplicate, callback ) =
+        // the stream will be disposed in the calling App
         let msSend = new MemStream( 1024 )
         let retCmd = ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet )
+        msSend.WriteGuid( jobID )
         msSend.WriteString( x.Name )
         msSend.WriteInt64( x.Version.Ticks )
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Close DSet received for DSet %s:%s" x.Name x.VersionString ))
+        Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Close DSet received for DSet %s:%s" x.Name x.VersionString ))
         if not bReplicate then 
             bSelfCloseDSetReceived <- true    
         try 
@@ -736,18 +742,23 @@ and [<AllowNullLiteral>]
             lock ( peerReplicationItems) ( fun _ -> peerReplicationItems.Clear() )
             // Register call back 
             if x.NumActiveConnection > 0 then 
-                x.Cluster.RegisterCallback( x.Name, x.Version.Ticks, x.CallbackCommand, 
-                    { new NetworkCommandCallback with 
-                        member this.Callback( cmd, peeri, ms, name, ver, cl ) = 
-                            x.ReplicateDSetCallback( cmd, peeri, ms )
-                    } )
+                using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
+                    if Utils.IsNotNull jobObj then 
+                        let currentWriteID = jobObj.JobID
+                        x.Cluster.RegisterCallback( currentWriteID, x.Name, x.Version.Ticks, x.CallbackCommand, 
+                            { new NetworkCommandCallback with 
+                                member this.Callback( cmd, peeri, ms, jobID, name, ver, cl ) = 
+                                    x.ReplicateDSetCallback( cmd, peeri, ms, jobID )
+                            } )
+                    )
 
             let extremeTrack() = 
                 let msg = sprintf "Peer %d: try connect to ... %A" x.CurPeerIndex peerList
                 if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
-                    let msInfo = new MemStream(1024)
+                    using ( new MemStream(1024) ) ( fun msInfo -> 
                     msInfo.WriteString( msg )
                     x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Verbose, ControllerNoun.Message), msInfo )
+                    )
                 msg
             Logger.LogF( LogLevel.ExtremeVerbose, extremeTrack )
         ()
@@ -969,7 +980,8 @@ and [<AllowNullLiteral>]
                 callbackRegister.Remove( x ) |> ignore
                 callbackRegister <- null 
 
-                let msInfo = new MemStream( 1024 )
+                use msInfo = new MemStream( 1024 )
+                msInfo.WriteGuid( x.WriteIDForCleanUp )
                 msInfo.WriteString( x.Name ) 
                 msInfo.WriteInt64( x.Version.Ticks )
                 if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
@@ -1013,12 +1025,16 @@ and [<AllowNullLiteral>]
                                         yield (sprintf "    Peer %d: (In replicate:%A, ReplicateClose sent: %A, rcvd %A)" i bPeerInReplicate.[i] bCloseDSetSent.[i] bConfirmCloseRcvd.[i] )                                
                             }
                             |> String.concat( System.Environment.NewLine )
-                        let msInfo = new MemStream( 10240 )
-                        msInfo.WriteString( msgInfo ) 
-                        x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Warning, ControllerNoun.Message ) , msInfo )
+                        use msSend = new MemStream( 10240 )
+                        msSend.WriteString( msgInfo ) 
+                        x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Warning, ControllerNoun.Message ) , msSend )
                         Logger.Log( LogLevel.Info, msgInfo )
                     x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet ) , msInfo )
-                    x.Cluster.UnRegisterCallback( x.Name, x.Version.Ticks, x.CallbackCommand )
+                    using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
+                        if Utils.IsNotNull jobObj then 
+                            let currentWriteID = jobObj.JobID
+                            x.Cluster.UnRegisterCallback( currentWriteID, x.CallbackCommand )
+                    )
             bIOActivity 
         else
             false
@@ -1030,15 +1046,10 @@ and [<AllowNullLiteral>]
             let msg = ( sprintf "Logic error, DSetPeer.EndReplicateWait receives a call with object that is not DSet peer but %A" o )    
             Logger.Log( LogLevel.Error, msg )
             failwith msg
-    member x.ReplicateDSetCallback( cmd:ControllerCommand, peeri, msRcvd:StreamBase<byte> ) = 
+    member x.ReplicateDSetCallback( cmd:ControllerCommand, peeri, msRcvd:StreamBase<byte>, jobID ) = 
         try
             let q = x.Cluster.Queue( peeri )
             match ( cmd.Verb, cmd.Noun ) with 
-            // Outgoing command are:
-            // Set DSet
-            // Set Cluster
-            // ReplicateWrite
-            // ReplicateClose
             | ( ControllerVerb.Close, ControllerNoun.DSet )
             | ( ControllerVerb.ReplicateClose, ControllerNoun.DSet ) ->   
 
@@ -1054,13 +1065,12 @@ and [<AllowNullLiteral>]
                     x.HostQueue.ToSend( ControllerCommand( ControllerVerb.ReplicateClose, ControllerNoun.DSet), msSend )
                 // Informed peer that Close, DSet received. 
             | ( ControllerVerb.Get, ControllerNoun.ClusterInfo ) ->
-//                let cluster = x.Cluster.ClusterInfo :> ClusterInfoBase
-                let msSend = new MemStream( 10240 ) 
-//                msSend.Serialize( cluster )
-                x.Cluster.ClusterInfo.Pack( msSend )
-                let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo ) 
-                // Expediate delivery of Cluster Information to the receiver
-                q.ToSend( cmd, msSend, true ) 
+                using( new MemStream( 10240 ) ) ( fun msSend -> 
+                    x.Cluster.ClusterInfo.Pack( msSend )
+                    let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo ) 
+                    // Expediate delivery of Cluster Information to the receiver
+                    q.ToSend( cmd, msSend, true ) 
+                )
             | ( ControllerVerb.Duplicate, ControllerNoun.DSet ) ->
                 // Carry echo back to host. 
                 let parti = msRcvd.ReadVInt32()
@@ -1103,7 +1113,7 @@ and [<AllowNullLiteral>]
         else
             x.FinalizeAfterDisconnect <- false                
         anyConnection
-    static member GetDSet( name:string, verNumber, verCluster:int64 ) = 
+    static member GetDSet( jobID: Guid, name:string, verNumber, verCluster:int64 ) = 
             let verSearch = DateTime( verNumber )
 
             let storageProviderList = 
@@ -1133,7 +1143,7 @@ and [<AllowNullLiteral>]
                 while Utils.IsNull useDSet && idx >=0 do
                     let useVersionName, _, provider = lst.[idx]
                     let useVersion = StringTools.VersionFromString( useVersionName )
-                    let dsetOpt, blockingOn, sendStream = DSetPeer.RetrieveDSetMetadata( name, useVersion.Ticks, provider )
+                    let dsetOpt, blockingOn, sendStream = DSetPeer.RetrieveDSetMetadata( jobID, name, useVersion.Ticks, provider )
                     match dsetOpt with 
                     | Some ( s ) ->
                         let sendDSet = Option.get dsetOpt
@@ -1148,31 +1158,38 @@ and [<AllowNullLiteral>]
                 useDSet
             else
                 null
+    static member ExceptionToClient( jobID, name, verNumber, ex ) = 
+        let msSend = new MemStream( 10240 )
+        msSend.WriteGuid( jobID )
+        msSend.WriteString( name )
+        msSend.WriteInt64( verNumber )
+        msSend.WriteException( ex )
+        Logger.LogF( LogLevel.Info, fun _ -> sprintf "Exception in working in PeerDSet, job: %A, name: %s, message: %A" jobID name ex )
+        ( ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet ), msSend )
             
     static member ParsePeerDSet tuple =
         let msSend = new MemStream( 10240 )
+        let jobID, name, verNumber, verCluster = tuple 
         try
                 let useDSet = DSetPeer.GetDSet tuple
                 if Utils.IsNotNull useDSet then 
-//                    DSetPeerFactory.Store( useDSet.Name + useDSet.VersionString, useDSet )
-                    // Don't know why add the statement below solves a reference issue, 
-                    // seems visual studio 2012 has some issue on type inference. 
+                    msSend.WriteGuid( jobID )
                     msSend.WriteString( useDSet.Name )
                     msSend.WriteInt64( useDSet.Version.Ticks )            
                     useDSet.Pack( msSend, DSetMetadataStorageFlag.None )
                     ( ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata ), msSend )
                 else
-                    let name, verNumber, _ = tuple
+                    // Benign behavior, can't find the DSet on the current peer, the job may still continues
+                    msSend.WriteGuid( jobID )
                     msSend.WriteString( name )
                     msSend.WriteInt64( verNumber )            
                     ( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet ), msSend )
         with 
-        | e ->    
-            let msg = sprintf "Error in DSetPeer.GetDSet, exception %A" e 
-            Logger.Log( LogLevel.Info, msg )
-            msSend.WriteString( msg )
-            (   ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msSend )      
-    static member RetrieveDSetMetadata( name, verNumber, provider ) = 
+        | ex ->    
+            let msg = sprintf "Error in DSetPeer.GetDSet, exception %A" ex
+            ex.Data.Add( "@Daemon", msg )
+            DSetPeer.ExceptionToClient( jobID, name, verNumber, ex )
+    static member RetrieveDSetMetadata( jobID: Guid, name, verNumber, provider ) = 
         let path = DSetPeer.ConstructDSetPath( name, verNumber )
         let metaLst = 
             provider.List( path, "DSet*.meta" )
@@ -1182,42 +1199,63 @@ and [<AllowNullLiteral>]
         if metaLst.Length>0 then 
             let useMetaName, _, _ = metaLst.[metaLst.Length-1]
             let stream = provider.Open( path, useMetaName )
-            DSetPeer.ReadFromMetaData( stream, null )
+            DSetPeer.ReadFromMetaData( stream, null, jobID )
         else
             ( None, ClientBlockingOn.DSet, null )
-    static member UseDSet( name, verNumber ) = 
-        let msSend = new MemStream( 10240 )
+    static member UseDSet( jobID, name, verNumber ) = 
         try 
             let storageProviderList = 
                 [| StorageKind.HDD 
                    //; StorageType.Azure , JinL: Skip Azure 
                 |]
                 |> Array.map ( fun ty -> StorageStreamBuilder.Create( ty ) )
-            let dsetOpt, bl, replyStream = DSetPeer.RetrieveDSetMetadata( name, verNumber, storageProviderList.[0] )
+            let dsetOpt, bl, replyStream = DSetPeer.RetrieveDSetMetadata( jobID, name, verNumber, storageProviderList.[0] )
             match bl with 
             | ClientBlockingOn.None ->
+                let msSend = new MemStream( 10240 )
                 let dset = Option.get dsetOpt
-//                DSetPeerFactory.Store( dset.Name + dset.VersionString, dset )
+                msSend.WriteGuid( jobID )
                 msSend.WriteString( dset.Name )
                 msSend.WriteInt64( dset.Version.Ticks )
+                if Utils.IsNotNull replyStream then 
+                    replyStream.Dispose()    
                 ( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend )
             | ClientBlockingOn.Cluster -> 
                 let msg = sprintf "Error, the cluster associated with DSet %s, %s dosn't exist at the peer" name (VersionToString( DateTime(verNumber) ))
+                let msSend = new MemStream( 10240 )
+                msSend.WriteGuid( jobID )
+                msSend.WriteString( name )
+                msSend.WriteInt64( verNumber )
                 msSend.WriteString( msg )
+                if Utils.IsNotNull replyStream then 
+                    replyStream.Dispose()    
                 ( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet ), msSend )
             | ClientBlockingOn.DSet ->
                 // Unknown DSet to be used. 
-                ( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet ), null )
+                let msg = sprintf "Error, DSet %s, %s dosn't exist at the peer" name (VersionToString( DateTime(verNumber) ))
+                let msSend = new MemStream( 10240 )
+                msSend.WriteGuid( jobID )
+                msSend.WriteString( name )
+                msSend.WriteInt64( verNumber )
+                msSend.WriteString( msg )
+                if Utils.IsNotNull replyStream then 
+                    replyStream.Dispose()    
+                ( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet ), msSend )
             | ClientBlockingOn.Undefined 
             | _ ->
                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "UseDSet: DSetPeer.RetrieveDSetMetadata return unknown error" ))
-                ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), replyStream )                      
+                ( ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet ), replyStream )                      
         with 
-        | e ->    
-            let msg = sprintf "Error in DSetPeer.UseDSet, exception %A" e 
-            Logger.Log( LogLevel.Info, msg )
-            msSend.WriteString( msg )
-            ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msSend ) 
+        | ex ->
+            let msSend = new MemStream( 10240 )    
+            let msg = sprintf "Error in DSetPeer.UseDSet" 
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "%s: Exception: %A" msg ex )
+            ex.Data.Add( "@Daemon", msg )
+            msSend.WriteGuid( jobID )
+            msSend.WriteString( name )
+            msSend.WriteInt64( verNumber )
+            msSend.WriteException( ex )
+            ( ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet ), msSend ) 
     /// Test for Empty Partition 
     /// Return: true for partition with 0 keys
     member x.EmptyPartition parti =
@@ -1231,180 +1269,193 @@ and [<AllowNullLiteral>]
     /// Return: Async<byte[]>, if return null, then the operation reads the end of stream of partition parti. 
     member x.AsyncReadChunk (jbInfo:JobInformation) parti ( pushChunkFunc: (BlobMetadata*MemStream)->unit ) = 
         async {
-            try 
-              let nSomeError = ref 0
-              if x.EmptyPartition( parti ) || jbInfo.CancellationToken.IsCancellationRequested then 
-                let finalMeta = BlobMetadata( parti, Int64.MaxValue, 0 )
-                pushChunkFunc( finalMeta, null )  
-                // empty stream
-              else                
-                let streamRead = x.PartitionStreamForReadInJob jbInfo parti 
-                if Utils.IsNotNull streamRead then 
-                    try
-                        let! beginGuid = streamRead.AsyncRead( 16 )
-                        if beginGuid.Length=16 && DeploymentSettings.BlobBeginMarker.CompareTo( Guid( beginGuid) )=0 then 
-                            let! flagArray = streamRead.AsyncRead( 4 ) 
-                            if flagArray.Length=4 then 
-                                let flag = BitConverter.ToInt32( flagArray, 0 )
-                                let bPassword, bConfirmDelivery = x.InterpretStorageFlag( flag )
-                                let bEndReached = ref false
-                                while not !bEndReached && not jbInfo.CancellationToken.IsCancellationRequested do
-                                    let! seglenBuffer = streamRead.AsyncRead(4)
-                                    if seglenBuffer.Length<4 then 
-                                        bEndReached := true
-                                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to find end of file GUID" x.Name x.VersionString parti  ) )
-                                    if not !bEndReached && not jbInfo.CancellationToken.IsCancellationRequested then     
-                                        let seglen = BitConverter.ToInt32( seglenBuffer, 0 )
-                                        // search for JINL, WriteDSet Note, on length coding
-                                        let readlen = Math.Abs( seglen ) 
-                                        let sha512provider = 
-                                            if seglen<0 then 
-                                                new SHA512Managed()
-                                            else 
-                                                null
+            use jobAction =  jbInfo.TryExecuteSingleJobAction() 
+            if Utils.IsNull jobAction then 
+                Logger.LogF ( LogLevel.MildVerbose, fun _ -> sprintf "[AsyncReadChunk, Job %A for DSet %s:%s cancelled before read start on partition %d"
+                                                                        jbInfo.JobID x.Name x.VersionString parti )
+            else
+                    try 
+                      let nSomeError = ref 0
+                      if x.EmptyPartition( parti ) || jobAction.IsCancelled then 
+                        let finalMeta = BlobMetadata( parti, Int64.MaxValue, 0 )
+                        pushChunkFunc( finalMeta, null )  
+                        // empty stream
+                      else                
+                        let streamRead = x.PartitionStreamForReadInJob jbInfo parti 
+                        if Utils.IsNotNull streamRead then 
+                            try
+                                let! beginGuid = streamRead.AsyncRead( 16 )
+                                if beginGuid.Length=16 && DeploymentSettings.BlobBeginMarker.CompareTo( Guid( beginGuid) )=0 then 
+                                    let! flagArray = streamRead.AsyncRead( 4 ) 
+                                    if flagArray.Length=4 then 
+                                        let flag = BitConverter.ToInt32( flagArray, 0 )
+                                        let bPassword, bConfirmDelivery = x.InterpretStorageFlag( flag )
+                                        let bEndReached = ref false
+                                        while not !bEndReached && not jobAction.IsCancelled do
+                                            let! seglenBuffer = streamRead.AsyncRead(4)
+                                            if seglenBuffer.Length<4 then 
+                                                bEndReached := true
+                                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to find end of file GUID" x.Name x.VersionString parti  ) )
+                                            if not !bEndReached && not jobAction.IsCancelled then     
+                                                let seglen = BitConverter.ToInt32( seglenBuffer, 0 )
+                                                // search for JINL, WriteDSet Note, on length coding
+                                                let readlen = Math.Abs( seglen ) 
+                                                let sha512provider = 
+                                                    if seglen<0 then 
+                                                        new SHA512Managed()
+                                                    else 
+                                                        null
 
-                                        let! bufferPayload = streamRead.AsyncRead(readlen)
-                                        if bufferPayload.Length<readlen || 
-                                            ( readlen=16 && DeploymentSettings.BlobCloseMarker.CompareTo( Guid(bufferPayload) )=0 ) then 
-                                            bEndReached := true
-                                            if bufferPayload.Length=readlen && !nSomeError = 0 then 
-                                                // Only this signal the success of the reading of the entire partition. 
-                                                nSomeError := -1
-                                                // Note: JinL, 04/21/2014
-                                                // We can potentially cancel all subsequent read by use cancellationToken
-                                            else
-                                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, partial chunk encountered" x.Name x.VersionString parti  ) )
-                                        if not !bEndReached && not jbInfo.CancellationToken.IsCancellationRequested then 
-                                            let buflen = if seglen>0 then readlen else readlen - (sha512provider.HashSize/8)
-                                            let bVerified = 
-                                                if seglen > 0 then true else
-                                                    let computeHash = sha512provider.ComputeHash( bufferPayload, 0, buflen )
-                                                    let storeHash = Array.sub( bufferPayload ) buflen (int bufferPayload.Length - buflen)
-                                                    System.Linq.Enumerable.SequenceEqual( computeHash, storeHash )
-                                            if bVerified then 
-                                                let ms = new MemStream( bufferPayload, 0, buflen, false, true )
-                                                let serial = ms.ReadInt64()
-                                                let numElems = ms.ReadVInt32()
-                                                let meta = BlobMetadata( parti, serial, numElems, buflen )
-                                                pushChunkFunc( meta, ms )  
-                                            else
-                                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Throw away %dB as stored SHA512 hash doesn't match" readlen ) )
-                                                nSomeError := !nSomeError + 1
-                                                // Note: JinL, 04/21/2014
-                                                // We can potentially cancel all subsequent read by use cancellationToken
-                            else
-                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to read beginning flag" x.Name x.VersionString parti  ) )
+                                                let! bufferPayload = streamRead.AsyncRead(readlen)
+                                                if bufferPayload.Length<readlen || 
+                                                    ( readlen=16 && DeploymentSettings.BlobCloseMarker.CompareTo( Guid(bufferPayload) )=0 ) then 
+                                                    bEndReached := true
+                                                    if bufferPayload.Length=readlen && !nSomeError = 0 then 
+                                                        // Only this signal the success of the reading of the entire partition. 
+                                                        nSomeError := -1
+                                                        // Note: JinL, 04/21/2014
+                                                        // We can potentially cancel all subsequent read by use cancellationToken
+                                                    else
+                                                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, partial chunk encountered" x.Name x.VersionString parti  ) )
+                                                if not !bEndReached && not jobAction.IsCancelled then 
+                                                    let buflen = if seglen>0 then readlen else readlen - (sha512provider.HashSize/8)
+                                                    let bVerified = 
+                                                        if seglen > 0 then true else
+                                                            let computeHash = sha512provider.ComputeHash( bufferPayload, 0, buflen )
+                                                            let storeHash = Array.sub( bufferPayload ) buflen (int bufferPayload.Length - buflen)
+                                                            System.Linq.Enumerable.SequenceEqual( computeHash, storeHash )
+                                                    if bVerified then 
+                                                        let ms = new MemStream( bufferPayload, 0, buflen, false, true )
+                                                        let serial = ms.ReadInt64()
+                                                        let numElems = ms.ReadVInt32()
+                                                        let meta = BlobMetadata( parti, serial, numElems, buflen )
+                                                        pushChunkFunc( meta, ms )  
+                                                    else
+                                                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Throw away %dB as stored SHA512 hash doesn't match" readlen ) )
+                                                        nSomeError := !nSomeError + 1
+                                                        // Note: JinL, 04/21/2014
+                                                        // We can potentially cancel all subsequent read by use cancellationToken
+                                    else
+                                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to read beginning flag" x.Name x.VersionString parti  ) )
+                                else
+                                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, wrong beginning Guid" x.Name x.VersionString parti  ) )
+                            finally 
+                                x.ClosePartitionStreamForRead streamRead jbInfo parti 
                         else
-                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, wrong beginning Guid" x.Name x.VersionString parti  ) )
-                    finally 
-                        x.ClosePartitionStreamForRead streamRead jbInfo parti 
-                else
-                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to find partition file" x.Name x.VersionString parti  ) )
-                // at the end of chunk, the numElems value records the # of error (e.g., inconsistent SHA512 value retrieved during the read operation)
-                // if the push out numElems value is 0, then the entire partition has been successfully retrieved. 
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Reach end of DSet %s:%s part %d, with %d read errors" x.Name x.VersionString parti (!nSomeError + 1) ) )
-                let finalMeta = BlobMetadata( parti, Int64.MaxValue, !nSomeError + 1 )
-                pushChunkFunc( finalMeta, null )
-            with 
-            | e ->
-                let msg = sprintf "Error in AsyncReadChunk, with exception %A, stack %A" e (StackTrace (0, true))
-                let bSendHost = Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend 
-                if bSendHost then 
-                    let msError = new MemStream( 1024 )
-                    msError.WriteString( msg ) 
-                    x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
-                Logger.Log( LogLevel.Error, ((sprintf "Send Host: %A" bSendHost) + msg))
+                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to find partition file" x.Name x.VersionString parti  ) )
+                        // at the end of chunk, the numElems value records the # of error (e.g., inconsistent SHA512 value retrieved during the read operation)
+                        // if the push out numElems value is 0, then the entire partition has been successfully retrieved. 
+                        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Reach end of DSet %s:%s part %d, with %d read errors" x.Name x.VersionString parti (!nSomeError + 1) ) )
+                        let finalMeta = BlobMetadata( parti, Int64.MaxValue, !nSomeError + 1 )
+                        pushChunkFunc( finalMeta, null )
+                    with 
+                    | e ->
+                        let msg = sprintf "Error in AsyncReadChunk, with exception %A, stack %A" e (StackTrace (0, true))
+                        let bSendHost = Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend 
+                        if bSendHost then 
+                            let msError = new MemStream( 1024 )
+                            msError.WriteString( msg ) 
+                            x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+                        Logger.Log( LogLevel.Error, ((sprintf "Send Host: %A" bSendHost) + msg))
         }
+
 
     /// Read one chunk in async work format. 
     /// Return: Async<byte[]>, if return null, then the operation reads the end of stream of partition parti. 
     member private x.SyncReadChunkImpl jbInfo parti ( pushChunkFunc: (BlobMetadata*StreamBase<byte>)->unit ) = 
-            try 
-              let nSomeError = ref 0
-              if x.EmptyPartition( parti ) || jbInfo.CancellationToken.IsCancellationRequested then 
-                let finalMeta = BlobMetadata( parti, Int64.MaxValue, 0 )
-                pushChunkFunc( finalMeta, null )  
-                // empty stream
-              else                
-                let streamRead = x.PartitionStreamForReadInJob jbInfo parti
-                if Utils.IsNotNull streamRead then 
-                    try
-                        let beginGuid = Array.zeroCreate<_> 16
-                        let readGuidLen = streamRead.Read( beginGuid, 0, 16 )
-                        if readGuidLen=16 && DeploymentSettings.BlobBeginMarker.CompareTo( Guid( beginGuid) )=0 then 
-                            let flagArray = Array.zeroCreate<_> 4
-                            let flagArrayLen = streamRead.Read( flagArray, 0, 4 )
-                            if flagArrayLen=4 then 
-                                let flag = BitConverter.ToInt32( flagArray, 0 )
-                                let bPassword, bConfirmDelivery = x.InterpretStorageFlag( flag )
-                                let bEndReached = ref false
-                                while not !bEndReached && not jbInfo.CancellationToken.IsCancellationRequested do
-                                    let seglenBuffer =  Array.zeroCreate<_> 4
-                                    let seglenBufferLen = streamRead.Read( seglenBuffer, 0, 4 )
-                                    if seglenBufferLen<4 then 
-                                        bEndReached := true
-                                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to find end of file GUID" x.Name x.VersionString parti  ) )
-                                    if not !bEndReached && not jbInfo.CancellationToken.IsCancellationRequested then     
-                                        let seglen = BitConverter.ToInt32( seglenBuffer, 0 )
-                                        // search for JINL, WriteDSet Note, on length coding
-                                        let readlen = Math.Abs( seglen ) 
-                                        let sha512provider = 
-                                            if seglen<0 then 
-                                                new SHA512Managed()
-                                            else 
-                                                null
-                                        let bufferPayload = Array.zeroCreate<_> readlen
-                                        let bufferPayloadLen = streamRead.Read( bufferPayload, 0, readlen )
-                                        if bufferPayloadLen<readlen || 
-                                            ( readlen=16 && DeploymentSettings.BlobCloseMarker.CompareTo( Guid(bufferPayload) )=0 ) then 
+        using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                Logger.LogF ( LogLevel.MildVerbose, fun _ -> sprintf "[SyncReadChunkImpl, Job %A for DSet %s:%s cancelled before read start on partition %d"
+                                                                        jbInfo.JobID x.Name x.VersionString parti )
+                null, true
+            else
+                try 
+                  let nSomeError = ref 0
+                  if x.EmptyPartition( parti ) || jobAction.IsCancelled then 
+                    let finalMeta = BlobMetadata( parti, Int64.MaxValue, 0 )
+                    pushChunkFunc( finalMeta, null )  
+                    // empty stream
+                  else                
+                    let streamRead = x.PartitionStreamForReadInJob jbInfo parti
+                    if Utils.IsNotNull streamRead then 
+                        try
+                            let beginGuid = Array.zeroCreate<_> 16
+                            let readGuidLen = streamRead.Read( beginGuid, 0, 16 )
+                            if readGuidLen=16 && DeploymentSettings.BlobBeginMarker.CompareTo( Guid( beginGuid) )=0 then 
+                                let flagArray = Array.zeroCreate<_> 4
+                                let flagArrayLen = streamRead.Read( flagArray, 0, 4 )
+                                if flagArrayLen=4 then 
+                                    let flag = BitConverter.ToInt32( flagArray, 0 )
+                                    let bPassword, bConfirmDelivery = x.InterpretStorageFlag( flag )
+                                    let bEndReached = ref false
+                                    while not !bEndReached && not jobAction.IsCancelled do
+                                        let seglenBuffer =  Array.zeroCreate<_> 4
+                                        let seglenBufferLen = streamRead.Read( seglenBuffer, 0, 4 )
+                                        if seglenBufferLen<4 then 
                                             bEndReached := true
-                                            if bufferPayload.Length=readlen && !nSomeError = 0 then 
-                                                // Only this signal the success of the reading of the entire partition. 
-                                                nSomeError := -1
-                                                // Note: JinL, 04/21/2014
-                                                // We can potentially cancel all subsequent read by use cancellationToken
-                                            else
-                                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, partial chunk encountered" x.Name x.VersionString parti  ) )
-                                        if not !bEndReached && not jbInfo.CancellationToken.IsCancellationRequested then 
-                                            let buflen = if seglen>0 then readlen else readlen - (sha512provider.HashSize/8)
-                                            let bVerified = 
-                                                if seglen > 0 then true else
-                                                    let computeHash = sha512provider.ComputeHash( bufferPayload, 0, buflen )
-                                                    let storeHash = Array.sub( bufferPayload ) buflen (int bufferPayload.Length - buflen)
-                                                    System.Linq.Enumerable.SequenceEqual( computeHash, storeHash )
-                                            if bVerified then 
-                                                let ms = new MemStream( bufferPayload, 0, buflen, false, true )
-                                                let serial = ms.ReadInt64()
-                                                let numElems = ms.ReadVInt32()
-                                                let meta = BlobMetadata( parti, serial, numElems, buflen )
-                                                pushChunkFunc( meta, ms )  
-                                            else
-                                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Throw away %dB as stored SHA512 hash doesn't match" readlen ) )
-                                                nSomeError := !nSomeError + 1
-                                                // Note: JinL, 04/21/2014
-                                                // We can potentially cancel all subsequent read by use cancellationToken
+                                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to find end of file GUID" x.Name x.VersionString parti  ) )
+                                        if not !bEndReached && not jobAction.IsCancelled then     
+                                            let seglen = BitConverter.ToInt32( seglenBuffer, 0 )
+                                            // search for JINL, WriteDSet Note, on length coding
+                                            let readlen = Math.Abs( seglen ) 
+                                            let sha512provider = 
+                                                if seglen<0 then 
+                                                    new SHA512Managed()
+                                                else 
+                                                    null
+                                            let bufferPayload = Array.zeroCreate<_> readlen
+                                            let bufferPayloadLen = streamRead.Read( bufferPayload, 0, readlen )
+                                            if bufferPayloadLen<readlen || 
+                                                ( readlen=16 && DeploymentSettings.BlobCloseMarker.CompareTo( Guid(bufferPayload) )=0 ) then 
+                                                bEndReached := true
+                                                if bufferPayload.Length=readlen && !nSomeError = 0 then 
+                                                    // Only this signal the success of the reading of the entire partition. 
+                                                    nSomeError := -1
+                                                    // Note: JinL, 04/21/2014
+                                                    // We can potentially cancel all subsequent read by use cancellationToken
+                                                else
+                                                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, partial chunk encountered" x.Name x.VersionString parti  ) )
+                                            if not !bEndReached && not jobAction.IsCancelled then 
+                                                let buflen = if seglen>0 then readlen else readlen - (sha512provider.HashSize/8)
+                                                let bVerified = 
+                                                    if seglen > 0 then true else
+                                                        let computeHash = sha512provider.ComputeHash( bufferPayload, 0, buflen )
+                                                        let storeHash = Array.sub( bufferPayload ) buflen (int bufferPayload.Length - buflen)
+                                                        System.Linq.Enumerable.SequenceEqual( computeHash, storeHash )
+                                                if bVerified then 
+                                                    let ms = new MemStream( bufferPayload, 0, buflen, false, true )
+                                                    let serial = ms.ReadInt64()
+                                                    let numElems = ms.ReadVInt32()
+                                                    let meta = BlobMetadata( parti, serial, numElems, buflen )
+                                                    pushChunkFunc( meta, ms )  
+                                                else
+                                                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Throw away %dB as stored SHA512 hash doesn't match" readlen ) )
+                                                    nSomeError := !nSomeError + 1
+                                                    // Note: JinL, 04/21/2014
+                                                    // We can potentially cancel all subsequent read by use cancellationToken
+                                else
+                                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to read beginning flag" x.Name x.VersionString parti  ) )
                             else
-                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to read beginning flag" x.Name x.VersionString parti  ) )
-                        else
-                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, wrong beginning Guid" x.Name x.VersionString parti  ) )
-                    finally 
-                        x.ClosePartitionStreamForRead streamRead jbInfo parti 
-                else
-                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to find partition file" x.Name x.VersionString parti  ) )
-                // at the end of chunk, the numElems value records the # of error (e.g., inconsistent SHA512 value retrieved during the read operation)
-                // if the push out numElems value is 0, then the entire partition has been successfully retrieved. 
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Reach end of DSet %s:%s part %d, with %d read errors" x.Name x.VersionString parti (!nSomeError + 1) ) )
-                let finalMeta = BlobMetadata( parti, Int64.MaxValue, !nSomeError + 1 )
-                pushChunkFunc( finalMeta, null )
-            with 
-            | e ->
-                let msg = sprintf "Error in SyncReadChunk, with exception %A, stack %A " e (StackTrace (0, true))
-                Logger.Log( LogLevel.Error, msg )
-                if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
-                    let msError = new MemStream( 1024 )
-                    msError.WriteString( msg ) 
-                    x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
-            null, true
+                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, wrong beginning Guid" x.Name x.VersionString parti  ) )
+                        finally 
+                            x.ClosePartitionStreamForRead streamRead jbInfo parti 
+                    else
+                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Reading DSet %s:%s part %d, failed to find partition file" x.Name x.VersionString parti  ) )
+                    // at the end of chunk, the numElems value records the # of error (e.g., inconsistent SHA512 value retrieved during the read operation)
+                    // if the push out numElems value is 0, then the entire partition has been successfully retrieved. 
+                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Reach end of DSet %s:%s part %d, with %d read errors" x.Name x.VersionString parti (!nSomeError + 1) ) )
+                    let finalMeta = BlobMetadata( parti, Int64.MaxValue, !nSomeError + 1 )
+                    pushChunkFunc( finalMeta, null )
+                with 
+                | e ->
+                    let msg = sprintf "Error in SyncReadChunk, with exception %A, stack %A " e (StackTrace (0, true))
+                    Logger.Log( LogLevel.Error, msg )
+                    if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
+                        let msError = new MemStream( 1024 )
+                        msError.WriteString( msg ) 
+                        x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+                null, true
+        )
 
     member private x.SyncEncodeImpl jbInfo parti pushChunkFunc = x.SyncReadChunk jbInfo parti pushChunkFunc
 

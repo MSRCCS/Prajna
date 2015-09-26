@@ -31,6 +31,7 @@
 namespace Prajna.Tools
 
 open System
+open System.Collections.Concurrent
 open System.Diagnostics
 open System.IO
 open System.Security.AccessControl
@@ -82,6 +83,9 @@ type ILoggerProvider =
     /// Takes three parameters: log id, log level, log Message
     abstract member Log : (string*LogLevel*string) -> unit
 
+    /// Takes four parameters: log id, log level, JobID, log Message
+    abstract member Log : (string*Guid*LogLevel*string) -> unit
+
     /// Parse arguments that configs the behavior of the LoggerProvider
     abstract member ParseArgs : string[] -> unit
 
@@ -112,6 +116,12 @@ type internal DefaultLogger () =
     let mutable logFile = null 
     let mutable logListener : TextWriterTraceListener = null
     let mutable shouldShowStackTrace = false
+    /// When true, each job will show the elapse time from the first item in the job
+    /// Note this feature will consume a small amount of memory for each job (Guid, int64). 
+    /// The option should be turned off for all services. 
+    let mutable shouldShowTimeForJobID = true
+    /// Services
+    let jobTimerCollection = ConcurrentDictionary<Guid,int64>()
 
     let CreateNewLogFile( ) = 
         let extName = Path.GetExtension( logFileName ) 
@@ -261,7 +271,8 @@ type internal DefaultLogger () =
           |> ignore            
         let str =
             if shouldShowStackTrace || logLevel <= LogLevel.Warning then 
-                let stack = new StackTrace (2, true)
+                // Debug & release may need to peel of different trace
+                let stack = new StackTrace (1, true)
                 if Utils.IsNotNull stack then
                     let frame = stack.GetFrame(0)
                     if Utils.IsNotNull frame then
@@ -280,6 +291,9 @@ type internal DefaultLogger () =
         Trace.WriteLine <| sb.ToString()
         FlushImpl()
 
+    member this.ShowTimeForJobID with get() = shouldShowTimeForJobID
+                                 and set( b ) = shouldShowTimeForJobID <- b
+
     interface ILoggerProvider with
         member this.ParseArgs(args : string[]) =
             ParseArguments(args)
@@ -297,6 +311,16 @@ type internal DefaultLogger () =
         member this.Log ((logId : string, logLevel : LogLevel, message : string)) =
             // DefaultLogger does not support "log id" yet
             EmitLogEntry(logLevel, message)
+        
+        member this.Log ((logId : string, jobID: Guid, logLevel : LogLevel, message : string)) =
+            // DefaultLogger does not support "log id" yet
+            if shouldShowTimeForJobID then 
+                let curTicks = DateTime.UtcNow.Ticks 
+                let firstTicks = jobTimerCollection.GetOrAdd( jobID, curTicks)
+                let elapseInMs = (curTicks-firstTicks)/(TimeSpan.TicksPerMillisecond)
+                EmitLogEntry(logLevel, sprintf "JobID=%A(%dms),%s" jobID elapseInMs message)
+            else
+                EmitLogEntry(logLevel, sprintf "JobID=%A,%s" jobID message)
 
         member this.Flush () = 
             FlushImpl()

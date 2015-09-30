@@ -372,7 +372,8 @@ type internal JobLifeCycle(jobID:Guid) =
     let onException = ConcurrentQueue<Action<Exception>>()
     let numExceptionCallback = ref 0
     let exCollections = ConcurrentQueue<Exception>()
-    static member val MaxWaitToEndJobInMilliseconds = 30000 with get, set 
+    /// If a job is idle for this much time, it is considered to have problems, and may be cancelled. 
+    static member val MaxWaitToEndJobInMilliseconds = DeploymentSettings.MaxWaitToEndJobInMilliseconds with get, set 
     member val numJobActionsInProcess = ref 0 with get
     /// Exception to throw here
     member x.Exception with get() = if exCollections.IsEmpty then null else AggregateException( exCollections )
@@ -907,6 +908,17 @@ type internal JobInformation( jobID: Guid, bIsMainProject: bool, dSetName: strin
     /// A certain partition has failed to execute. 
     /// Other partition may still executable.
     member internal x.PartitionFailure( ex: Exception, locinfo, parti ) = 
+        // At this moment, we will bubble up the exception on partition failure. Retry of failed partition will be validated in future, when code 
+        // is more stable. 
+        ex.Data.Add( "@Partition", sprintf "%s(part: %d)" locinfo parti)
+        let jobLifeCycleObj = JobLifeCycleCollectionContainer.TryFind( jobID )
+        if Utils.IsNotNull jobLifeCycleObj then 
+            jobLifeCycleObj.CancelByException( ex )    
+
+    /// Partition Failure
+    /// A certain partition has failed to execute. 
+    /// Other partition may still executable.
+    member internal x.PartitionFailureFuture( ex: Exception, locinfo, parti ) = 
         Logger.LogF( LogLevel.Info, fun _ -> sprintf "[Failed partition] Job %A, DSet: %s, to send exception to host, exception: %A (loc: %s) "
                                                             jobID dSetName ex locinfo)
         ex.Data.Add( "@Container", locinfo)

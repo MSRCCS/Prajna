@@ -12,6 +12,7 @@ module MemStreamTests =
 
     [<Test(Description = "Test constructors")>]
     let testConstructors() =
+        BufferListStream<byte>.InitSharedPool()
         
         use s1 = new MemStream()
         Assert.AreEqual(0, s1.Length)        

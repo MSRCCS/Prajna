@@ -311,8 +311,8 @@ type internal DSetStopServiceAction(cl:Cluster, serviceName:string)=
                     Thread.Sleep( 3 )
                 if x.Timeout() then 
                     Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Timeout for DSetFoldAction ............." ))
-// No need to close job (as TaskLaunchMode.DonotLaunch)
-//                x.EndAction()
+// Attempt to end job (as TaskLaunchMode.DonotLaunch)
+                x.OrderlyEndAction()
             else
                 let status, msg = x.Job.JobStatus()
                 if status then

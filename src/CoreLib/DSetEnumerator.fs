@@ -144,6 +144,7 @@ type internal DSetEnumerator<'U >( DSet: DSet ) =
     let mutable currPartition = 0
     let mutable seenWriteDSet = null
     let codec = MetaFunction<'U>()
+    let mutable bReadToEnd = false
     /// Start retrieving data from Prajna, the call will block until MetaData of DSet is retrieved
     member x.BeginRead() = 
         // Initial peer to read from. 
@@ -182,7 +183,10 @@ type internal DSetEnumerator<'U >( DSet: DSet ) =
                                                                                             ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition);
                                                                                          |] )
         if Utils.IsNotNull x.CurJob then 
-            x.OrderlyEndAction()
+            if bReadToEnd then 
+                x.OrderlyEndAction()
+            else
+                x.EndAction()
         ()
     
     /// After an enumerator is created or after the Reset method is called, the MoveNext method must be called to advance 
@@ -250,6 +254,7 @@ type internal DSetEnumerator<'U >( DSet: DSet ) =
                     elif bEnd && not bRemapping then 
                         Logger.LogF( LogLevel.WildVerbose, fun _ -> "DoMoveNext: find some final items")
             if not bFind then 
+                bReadToEnd <- true
                 x.CloseDSetEnumerator()
             bFind
         with

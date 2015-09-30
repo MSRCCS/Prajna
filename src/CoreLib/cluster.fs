@@ -1402,7 +1402,8 @@ and
                                             // We find an entry of the jobCommandSet, but doesn't find particular DSet (name, ver)
                                             // It is possible that the job are being cancelled. 
                                             bJobIDFound <- false 
-                                            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "(OK, job may be cancelled) Receive cmd %A from peer %d with job ID %A payload of %dB, but there is no parsing logic, command will be discarded!" 
+                                            // Raise Verbose Level, otherwise, too many log message during a cancelled UnitTest job
+                                            Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "(OK, job may be cancelled) Receive cmd %A from peer %d with job ID %A payload of %dB, but there is no parsing logic, command will be discarded!" 
                                                                                                     cmd i !jobIDRef (ms.Length) ))
                                     else
                                         x <- fst !cbRefTuple
@@ -1418,8 +1419,9 @@ and
                             bJobIDFound <- false 
                             // Can't find the jobID associated with the return command, we assume that the job has already been cancelled, and the command may be thrown away 
                             // The log level can be reduced later when the code stablize
-                            Logger.LogF( !jobIDRef, LogLevel.MildVerbose, (fun _ -> sprintf "(OK, job may be cancelled) Receive cmd %A from peer %d with payload of %dB, but there is no parsing logic!" 
-                                                                                            cmd i (ms.Length) ))
+                            // Raise Verbose Level, otherwise, too many log message during a cancelled UnitTest job
+                            Logger.LogF( !jobIDRef, LogLevel.ExtremeVerbose, (fun _ -> sprintf "(OK, job may be cancelled) Receive cmd %A from peer %d with payload of %dB, but there is no parsing logic!" 
+                                                                                                    cmd i (ms.Length) ))
                         if Utils.IsNotNull cb then 
                             bNotBlocked <- cb.Callback( cmd, i, ms, !jobIDRef, name, ver, x )
                         else 

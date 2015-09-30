@@ -1025,7 +1025,7 @@ and [<AllowNullLiteral>]
                                         yield (sprintf "    Peer %d: (In replicate:%A, ReplicateClose sent: %A, rcvd %A)" i bPeerInReplicate.[i] bCloseDSetSent.[i] bConfirmCloseRcvd.[i] )                                
                             }
                             |> String.concat( System.Environment.NewLine )
-                        use msSend = new MemStream( 10240 )
+                        use msSend = new MemStream( 1024 )
                         msSend.WriteString( msgInfo ) 
                         x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Warning, ControllerNoun.Message ) , msSend )
                         Logger.Log( LogLevel.Info, msgInfo )

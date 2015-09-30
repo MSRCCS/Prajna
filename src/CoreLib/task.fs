@@ -1446,6 +1446,17 @@ and [<AllowNullLiteral; Serializable>]
                         let msg = sprintf "Error@AppDomain: Start, Job (ID:%A) %s:%s can't find the relevant job in allTasks " jobID name (VersionToString(DateTime(verNumber)))
                         jobAction.ThrowExceptionAtContainer( msg )
             )
+        | ( ControllerVerb.Cancel, ControllerNoun.Job ) -> 
+            let jobID = ms.ReadGuid()
+            use jobAction = SingleJobActionContainer.TryFind( jobID )
+            if Utils.IsNull jobAction then 
+                    Logger.LogF( jobID, 
+                                 LogLevel.WildVerbose, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Cancel, Job from endpoint %s of %dB payload, but failed to find corresponding job"
+                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                           ms.Length )
+            else
+                jobAction.CancelJob()
+
         | ( ControllerVerb.Echo2, ControllerNoun.Job ) ->
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Echo2, Job from client"))
         | ( ControllerVerb.UpdateParam, ControllerNoun.Job ) 
@@ -3097,7 +3108,7 @@ and internal TaskQueue() =
                             msSend.WriteGuid( jobID )
                             msSend.WriteString( name ) 
                             msSend.WriteInt64( verNumber )
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s failed to start, as we can't find Set, Job entry  .............." name (VersionToString(DateTime(verNumber))) ))
+                            Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s failed to start, as we can't find Set, Job entry  .............." name (VersionToString(DateTime(verNumber))) ))
                             queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )   
                             true
                     with 

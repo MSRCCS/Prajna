@@ -1629,10 +1629,11 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     /// <returns>The NetworkCommandQueue created from the socket</returns>
     member x.AddConnect( machineName, port ) = 
         let addr = 
-            try
-                IPAddress.Parse(machineName)
-            with e ->
-                LocalDNS.GetAnyIPAddress( machineName, true )
+                let bParsed, addrParsed = IPAddress.TryParse(machineName)
+                if bParsed then
+                    addrParsed
+                else
+                    LocalDNS.GetAnyIPAddress( machineName, true )        
         Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Connecting to %s using addr %A" machineName addr)
         if Utils.IsNull addr then 
             null 

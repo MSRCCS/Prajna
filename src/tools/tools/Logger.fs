@@ -83,7 +83,10 @@ type ILoggerProvider =
     /// Takes three parameters: log id, log level, log Message
     abstract member Log : (string*LogLevel*string) -> unit
 
-    /// Takes four parameters: log id, log level, JobID, log Message
+    /// Takes three parameters: JobID, log level, log Message
+    abstract member Log : (Guid*LogLevel*string) -> unit
+
+    /// Takes four parameters: log id, JobID, log level, log Message
     abstract member Log : (string*Guid*LogLevel*string) -> unit
 
     /// Parse arguments that configs the behavior of the LoggerProvider
@@ -308,6 +311,16 @@ type internal DefaultLogger () =
         member this.Log ((logLevel : LogLevel, message : string)) =
             EmitLogEntry(logLevel, message)
 
+        member this.Log ((jobID: Guid, logLevel : LogLevel, message : string)) =
+            // DefaultLogger does not support "log id" yet
+            if shouldShowTimeForJobID then 
+                let curTicks = DateTime.UtcNow.Ticks 
+                let firstTicks = jobTimerCollection.GetOrAdd( jobID, curTicks)
+                let elapseInMs = (curTicks-firstTicks)/(TimeSpan.TicksPerMillisecond)
+                EmitLogEntry(logLevel, sprintf "JobID=%A(%dms),%s" jobID elapseInMs message)
+            else
+                EmitLogEntry(logLevel, sprintf "JobID=%A,%s" jobID message)
+
         member this.Log ((logId : string, logLevel : LogLevel, message : string)) =
             // DefaultLogger does not support "log id" yet
             EmitLogEntry(logLevel, message)
@@ -396,6 +409,16 @@ type Logger internal ()=
     static member inline Log(logId : string, logLevel : LogLevel, message : string) =
         if Logger.LoggerProvider.IsEnabled(logId, logLevel) then
             Logger.LoggerProvider.Log((logId, logLevel, message))
+
+    /// Log "message" using "jobID"                                                              
+    static member inline Log(jobID: Guid, logLevel : LogLevel, message : string) =
+        if logLevel <= Logger.DefaultLogLevel then
+            Logger.LoggerProvider.Log((jobID, logLevel, message))
+
+    /// Log "message" using "logId" and jobID
+    static member inline Log(logId: string, jobID: Guid, logLevel : LogLevel, message : string) =
+        if Logger.LoggerProvider.IsEnabled(logId, logLevel) then
+            Logger.LoggerProvider.Log((logId, jobID, logLevel, message))
 
     /// Log stack trace if logLevel <= Logger.DefaultLogLevel
     static member LogStackTrace(logLevel : LogLevel) =

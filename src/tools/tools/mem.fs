@@ -244,8 +244,8 @@ type internal CircularBuffer<'a> (size: int) =
         tptr
 
 // currently use StreamBaseByte as opposed to MemoryStreamB when default MemStream is used
-//type MemStream = MemoryStreamB
-type MemStream = StreamBaseByte
+type MemStream = MemoryStreamB
+//type MemStream = StreamBaseByte
   
 /// MemBitStream Will potentially read & write bits
 //type internal MemBitStream = 

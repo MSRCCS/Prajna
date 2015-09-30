@@ -90,6 +90,9 @@ and internal DStreamForwardDependencyType =
     /// Multicast a blob to all destinations in the Mapping
     | MulticastToNetwork of DependentDStream
 and internal DStreamFactory() = 
+    /// A collection of DStream that serves as the network interface for intercommunication between Jobs. 
+    /// The entry is indexed by jobID, while each entry holds a timestamp (in ticks of int64), of the recent input from that job. 
+    /// That way, we can detect inactive jobs and cancel them later. 
     static let collectionByJob = ConcurrentDictionary<Guid,(int64 ref)*ConcurrentDictionary<_,_>>() 
     // Cache a DStream, if there is already a DStream existing in the factory with the same name and version information, then use it. 
     static member CacheDStream( jobID, newDStream: DStream ) = 
@@ -538,13 +541,6 @@ and [<AllowNullLiteral>]
     ///     false: blocking, need to resend the command at a later time
     ///     true: command processed. 
     member internal x.ProcessJobCommand( jobAction:SingleJobActionContainer, queuePeer:NetworkCommandQueue, cmd:ControllerCommand, ms:StreamBase<byte>, jobID: Guid ) = 
-//        using ( SingleJobActionContainer.TryFind(jobID)) ( fun jobAction -> 
-//            if Utils.IsNull jobAction then 
-//                Logger.LogF( jobID, LogLevel.Info, ( fun _ -> sprintf "[May be OK, Job cancelled] DStream.Callback, received command %A of payload %dB, but can't find job lifecycle object" 
-//                                                                        cmd ms.Length )    )
-//                true
-//            else
-//                try
             let peeri = x.Cluster.SearchForEndPoint( queuePeer )
             Logger.LogF( jobID, LogLevel.WildVerbose, ( fun _ -> sprintf "ProcessJobCommand, Map %A to peer %d" queuePeer.RemoteEndPoint peeri ))
             // Outgoing queue for the reply 
@@ -553,7 +549,7 @@ and [<AllowNullLiteral>]
                 true
             | ( ControllerVerb.SyncWrite, ControllerNoun.DStream ) ->
                 let meta = BlobMetadata.Unpack( ms )
-                Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Rcvd %A command %A from peer %d with %dB" (meta.ToString()) cmd peeri (ms.Length-ms.Position) ))
+                Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Rcvd %s command %A from peer %d with %dB" (meta.ToString()) cmd peeri (ms.Length-ms.Position) ))
                 let bRet = x.SyncReceiveFromPeer meta ms peeri 
 //                let ev = new ManualResetEvent(false)
 //                ev.Reset() |> ignore
@@ -586,18 +582,13 @@ and [<AllowNullLiteral>]
                 let msg = sprintf "DStream.Callback(%s:%s), Unexpected command %A, peer %d" x.Name x.VersionString cmd peeri
                 jobAction.ThrowExceptionAtContainer( msg )
                 true
-//                with 
-//                | ex -> 
-//                    jobAction.EncounterExceptionAtContainer( ex, sprintf "Error in processing DStream.ProcessJobCommand cmd %A, with payload of %dB" 
-//                                                                        cmd ms.Length )
-//                    true
-//        )
+
     /// Parse echoing from DStream from a container to other container
-    member internal x.DStreamCallback( cmd, peeri, ms, jobID, name, verNumber ) =
+    member x.DStreamCallback( cmd, peeri, ms, jobID, name, verNumber ) =
         using ( SingleJobActionContainer.TryFind(jobID)) ( fun jobAction -> 
             if Utils.IsNull jobAction then 
-                Logger.LogF( jobID, LogLevel.Info, ( fun _ -> sprintf "[May be Ok, Job cancelled?] DStream.DStreamCallback, received command %A of payload %dB, but can't find job lifecycle object" 
-                                                                        cmd ms.Length )    )
+                Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "[May be Ok, Job cancelled?] DStream.DStreamCallback, received command %A of payload %dB, but can't find job lifecycle object" 
+                                                                                    cmd ms.Length )    )
                 true
             else
                 try
@@ -709,7 +700,7 @@ and [<AllowNullLiteral>]
             else
                 let msg = sprintf "DStream.SyncClose, DStream %s:%s, attempt to send SyncClose, DStream to peer %d, but the peer queue has already been shutdown" 
                             x.Name x.VersionString peeri 
-                Logger.LogF( jbInfo.JobID, LogLevel.Warning, fun _ -> msg )
+                Logger.Log( jbInfo.JobID, LogLevel.Warning, msg )
 
     member internal x.SyncSendCloseDStreamToAll(jbInfo: JobInformation) = 
         match x.DependencyDownstream with 

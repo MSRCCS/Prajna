@@ -121,7 +121,8 @@ type internal BlobFactory() =
             let bRemove, _ = epTrigger.TryRemove( jobID )     
             if bRemove then 
                 if epTrigger.IsEmpty then 
-                    (!refMS).DecRef()
+                    if (Utils.IsNotNull !refMS) then
+                        (!refMS).DecRef()
                     x.Collection.TryRemove( id ) |> ignore 
     /// Cache Information, used the existing object in Factory if it is there already
     member x.ReceiveWriteBlob( id, ms: StreamBase<byte>, epSignature ) = 

@@ -2435,17 +2435,17 @@ and
 
     member x.TrySyncMetaDataHost() = 
         let jobStage = JobStage.None
-        let mutable bIOActivity = false
+        let bIOActivity = ref false
         let clock_start = clock.ElapsedTicks
-        let mutable maxWait = clock_start + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit
+        let maxWait = ref (clock_start + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit)
 
         using ( x.TryExecuteSingleJobActionFunc()) ( fun jobAction -> 
             if Utils.IsNull jobAction then 
                 failwith "Fail to secure job Action object, job already cancelled?"
             else
                 try 
-                    while not bAllSynced && clock.ElapsedTicks < maxWait && not bFailureToGetSrcMetadata && not jobAction.IsCancelledAndThrow do 
-                        bIOActivity <- false
+                    while not bAllSynced && clock.ElapsedTicks < (!maxWait) && not bFailureToGetSrcMetadata && not jobAction.IsCancelledAndThrow do 
+                        bIOActivity := false
                         // Process feedback
 
                         let mutable outstandingSendingQueue = 0
@@ -2461,7 +2461,7 @@ and
                                     queue.ToSend( ControllerCommand( ControllerVerb.Set, ControllerNoun.Job ), jobMetadataStream )
                                     Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Job: %s:%s Send Set, Job to peer %d " x.Name x.VersionString peeri))
                                     x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.JobMetaDataSent
-                                    bIOActivity <- true
+                                    bIOActivity := true
                                 if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.AvailabilitySent)=PerQueueJobStatus.None then 
                                     // Availability, Blob
                                     Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Job: %s:%s Send Availability, Blob to peer %d " x.Name x.VersionString peeri))
@@ -2475,7 +2475,7 @@ and
                                         queue.ToSend( ControllerCommand( ControllerVerb.Availability, ControllerNoun.Blob ), availStream ) 
                                     )
                                     x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AvailabilitySent
-                                    bIOActivity <- true
+                                    bIOActivity := true
                                 if x.BlobSync=BlobSyncMethod.Unicast && // bAllSrcAvailable && 
                                     (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.SentAllMetadata)=PerQueueJobStatus.None then  
                                     // outstandingSendingQueue < x.SendingQueueLimit then 
@@ -2500,7 +2500,7 @@ and
                                                         /// Assume blob is delivered. 
                                                         peerAvail.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
                                                         Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Send Blob %d (%s) to peer %d, mark the blob as available %A" blobi (x.Blobs.[blobi].Name ) peeri peerAvail) )
-                                                        bIOActivity <- true
+                                                        bIOActivity := true
                                                         stream.DecRef()
                                                     else
                                                         // Exceeding limit, need to wait. 
@@ -2527,9 +2527,9 @@ and
                         x.UpdateClusterJobInfo() 
                         // Check if Src DSet information is received. 
                         x.UpdateSourceAvailability()
-                        if bIOActivity then 
+                        if !bIOActivity then 
                             // Reset clock for any io activity
-                            maxWait <- clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
+                            maxWait := clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
                         elif not jobAction.IsCancelledAndThrow then 
                             Threading.Thread.Sleep(5)
                 with

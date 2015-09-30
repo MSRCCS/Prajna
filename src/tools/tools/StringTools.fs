@@ -61,15 +61,7 @@ type StringTComparer<'T when 'T:equality>=
             else
                 (17 * 23 + this._comp.GetHashCode( xstring )) * 23 + xval.GetHashCode()
 
-/// <summary>
-/// Construct a comparer that uses Object.ReferenceEquals to compare object. 
-/// </summary>
-type ReferenceComparer<'T>()=
-    interface IEqualityComparer<'T> with
-        override this.Equals (x, y) = 
-            ( Object.ReferenceEquals( x, y )  )
-        override this.GetHashCode (x) = 
-            RuntimeHelpers.GetHashCode( x )
+
 
 type internal StringPlusClassComparer<'T> ( comp: StringComparer, cmpT, hashT ) =
      interface IEqualityComparer<string*'T> with

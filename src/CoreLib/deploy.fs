@@ -428,6 +428,8 @@ type DeploymentSettings() =
 
     /// The wait time for unload an appdomain that is hosting a daemon or container.
     static member val internal AppDomainUnloadWaitTime = TimeSpan.FromSeconds(1.0) with get
+    /// If a job is idle for this much time, it is considered to have problems, and may be cancelled. 
+    static member val MaxWaitToEndJobInMilliseconds = 30000 with get, set 
 
 
 (*---------------------------------------------------------------------------

@@ -160,10 +160,16 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
 //            x.RC.SetRef(1L)
 //            r.DebugInfo <- infoStr + ":" + x.Id.ToString()
 
+    new(infoStr : string, elem : 'T) as x =
+        new SafeRefCnt<'T>(infoStr, false)
+        then
+            x.Element <- elem
+            x.RC.AddRef()
+            x.info <- infoStr + ":" + x.Id.ToString()
+
     new(infoStr : string, e : SafeRefCnt<'T>) as x =
         new SafeRefCnt<'T>(infoStr, false)
         then
-            let r : IRefCounter<string> = x.RC
             x.Element <- e.Elem // check for released element prior to setting
             x.RC.AddRef()
             let e : 'T = x.Element
@@ -220,7 +226,7 @@ type SafeRefCnt<'T when 'T:null and 'T:(new:unit->'T) and 'T :> IRefCounter<stri
             GC.SuppressFinalize(x)
 
     member private x.Element with get() = elem and set(v) = elem <- v
-    member private x.RC with get() = (elem :> IRefCounter<string>)
+    member private x.RC with get() : IRefCounter<string> = (elem :> IRefCounter<string>)
 
     // use to access the element from outside
     /// Obtain element contained wit
@@ -358,10 +364,9 @@ type [<AllowNullLiteral>] RBufPart<'T> =
             x.Count <- count
 
     new (buf : 'T[], offset : int, count : int) as x =
-        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", false) }
+        { inherit SafeRefCnt<RefCntBuf<'T>>("RBufPart", new RefCntBuf<'T>(buf)) }
         then
             x.Init()
-            let rcb = new RefCntBuf<'T>(buf)
             x.Offset <- offset
             x.Count <- count
             x.Elem.RC.SetRef(1L)
@@ -755,7 +760,7 @@ type StreamBaseByte =
 // essentially a generic list of buffers of type 'T
 // use AddRef/Release to acquire / release resource
 [<AllowNullLiteral>] 
-type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool) =
+type BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool) =
     inherit StreamBase<'T>()
 
     static let streamsInUse = new ConcurrentDictionary<string, BufferListStream<'T>>()
@@ -887,6 +892,9 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
                 // start monitor timer
                 PoolTimer.AddTimer(BufferListStream<'T>.DumpStreamsInUse, 10000L, 10000L)
 #endif
+
+    static member InitSharedPool() =
+        BufferListStream<'T>.InitMemStack(128, 64000)
 
     member internal x.GetStackElem() =
         let (event, buf) = RBufPart<'T>.GetFromPool(x.GetInfoId()+":RBufPart", BufferListStream<'T>.MemStack,
@@ -1053,9 +1061,10 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
             length <- length + int64 rbuf.Count
             capacity <- capacity + int64 rbuf.Count
             elemLen <- elemLen + 1
+            for i = finalWriteElem to elemLen-1 do
+                if (i <> 0) then
+                    bufList.[i].StreamPos <- bufList.[i-1].StreamPos + int64 bufList.[i-1].Count
             finalWriteElem <- elemLen
-            for i = elemPos+1 to elemLen-1 do
-                bufList.[i].StreamPos <- bufList.[i-1].StreamPos + int64 bufList.[i-1].Count
 
     // move to beginning of buffer i
     member private x.MoveToBufferI(bAllowExtend : bool, i : int) =
@@ -1174,7 +1183,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
     member private x.WriteRBufNoCopy(rbuf : RBufPart<'T>) =
         x.AddExistingBuffer(rbuf)
         position <- position + int64 rbuf.Count
-        elemPos <- elemPos + 1
+        elemPos <- Math.Max(elemLen, elemPos)
         length <- Math.Max(length, position)
         finalWriteElem <- Math.Max(finalWriteElem, elemPos)
 
@@ -1298,7 +1307,7 @@ type internal BufferListStream<'T>(defaultBufSize : int, doNotUseDefault : bool)
 // MemoryStream which is essentially a collection of RefCntBuf
 // Not GetBuffer is not supported by this as it is not useful
 [<AllowNullLiteral>]
-type internal MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
+type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
     inherit BufferListStream<byte>(defaultBufSize)
 
     let emptyBlk = [||]

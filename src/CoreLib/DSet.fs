@@ -1221,7 +1221,7 @@ and [<Serializable; AllowNullLiteral>]
 
                     // Do we need to limit speed?
                     if x.NumReplications>1 then 
-                        let mutable bToSent = false
+                        let bToSent = ref false
                         using( new MemStream( 1024 ) ) ( fun msSpeed -> 
                             msSpeed.WriteGuid( currentWriteID )
                             msSpeed.WriteString( x.Name ) 
@@ -1230,8 +1230,8 @@ and [<Serializable; AllowNullLiteral>]
                             msSpeed.WriteInt64( x.PeerRcvdSpeedLimit )
                             if x.PeerRcvdSpeedLimit < node.NetworkSpeed then 
                                 queuePeer.SetRcvdSpeed(x.PeerRcvdSpeedLimit)
-                                bToSent <- true
-                            if bToSent then 
+                                bToSent := true
+                            if !bToSent then 
                                 queuePeer.ToSend( ControllerCommand( ControllerVerb.LimitSpeed, ControllerNoun.DSet), msSpeed )  
                         )
            ) 
@@ -1394,7 +1394,7 @@ and [<Serializable; AllowNullLiteral>]
     /// EndStore: called to end storing operation of a DSet to cloud
     member internal x.EndWriteToNetwork( timeToWait ) =
         let bCloseDSetSent = Array.create (x.Cluster.NumNodes) false
-        let mutable bAllCloseDSetSent = false
+        let bAllCloseDSetSent = ref false
         let t1 = (PerfDateTime.UtcNow())
         let bRetRef = ref false
         using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
@@ -1407,8 +1407,8 @@ and [<Serializable; AllowNullLiteral>]
                     msSend.WriteInt64( x.Version.Ticks )
 
                     Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Entering DSet EndWrite for %A" x.Name))
-                    while not bAllCloseDSetSent && (PerfDateTime.UtcNow()).Subtract(t1).TotalSeconds<timeToWait do
-                        bAllCloseDSetSent <- true
+                    while not !bAllCloseDSetSent && (PerfDateTime.UtcNow()).Subtract(t1).TotalSeconds<timeToWait do
+                        bAllCloseDSetSent := true
                         if not jobObj.IsCancelledAndThrow then 
                             // Check on cancellation 
                             for i=0 to x.Cluster.NumNodes-1 do 
@@ -1425,9 +1425,9 @@ and [<Serializable; AllowNullLiteral>]
                                                     q.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.All ) , msSend )
                                                     bCloseDSetSent.[i] <- true
                                                 else
-                                                    bAllCloseDSetSent <- false
+                                                    bAllCloseDSetSent := false
                                     
-                            if not bAllCloseDSetSent then 
+                            if not !bAllCloseDSetSent then 
                                 // Wait for input command. 
                                 ThreadPoolWaitHandles.safeWaitOne( jobObj.WaitHandle, 10 ) |> ignore 
                     )
@@ -3219,9 +3219,9 @@ type internal DJobInstance(curDSet: DSet, getSingleJobAction: unit -> SingleJobA
         Cluster.Connects.Initialize()
 
         let bSentGetDSet = Array.create curDSet.Cluster.NumNodes false
-        let mutable bMetaDataRetrieved = false
+        let bMetaDataRetrieved = ref false
         let clock_start = curDSet.Clock.ElapsedTicks
-        let mutable maxWait = clock_start + curDSet.ClockFrequency * int64 curDSet.TimeoutLimit
+        let maxWait = ref (clock_start + curDSet.ClockFrequency * int64 curDSet.TimeoutLimit)
         using ( new MemStream( 1024 ) ) ( fun msSend -> 
             msSend.WriteGuid( x.JobID )
             msSend.WriteString( curDSet.Name )
@@ -3237,7 +3237,7 @@ type internal DJobInstance(curDSet: DSet, getSingleJobAction: unit -> SingleJobA
             // Make sure memory release upon cancellation
             using ( getSingleJobAction() ) ( fun jobAction -> 
                 if Utils.IsNotNull jobAction then 
-                    while not bMetaDataRetrieved && curDSet.Clock.ElapsedTicks<maxWait && not jobAction.IsCancelledAndThrow do
+                    while not !bMetaDataRetrieved && curDSet.Clock.ElapsedTicks<(!maxWait) && not jobAction.IsCancelledAndThrow do
                         // Try send out Get, DSet request. 
                         for peeri=0 to curDSet.Cluster.NumNodes-1 do
                             if not bSentGetDSet.[peeri] then 
@@ -3247,13 +3247,13 @@ type internal DJobInstance(curDSet: DSet, getSingleJobAction: unit -> SingleJobA
                                     bSentGetDSet.[peeri] <- true
                         x.CheckMetaData()
                         if x.numPeerRespond>=numRequiredPeerRespond && x.numDSetMetadataRead>=numRequiredVlidResponse then 
-                            bMetaDataRetrieved <- true    
+                            bMetaDataRetrieved := true    
                         else if x.numPeerRespond>=curDSet.Cluster.NumNodes then 
                             // All peer responded, timeout
-                            maxWait <- clock_start
+                            maxWait := clock_start
                         else if x.numDSetMetadataRead + ( curDSet.Cluster.NumNodes - x.numPeerRespond ) < numRequiredVlidResponse then 
                             // Enough failed response gathered, we won't be able to succeed. 
-                            maxWait <- clock_start
+                            maxWait := clock_start
 
                         ThreadPoolWaitHandles.safeWaitOne( jobAction.WaitHandle, 5 ) |> ignore 
                 )
@@ -3265,9 +3265,9 @@ type internal DJobInstance(curDSet: DSet, getSingleJobAction: unit -> SingleJobA
         x.bLastPeerFailedPattern <- Array.copy x.bPeerFailed 
 
         curDSet.Cluster.ConnectAll()
-        if (not bMetaDataRetrieved) then
+        if (not !bMetaDataRetrieved) then
             Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Failed to load metadata for DSet %s:%A" curDSet.Name curDSet.Version))
-        bMetaDataRetrieved
+        !bMetaDataRetrieved
 
     member internal x.ToClose() = 
 //        let curDSet = x.CurDSet

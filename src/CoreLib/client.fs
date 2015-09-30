@@ -83,6 +83,7 @@ type internal ClientLauncher() =
 
 
     static member Main orgargs = 
+
         let args = Array.copy orgargs
         let firstParse = ArgumentParser(args, false)
         
@@ -145,6 +146,9 @@ type internal ClientLauncher() =
         let port = parse.ParseInt( "-port", (DeploymentSettings.ClientPort) )
         DeploymentSettings.ClientIP <- ip
         DeploymentSettings.ClientPort <- port
+
+        RemoteExecutionEnvironment.ContainerName <- "Daemon@" + port.ToString()
+
         Prajna.Core.Cluster.Connects.IpAddr <- ip
         let jobDirectory = Path.Combine(DeploymentSettings.LocalFolder, DeploymentSettings.JobFolder + DeploymentSettings.ClientPort.ToString() )
         JobDependency.CleanJobDir(jobDirectory)

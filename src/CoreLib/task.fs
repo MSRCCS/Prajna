@@ -2729,7 +2729,7 @@ and internal ContainerAppDomainLauncher() =
         // Need to setup monitoring too  
         DeploymentSettings.ClientPort <- port     
         DeploymentSettings.LogFolder <- logdir
-        RemoteExecutionEnvironment.ContainerName <- name 
+        RemoteExecutionEnvironment.ContainerName <- "AppDomain:" + name 
         let logfname = Path.Combine( logdir, name + "_appdomain_" + VersionToString( DateTime(ticks) ) + ".log" )
         let args = [| @"-log"; logfname; "-verbose"; verbose_level.ToString() |]
         if bUseAllDrive then 
@@ -3755,7 +3755,7 @@ type internal ContainerLauncher() =
     //    DeploymentSettings.ClientPort <- port
         let memory_size = parse.ParseInt64( "-mem", (DeploymentSettings.MaxMemoryLimitInMB) )
         DeploymentSettings.MaxMemoryLimitInMB <- memory_size
-        RemoteExecutionEnvironment.ContainerName <- name 
+        RemoteExecutionEnvironment.ContainerName <- "Exe:" + name 
     // Need to first write a line to log, otherwise, MakeFileAccessible will fails. 
     // Logger.Log( LogLevel.Info,  sprintf "Logging in New AppDomain...................... %s, %d MB " DeploymentSettings.PlatformFlag (DeploymentSettings.MaximumWorkingSet>>>20)  )
         Logger.Log( LogLevel.Info, ( sprintf "%s executing in new Executable Environment ...................... %s, %d MB " 

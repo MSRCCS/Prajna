@@ -525,11 +525,13 @@ type internal DSetFoldAction<'U, 'State >()=
             x.GetJobInstance(useDSet).RemappingCommandCallback <- x.RemappingCommandForRead
             // Send out the fold command. 
             x.ReturnResultFromPeer := None
-            x.RemappingDSet() |> ignore        
-            while not (x.Timeout()) && not (x.GetJobInstance(useDSet).AllDSetsRead()) do
-                x.RemappingDSet() |> ignore
-                // Wait for result to come out. 
-                Thread.Sleep( 3 )
+            x.RemappingDSet() |> ignore    
+            use jobAction = x.TryExecuteSingleJobAction()  
+            if Utils.IsNotNull jobAction then 
+                while not (x.Timeout()) && not (x.GetJobInstance(useDSet).AllDSetsRead()) do
+                    x.RemappingDSet() |> ignore
+                    // Wait for result to come out. 
+                    ThreadPoolWaitHandles.safeWaitOne( jobAction.WaitHandle, 5 ) |> ignore 
             if x.Timeout() then 
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Timeout for DSetFoldAction ............." ))
             x.OrderlyEndAction()

@@ -220,48 +220,51 @@ type internal DSetEnumerator<'U >( DSet: DSet ) =
                     partitionKeyValuesList <- null 
         
             let mutable bFind = false
-            while Utils.IsNotNull partitionKeyValuesList && not bFind do
-                if currPartition<0 || currPartition>=partitionKeyValuesList.Length then 
-                    currPartition <- 0
-                let startPartition = currPartition
-                let mutable bStopFind = false
-                while partitionKeyValuesList.[currPartition].Count=0 && not bStopFind do
-                    currPartition<- ( currPartition + 1 ) % partitionKeyValuesList.Length
-                    if currPartition = startPartition then 
-                        bStopFind <- true
-                if partitionKeyValuesList.[currPartition].Count>0 then 
-                    // Some object in the partition 
-                    let objRef = ref Unchecked.defaultof<_>
-                    bFind <- partitionKeyValuesList.[currPartition].TryDequeue( objRef )
-                    if bFind then
-                        curr <- Some (!objRef)
-                        Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "DoMoveNext read from partition %i: %A" currPartition !objRef)
-                if not bFind then 
-                    // Doesn't find any K-V in this round. 
-                    let bRemapping = x.RemappingForReadTask()
-                    let bEnd = x.GetJobInstance(x.CurDSet).AllDSetsRead(  )
-                    // It's possible that some final items arrive after we went through partitionKeyValuesList thought there're not items
-                    // but before we call "AllDSetsRead". So bEnd is true but these final items were not read yet
-                    let anyItem = 
-                        partitionKeyValuesList |> Array.exists(fun l -> not l.IsEmpty)
-                    if not anyItem then
-                        if bEnd && not bRemapping then 
-                            Logger.LogF( LogLevel.WildVerbose, fun _ -> "DoMoveNext: completed")
-                            // setting partitionKeyValuesList signals the end of the entire DSet Read 
-                            partitionKeyValuesList <- null
-                        else                
-                            Threading.Thread.Sleep( 5 )
-                    elif bEnd && not bRemapping then 
-                        Logger.LogF( LogLevel.WildVerbose, fun _ -> "DoMoveNext: find some final items")
+            use jobAction = x.TryExecuteSingleJobAction()
+            if Utils.IsNotNull jobAction then 
+                while Utils.IsNotNull partitionKeyValuesList && not bFind && not jobAction.IsCancelled do
+                    if currPartition<0 || currPartition>=partitionKeyValuesList.Length then 
+                        currPartition <- 0
+                    let startPartition = currPartition
+                    let mutable bStopFind = false
+                    while partitionKeyValuesList.[currPartition].Count=0 && not bStopFind do
+                        currPartition<- ( currPartition + 1 ) % partitionKeyValuesList.Length
+                        if currPartition = startPartition then 
+                            bStopFind <- true
+                    if partitionKeyValuesList.[currPartition].Count>0 then 
+                        // Some object in the partition 
+                        let objRef = ref Unchecked.defaultof<_>
+                        bFind <- partitionKeyValuesList.[currPartition].TryDequeue( objRef )
+                        if bFind then
+                            curr <- Some (!objRef)
+                            Logger.LogF( jobAction.JobID, LogLevel.ExtremeVerbose, fun _ -> sprintf "DoMoveNext read from partition %i: %A" currPartition !objRef)
+                    if not bFind then 
+                        // Doesn't find any K-V in this round. 
+                        let bRemapping = x.RemappingForReadTask()
+                        let bEnd = x.GetJobInstance(x.CurDSet).AllDSetsRead(  )
+                        // It's possible that some final items arrive after we went through partitionKeyValuesList thought there're not items
+                        // but before we call "AllDSetsRead". So bEnd is true but these final items were not read yet
+                        let anyItem = 
+                            partitionKeyValuesList |> Array.exists(fun l -> not l.IsEmpty)
+                        if not anyItem then
+                            if bEnd && not bRemapping then 
+                                Logger.LogF( jobAction.JobID, LogLevel.WildVerbose, fun _ -> "DoMoveNext: completed")
+                                // setting partitionKeyValuesList signals the end of the entire DSet Read 
+                                partitionKeyValuesList <- null
+                            else                
+                                ThreadPoolWaitHandles.safeWaitOne( jobAction.WaitHandle, 5 ) |> ignore  
+                        elif bEnd && not bRemapping then 
+                            Logger.LogF( jobAction.JobID, LogLevel.WildVerbose, fun _ -> "DoMoveNext: find some final items")
             if not bFind then 
                 bReadToEnd <- true
                 x.CloseDSetEnumerator()
+                if Utils.IsNotNull jobAction && jobAction.CanExecuteOrThrow then 
+                    ()
             bFind
         with
-        | e -> 
-            let msg = sprintf "During read, DSet, caught a unhandled exception of %A " e
-            Logger.Log( LogLevel.Error, msg )
-            raise e
+        | ex -> 
+            Logger.LogF( x.Job.JobID, LogLevel.Error, fun _ -> sprintf "[Can be remote, please examine] During read, DSet, caught a exception of %A " ex )
+            reraise( )
     member val LastBlockedTime = null with get, set
     member x.ReadDSetCallback( cmd, peeri, msRcvd, jobID ) = 
         let bRetRef = ref true

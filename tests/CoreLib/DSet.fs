@@ -1543,7 +1543,8 @@ type DSetTests () =
     member x.DSetThrowRemoteExceptionAndCatchLocally () = 
         let guid = Guid.NewGuid().ToString("D")
         let dset = DSet<_> ( Name = guid, Cluster = cluster)
-        let bExceptionCatched = ref false
+        let refExceptionCatched = ref "Exception not propagated from client"
+        let refAdditionalInfo = ref null
         let msg = "Test on Remote Exception"
         try 
             let result = (dset |> DSet.source ( fun () -> seq { let ex = System.OperationCanceledException( msg )
@@ -1551,20 +1552,23 @@ type DSetTests () =
                                                                 yield (sprintf "%i-%i" (System.Diagnostics.Process.GetCurrentProcess().Id) 
                                                                                             (Thread.CurrentThread.ManagedThreadId)) })).ToSeq() |> Array.ofSeq
 
-            Assert.IsNotEmpty(result)
+            Assert.IsEmpty(result)
         with
         | :? System.AggregateException as ex -> 
-            bExceptionCatched := true
+            refExceptionCatched := null
             for exIn in ex.InnerExceptions do 
                 match exIn with 
                 | :? System.OperationCanceledException as exInner -> 
                     if String.Compare( exInner.Message, msg, StringComparison.Ordinal) <> 0 then 
-                        bExceptionCatched := false
+                        refExceptionCatched := "Incorrect inner exception message"
                 | _ -> 
-                    bExceptionCatched := false
-        | _ -> 
-            ()
-        Assert.AreEqual( !bExceptionCatched, true )
+                    refExceptionCatched := "Incorrect inner exception type"
+        | ex -> 
+            refExceptionCatched := null
+            refAdditionalInfo := sprintf "[DSetThrowRemoteExceptionAndCatchLocally] Caught exception %A" ex
+        Assert.AreEqual( !refExceptionCatched, null )
+        if Utils.IsNotNull !refAdditionalInfo then 
+            Logger.Log( LogLevel.MildVerbose, !refAdditionalInfo)
 
 
     member x.MapConcurrentTest (dsetName:string) numPartitions numRowsPerPartition sLimit (mapFunc : DSet<int> -> DSet<int * int>) (expectedFun : int -> int*int )=

@@ -223,26 +223,28 @@ type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:st
             x.FurtherDSetCallback <- x.LaunchServiceCallback
         
             x.BeginAction()
-            let useDSet = x.ParameterList.[0]
-            if x.Job.ReadyStatus && useDSet.NumPartitions>0 then 
-                x.GetJobInstance(useDSet).RemappingCommandCallback <- x.RemappingCommandToLaunchService
-                // Send out the fold command. 
-                x.RemappingDSet() |> ignore   
-                while not (x.Timeout()) && not (x.GetJobInstance(useDSet).AllDSetsRead()) do
-                    x.RemappingDSet() |> ignore
-                    // Wait for result to come out. 
-                    Thread.Sleep( 3 )
-                if x.Timeout() then 
-                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Timeout for DSetFoldAction ............." ))
-                x.OrderlyEndAction()
-            else
-                x.CloseAndUnregister()
-                let status, msg = x.Job.JobStatus()
-                if status then
-                    Logger.Log( LogLevel.Info, msg )
+            use jobAction = x.TryExecuteSingleJobAction()
+            if Utils.IsNotNull jobAction then 
+                let useDSet = x.ParameterList.[0]
+                if x.Job.ReadyStatus && useDSet.NumPartitions>0 then 
+                    x.GetJobInstance(useDSet).RemappingCommandCallback <- x.RemappingCommandToLaunchService
+                    // Send out the fold command. 
+                    x.RemappingDSet() |> ignore   
+                    while not (x.Timeout()) && not jobAction.IsCancelled && not (x.GetJobInstance(useDSet).AllDSetsRead()) do
+                        x.RemappingDSet() |> ignore
+                        // Wait for result to come out. 
+                        ThreadPoolWaitHandles.safeWaitOne( jobAction.WaitHandle, 5 ) |> ignore 
+                    if x.Timeout() then 
+                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Timeout for DSetFoldAction ............." ))
+                    x.OrderlyEndAction()
                 else
-                    Logger.Log( LogLevel.Warning, msg )
-                    failwith msg
+                    x.CloseAndUnregister()
+                    let status, msg = x.Job.JobStatus()
+                    if status then
+                        Logger.Log( LogLevel.Info, msg )
+                    else
+                        Logger.Log( LogLevel.Warning, msg )
+                        failwith msg
     member x.RemappingCommandToLaunchService( queue, peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
         use msPayload = new MemStream( 1024 )
         msPayload.WriteGuid( x.Job.JobID )
@@ -300,26 +302,28 @@ type internal DSetStopServiceAction(cl:Cluster, serviceName:string)=
             x.FurtherDSetCallback <- x.StopServiceCallback
         
             x.BeginActionWithLaunchMode(TaskLaunchMode.DonotLaunch)
-            let useDSet = x.ParameterList.[0]
-            if x.Job.ReadyStatus && useDSet.NumPartitions>0 then 
-                x.GetJobInstance(useDSet).RemappingCommandCallback <- x.RemappingCommandToStopService
-                // Send out the fold command. 
-                x.RemappingDSet() |> ignore       
-                while not (x.Timeout()) && not (x.GetJobInstance(useDSet).AllDSetsRead()) do
-                    x.RemappingDSet() |> ignore
-                    // Wait for result to come out. 
-                    Thread.Sleep( 3 )
-                if x.Timeout() then 
-                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Timeout for DSetFoldAction ............." ))
-// Attempt to end job (as TaskLaunchMode.DonotLaunch)
-                x.OrderlyEndAction()
-            else
-                let status, msg = x.Job.JobStatus()
-                if status then
-                    Logger.Log( LogLevel.Info, msg )
+            use jobAction = x.TryExecuteSingleJobAction()
+            if Utils.IsNotNull jobAction then 
+                let useDSet = x.ParameterList.[0]
+                if x.Job.ReadyStatus && useDSet.NumPartitions>0 then 
+                    x.GetJobInstance(useDSet).RemappingCommandCallback <- x.RemappingCommandToStopService
+                    // Send out the fold command. 
+                    x.RemappingDSet() |> ignore       
+                    while not jobAction.IsCancelled && not (x.Timeout()) && not (x.GetJobInstance(useDSet).AllDSetsRead()) do
+                        x.RemappingDSet() |> ignore
+                        // Wait for result to come out. 
+                        ThreadPoolWaitHandles.safeWaitOne(jobAction.WaitHandle, 3 ) |> ignore 
+                    if x.Timeout() then 
+                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Timeout for DSetFoldAction ............." ))
+    // Attempt to end job (as TaskLaunchMode.DonotLaunch)
+                    x.OrderlyEndAction()
                 else
-                    Logger.Log( LogLevel.Warning, msg )
-                    failwith msg                            
+                    let status, msg = x.Job.JobStatus()
+                    if status then
+                        Logger.Log( LogLevel.Info, msg )
+                    else
+                        Logger.Log( LogLevel.Warning, msg )
+                        failwith msg                            
     member x.RemappingCommandToStopService( queue, peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
         use msPayload = new MemStream( 1024 )
         msPayload.WriteGuid( x.Job.JobID )

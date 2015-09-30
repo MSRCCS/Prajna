@@ -77,8 +77,12 @@ type FrontEndServer =
 /// </summary>
 [<AbstractClass; AllowNullLiteral>]
 type ServiceInstanceBasic() = 
-    /// A Guid that uniquely identifies this service. All service of the same Guid will be considered equivalent. 
+    /// A Guid that uniquely identifies the domain of the service
     member val ServiceID = Guid.Empty with get, set
+    /// Input Schema that determines the coding of the input of data
+    member val InputSchemaID = Guid.Empty with get, set
+    /// Output Schema that determines the coding of the output of data
+    member val OutputSchemaID = Guid.Empty with get, set
     /// <summary>
     /// Maximum number of items that can be serviced by this instance, if 1, the class is being locked when it service one existing item. 
     /// If this is a large value, e.g., Int32.MaxValue, then there is no limit on number of service that can be executed on the service instance. 

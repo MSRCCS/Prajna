@@ -1484,7 +1484,10 @@ and [<AllowNullLiteral>]
         x.AffinityWaitingJobs.Clear()
                 
     /// <summary>
-    /// Enqueue an action for repeated execution, until the action returns (*, false). The action is uniqueuely identified by a key, which can be used to get information
+    /// Enqueue an action for repeated execution, until the action returns (*, true). 
+    /// The first of tuple is a ManualResetEvent that signals whether the repeatable action needs to wait, 
+    /// The second of tuple is a boolean, when true, signals that the action terminates, and when false, signals that the action still executes. 
+    /// The action is uniqueuely identified by a key, which can be used to get information
     /// of the action. 
     /// </summary>
     /// <param name="affinityMask"> Reserved for thread affinity mask (currently not supported by .Net). </param>

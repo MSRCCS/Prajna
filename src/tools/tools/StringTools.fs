@@ -36,6 +36,7 @@ open System.Security.AccessControl
 open System.Collections.Generic
 open System.Text.RegularExpressions
 open System.Runtime.Serialization
+open System.Runtime.CompilerServices
 
 open Prajna.Tools
 
@@ -59,6 +60,8 @@ type StringTComparer<'T when 'T:equality>=
                 xval.GetHashCode()
             else
                 (17 * 23 + this._comp.GetHashCode( xstring )) * 23 + xval.GetHashCode()
+
+
 
 type internal StringPlusClassComparer<'T> ( comp: StringComparer, cmpT, hashT ) =
      interface IEqualityComparer<string*'T> with

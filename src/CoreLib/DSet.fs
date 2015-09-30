@@ -1097,8 +1097,61 @@ and [<Serializable; AllowNullLiteral>]
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Decode DSet %s:%s, Hash = %s (%d-%d)" curDSet.Name curDSet.VersionString (BytesToHex(curDSet.Hash)) startpos endpos ))
         curDSet.DecodeDownStreamDependency( readStream )
         curDSet
+    member val private bAllocateWriteLifeCycleObj = false with get, set
+    member val private WriteLifeCycleObjRef : JobLifeCycle ref = ref null with get
+    // This write ID is reserved only for the cleanup, to make sure that clean up operation can always be executed 
+    member val internal WriteIDForCleanUp = Guid.Empty with get, set
+    member internal x.BeginWriteJob( jobLifeCycleObj: JobLifeCycle ) = 
+        let oldObj = Interlocked.CompareExchange( x.WriteLifeCycleObjRef, jobLifeCycleObj, null )
+        if Utils.IsNull oldObj then 
+            // Store Job ID for clean up operation. 
+            x.WriteIDForCleanUp <- jobLifeCycleObj.JobID
+            jobLifeCycleObj.OnCancellationFS( x.SendCancelWriteToNetwork)
+            jobLifeCycleObj.OnDisposeFS( x.OnCancelWriteJob )
+        elif Object.ReferenceEquals( oldObj, jobLifeCycleObj) then 
+            ()
+        else
+            failwith ( sprintf "Try to initilialize a new write job %A on DSet %s:%s while an existing job %A is still in process. A DSet can't be simultaneously involved in two jobs that both write to it."
+                                oldObj.JobID x.Name x.VersionString jobLifeCycleObj.JobID )
+    member internal x.BeginWriteJob() = 
+        let jobLifeCycleObj = JobLifeCycleCollectionApp.BeginJob()
+        x.BeginWriteJob( jobLifeCycleObj )
+        x.bAllocateWriteLifeCycleObj <- true 
+    member internal x.BeginWriteJob( cts : CancellationToken ) =
+        x.BeginWriteJob() 
+        let jobLifeCyleObj = Volatile.Read( x.WriteLifeCycleObjRef )
+        if Utils.IsNotNull jobLifeCyleObj then 
+            jobLifeCyleObj.RegisterCancellation( cts )
+    member internal x.DisposeWriteJob() = 
+        let oldObj = Volatile.Read( x.WriteLifeCycleObjRef )
+        if Utils.IsNotNull oldObj && 
+            Object.ReferenceEquals( Interlocked.CompareExchange( x.WriteLifeCycleObjRef, null, oldObj ), oldObj ) then 
+                // We are responsible to dispose the JobLifeCycle Ojbect if it is allocated here 
+                if x.bAllocateWriteLifeCycleObj then 
+                    JobLifeCycleCollectionApp.UnregisterJob( oldObj )
+                    ( oldObj :> IDisposable ).Dispose()
+    /// Finalize write
+    member internal x.OnCancelWriteJob() = 
+        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Unregister for DSet Write %A" x.Name))
+        /// Unregister can always be called. 
+        let currentWriteID = x.WriteIDForCleanUp
+        x.Cluster.UnRegisterCallback( currentWriteID, x.CallbackCommand )
+        x.DisposeWriteJob()
+    /// Normal ending of a write job 
+    member internal x.EndWriteJob() = 
+        let oldObj = Volatile.Read( x.WriteLifeCycleObjRef ) 
+        if Utils.IsNotNull oldObj then 
+            // OnCancelWriteJob will be called by EndJob when all in process job actions are done
+            oldObj.EndJob()
+
+    /// Grab a single job action object, when secured, the cancellation of the underlying jobLifeCycle object will be delayed 
+    /// until this action completes. 
+    member internal x.TryExecuteSingleJobAction() = 
+        let writeObj = Volatile.Read( x.WriteLifeCycleObjRef )
+        SingleJobActionApp.TryEnterAndThrow( writeObj )
+        
     /// BeginStore: called to begin storing operation of a DSet to cloud. 
-    member internal x.BeginWrite () = 
+    member internal x.BeginWriteToNetwork ( ) = 
         let mapping = x.GetMapping()
         let bUsed = Array.create x.Cluster.NumNodes false
         mapping |> Array.iter ( Array.iter ( fun n -> bUsed.[n] <- true ) )
@@ -1117,58 +1170,87 @@ and [<Serializable; AllowNullLiteral>]
         partitionSerialConfirmed <- Array.init(x.NumPartitions) ( fun i -> new ConcurrentQueue<int64*int*int>())
         // Clear all timeout clocks.
         enterTimeout <- Array.create x.NumPartitions x.Clock.ElapsedTicks
+        /// This logic will check if the current write job has been cancelled, and properly process cancellation function 
+        using ( x.TryExecuteSingleJobAction() ) ( fun jobAction -> 
+            if Utils.IsNotNull jobAction then 
+                let currentWriteID = jobAction.JobID
+                if currentWriteID = Guid.Empty then 
+                    let msg = "!!! Write Job ID should never be null !!!"
+                    jobAction.ThrowExceptionAtCallback( msg )
         // Register call back to parse incoming message directed to this DSet. 
-        if nActiveConnection > 0 then 
-            x.Cluster.RegisterCallback( x.Name, x.Version.Ticks, x.CallbackCommand, 
-                { new NetworkCommandCallback with 
-                    member this.Callback( cmd, peeri, ms, name, verNumber, cl ) = 
-                        x.WriteDSetCallback( cmd, peeri, ms )
-                } )
+                if nActiveConnection > 0 then 
+                    x.Cluster.RegisterCallback( currentWriteID, x.Name, x.Version.Ticks, x.CallbackCommand, 
+                        { new NetworkCommandCallback with 
+                                    member this.Callback( cmd, peeri, ms, jobID, name, verNumber, cl ) = 
+                                        x.WriteDSetCallback( cmd, peeri, ms, jobID )
+                        } )
+            )
         ()
+    member val collectionWriteInitiated = ConcurrentDictionary<int, bool>() with get 
     member internal x.DoFirstWrite( peeri ) = 
         if bFirstCommand.[peeri] then 
-            let queuePeer = x.Cluster.QueueForWrite(peeri)
-            // Get the receiving serial of the queuePeer, we may later know 
-            // whether any command has ever been received from that peer. 
-            if Utils.IsNull rcvdSerialInitialValue then
-                lock(x) (fun _ ->
-                    if (Utils.IsNull rcvdSerialInitialValue) then
-                        rcvdSerialInitialValue <- Array.zeroCreate<int64> x.Cluster.NumNodes
+            using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
+                if Utils.IsNotNull jobObj then 
+                    let currentWriteID = jobObj.JobID
+                    let queuePeer = x.Cluster.QueueForWrite(peeri)
+                    // Get the receiving serial of the queuePeer, we may later know 
+                    // whether any command has ever been received from that peer. 
+                    if Utils.IsNull rcvdSerialInitialValue then
+                        lock(x) (fun _ ->
+                            if (Utils.IsNull rcvdSerialInitialValue) then
+                                rcvdSerialInitialValue <- Array.zeroCreate<int64> x.Cluster.NumNodes
+                        )
+                    rcvdSerialInitialValue.[peeri] <- queuePeer.RcvdCommandSerial
+                    // send cluster info
+                    let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo )
+                    using ( new MemStream( 10240 )) ( fun msSend -> 
+                                                                x.Cluster.ClusterInfo.Pack( msSend )
+                                                                queuePeer.ToSend( cmd, msSend, true )
+                    )
+                    // send dset to partners. 
+                    using ( new MemStream( 1024 )) ( fun msSend -> 
+                        msSend.WriteGuid( currentWriteID)
+                        x.Pack( msSend, DSetMetadataStorageFlag.HasPassword )
+                        let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.DSet ) 
+                        queuePeer.ToSend( cmd, msSend ) )
+                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Send first write command (Set, ClusterInfo) to peer %d of cluster %s"
+                                                                           peeri 
+                                                                           x.Cluster.Name ))
+
+                    bFirstCommand.[peeri] <- false
+
+                    // Do we need to limit speed?
+                    if x.NumReplications>1 then 
+                        let bToSent = ref false
+                        using( new MemStream( 1024 ) ) ( fun msSpeed -> 
+                            msSpeed.WriteGuid( currentWriteID )
+                            msSpeed.WriteString( x.Name ) 
+                            msSpeed.WriteInt64( x.Version.Ticks )
+                            let node = x.Cluster.Nodes.[peeri]
+                            msSpeed.WriteInt64( x.PeerRcvdSpeedLimit )
+                            if x.PeerRcvdSpeedLimit < node.NetworkSpeed then 
+                                queuePeer.SetRcvdSpeed(x.PeerRcvdSpeedLimit)
+                                bToSent := true
+                            if !bToSent then 
+                                queuePeer.ToSend( ControllerCommand( ControllerVerb.LimitSpeed, ControllerNoun.DSet), msSpeed )  
+                        )
+           ) 
+    /// Sending cancellation to all other peers. 
+    /// Job should not be cancelled at that time
+    member private x.SendCancelWriteToNetwork() = 
+        using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
+            if Utils.IsNotNull jobObj then 
+                using ( new MemStream( 1024 )) ( fun msSend -> 
+                    let currentWriteID = jobObj.JobID
+                    msSend.WriteGuid( currentWriteID )
+                    msSend.WriteString( x.Name ) 
+                    msSend.WriteInt64( x.Version.Ticks )
+                    for peeri=0 to x.Cluster.NumNodes-1 do 
+                        let queuePeer = x.Cluster.QueueForWrite(peeri)
+                        if Utils.IsNotNull queuePeer && not queuePeer.Shutdown then 
+                            queuePeer.ToSend( ControllerCommand( ControllerVerb.Cancel, ControllerNoun.DSet), msSend )
                 )
-            rcvdSerialInitialValue.[peeri] <- queuePeer.RcvdCommandSerial
-            // send cluster info
-            let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo )
-            let msSend = new MemStream( 10240 )
-            x.Cluster.ClusterInfo.Pack( msSend )
-            queuePeer.ToSend( cmd, msSend, true )
-            msSend.DecRef()
-            // send dset to partners. 
-            let msSend = new MemStream( 1024 )
-            x.Pack( msSend, DSetMetadataStorageFlag.HasPassword )
-            let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.DSet ) 
-            queuePeer.ToSend( cmd, msSend )
-            msSend.DecRef()
-            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Send first write command (Set, ClusterInfo) to peer %d of cluster %s"
-                                                                   peeri 
-                                                                   x.Cluster.Name ))
-
-            bFirstCommand.[peeri] <- false
-
-            // Do we need to limit speed?
-            if x.NumReplications>1 then 
-                let mutable bToSent = false
-                let msSpeed = new MemStream( 1024 )
-                msSpeed.WriteString( x.Name ) 
-                msSpeed.WriteInt64( x.Version.Ticks )
-                let node = x.Cluster.Nodes.[peeri]
-                msSpeed.WriteInt64( x.PeerRcvdSpeedLimit )
-                if x.PeerRcvdSpeedLimit < node.NetworkSpeed then 
-                    queuePeer.SetRcvdSpeed(x.PeerRcvdSpeedLimit)
-                    bToSent <- true
-                if bToSent then 
-                    queuePeer.ToSend( ControllerCommand( ControllerVerb.LimitSpeed, ControllerNoun.DSet), msSpeed )  
-                msSpeed.DecRef()
-
+        )
     member internal x.bIsClusterReplicate() = 
         match x.Cluster.ReplicationType with 
         | ClusterReplicationType.ClusterReplicate -> 
@@ -1257,7 +1339,8 @@ and [<Serializable; AllowNullLiteral>]
     member internal x.EndParition parti peeri = 
         Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Sending Close, Partition of partition %d to peer %d" parti peeri ))
         let cmd = ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition )
-        let msSend = new MemStream( 1024 )
+        use msSend = new MemStream( 1024 )
+        msSend.WriteGuid( x.WriteIDForCleanUp )
         msSend.WriteString( x.Name ) 
         msSend.WriteInt64( x.Version.Ticks )
         msSend.WriteVInt32(parti)
@@ -1265,7 +1348,7 @@ and [<Serializable; AllowNullLiteral>]
         msSend.WriteVInt32(0)
         let peerQueue = x.Cluster.QueueForWrite( peeri )
         peerQueue.ToSend( cmd, msSend )
-        msSend.DecRef()
+
     /// End Partition parti peeri
 //    member x.EndParition = 
 //        x.EndParitionCommon ControllerVerb.EndPartition
@@ -1278,65 +1361,87 @@ and [<Serializable; AllowNullLiteral>]
     /// maxWait: maximum wait for time, in seconds. 
     member private x.GracefulWaitForReprot( maxWait ) = 
         let t1 = (PerfDateTime.UtcNow())
-        let mutable shouldContinueToWait = true
-        while shouldContinueToWait do
-            let mutable nLive = 0
-            for i=0 to x.Cluster.NumNodes-1 do 
-                let q = x.Cluster.Queue( i )
-                if Utils.IsNotNull q && not q.Shutdown && not reportReceived.Value.[i] then 
-                    nLive <- nLive + 1 
-            if nLive <= 0 then 
-                shouldContinueToWait <- false
-                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Exit GracefulWaitForReprot for DSet %A: has received report from all peers (or peer has shutdown)" x.Name))
-            else
-                let t2 = (PerfDateTime.UtcNow())
-                // maximum wait time is 60s for the client to exit
-                if t2.Subtract(t1).TotalSeconds >= maxWait then
-                    shouldContinueToWait <- false
-                    Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Exit GracefulWaitForReprot for DSet %A: reached max wait time" x.Name))
-            if shouldContinueToWait then 
-                Threading.Thread.Sleep(1)
+        using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
+            if Utils.IsNotNull jobObj then 
+                let mutable shouldContinueToWait = true
+                while shouldContinueToWait do
+                    if jobObj.IsCancelledAndThrow then 
+                        shouldContinueToWait <- false
+                    else
+                        let mutable nLive = 0
+                        for i=0 to x.Cluster.NumNodes-1 do 
+                            let q = x.Cluster.Queue( i )
+                            if Utils.IsNotNull q && not q.Shutdown && not reportReceived.Value.[i] then 
+                                nLive <- nLive + 1 
+                        if nLive <= 0 then 
+                            shouldContinueToWait <- false
+                            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Exit GracefulWaitForReprot for DSet %A: has received report from all peers (or peer has shutdown)" x.Name))
+                        else
+                            let t2 = (PerfDateTime.UtcNow())
+                            // maximum wait time is 60s for the client to exit
+                            if t2.Subtract(t1).TotalSeconds >= maxWait then
+                                shouldContinueToWait <- false
+                                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Exit GracefulWaitForReprot for DSet %A: reached max wait time" x.Name))
+                        if shouldContinueToWait then 
+                            ThreadPoolWaitHandles.safeWaitOne( jobObj.WaitHandle, 1 ) |> ignore 
+        )
+    /// Cancel by Exception
+    member internal x.CancelWriteByException( ex ) = 
+        using ( x.TryExecuteSingleJobAction() ) ( fun jobAction -> 
+            if Utils.IsNotNull jobAction then 
+                jobAction.CancelByException(ex )
+        )
     /// EndStore: called to end storing operation of a DSet to cloud
-    member internal x.EndWrite( timeToWait ) =
+    member internal x.EndWriteToNetwork( timeToWait ) =
         let bCloseDSetSent = Array.create (x.Cluster.NumNodes) false
-        let mutable bAllCloseDSetSent = false
+        let bAllCloseDSetSent = ref false
         let t1 = (PerfDateTime.UtcNow())
-        let cmd = ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet ) 
-        let msSend = new MemStream( 1024 )
-        msSend.WriteString( x.Name ) 
-        msSend.WriteInt64( x.Version.Ticks )
+        let bRetRef = ref false
+        using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
+            if Utils.IsNotNull jobObj then 
+                let currentWriteID = jobObj.JobID               
+                let cmd = ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet ) 
+                using ( new MemStream( 1024 ) ) ( fun msSend -> 
+                    msSend.WriteGuid( currentWriteID )
+                    msSend.WriteString( x.Name ) 
+                    msSend.WriteInt64( x.Version.Ticks )
 
-        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Entering DSet EndWrite for %A" x.Name))
-        while not bAllCloseDSetSent && (PerfDateTime.UtcNow()).Subtract(t1).TotalSeconds<timeToWait do
-            bAllCloseDSetSent <- true
-            for i=0 to x.Cluster.NumNodes-1 do 
-                // Send a Close DSet command only for active peer. 
-                x.DoFirstWrite( i ) 
-                let q = x.Cluster.Queue( i )
-                if Utils.IsNotNull q && ( not q.Shutdown ) then 
-                        if not bCloseDSetSent.[i] then 
-                            if not bFirstCommand.[i] then 
-                                q.ToSend( cmd, msSend )
-                                bCloseDSetSent.[i] <- true
-                            else
-                                if q.CanSend then 
-                                    q.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.All ) , msSend )
-                                    bCloseDSetSent.[i] <- true
-                                else
-                                    bAllCloseDSetSent <- false
+                    Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Entering DSet EndWrite for %A" x.Name))
+                    while not !bAllCloseDSetSent && (PerfDateTime.UtcNow()).Subtract(t1).TotalSeconds<timeToWait do
+                        bAllCloseDSetSent := true
+                        if not jobObj.IsCancelledAndThrow then 
+                            // Check on cancellation 
+                            for i=0 to x.Cluster.NumNodes-1 do 
+                                // Send a Close DSet command only for active peer. 
+                                x.DoFirstWrite( i ) 
+                                let q = x.Cluster.Queue( i )
+                                if Utils.IsNotNull q && ( not q.Shutdown ) then 
+                                        if not bCloseDSetSent.[i] then 
+                                            if not bFirstCommand.[i] then 
+                                                q.ToSend( cmd, msSend )
+                                                bCloseDSetSent.[i] <- true
+                                            else
+                                                if q.CanSend then 
+                                                    q.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.All ) , msSend )
+                                                    bCloseDSetSent.[i] <- true
+                                                else
+                                                    bAllCloseDSetSent := false
                                     
-            if not bAllCloseDSetSent then 
-                // Wait for input command. 
-                Threading.Thread.Sleep(10)
-        msSend.DecRef()
-        let remainingWait = Math.Max( 0., timeToWait - (PerfDateTime.UtcNow()).Subtract(t1).TotalSeconds )
-        x.GracefulWaitForReprot(remainingWait)
-        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Closing for DSet Write %A" x.Name))
-        x.Cluster.UnRegisterCallback( x.Name, x.Version.Ticks, x.CallbackCommand )
-        if (x.Flag &&& DSetFlag.CountWriteDSet)<>DSetFlag.None then 
-            x.ReplicationAnalysis()
-        else
-            true
+                            if not !bAllCloseDSetSent then 
+                                // Wait for input command. 
+                                ThreadPoolWaitHandles.safeWaitOne( jobObj.WaitHandle, 10 ) |> ignore 
+                    )
+                let remainingWait = Math.Max( 0., timeToWait - (PerfDateTime.UtcNow()).Subtract(t1).TotalSeconds )
+                x.GracefulWaitForReprot(remainingWait)
+                bRetRef := 
+                    if (x.Flag &&& DSetFlag.CountWriteDSet)<>DSetFlag.None then 
+                        x.ReplicationAnalysis()
+                    else
+                        true
+        )
+        x.EndWriteJob()
+        !bRetRef
+
 
     /// Decode Storage flag 
     /// Return: (bPassword, bConfirmDelivery )
@@ -1358,10 +1463,9 @@ and [<Serializable; AllowNullLiteral>]
             // Create directory if necessary
             DirectoryInfoCreateIfNotExists (dirpath) |> ignore
 
-        let ms = new MemStream( 10240 ) 
+        use ms = new MemStream( 10240 ) 
         x.Pack( ms, flag )
         WriteBytesToFileConcurrentP filename (ms.GetBuffer()) 0 (int ms.Length)
-        ms.DecRef()
 
     /// The root path information for the metadata, used for all DSet of different version.
     member internal x.RootPath( ) = 
@@ -1607,33 +1711,41 @@ and [<Serializable; AllowNullLiteral>]
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Total # of stream length inconsistency: %d" StreamLengthError.Count ))
 
     member internal x.WriteFirstMetadataToAllPeers() = 
-        for pi = 0 to x.Cluster.NumNodes - 1 do 
-            let msSend = new MemStream( 1024 )
-            x.Pack( msSend, DSetMetadataStorageFlag.HasPassword ||| DSetMetadataStorageFlag.StoreMetadata )
-            let cmd = ControllerCommand( ControllerVerb.WriteMetadata, ControllerNoun.DSet ) 
-            let queuePeer = x.Cluster.QueueForWrite(pi)
-            // Get the receiving serial of the queuePeer, we may later know 
-            // whether any command has ever been received from that peer. 
-            if Utils.IsNotNull queuePeer && (not queuePeer.Shutdown) && queuePeer.CanSend then 
-                queuePeer.ToSend( cmd, msSend )
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Send Metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
-            msSend.DecRef()
-
+        using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
+            if Utils.IsNotNull jobObj then 
+                let currentWriteID = jobObj.JobID   
+                for pi = 0 to x.Cluster.NumNodes - 1 do 
+                    using ( new MemStream( 1024 ) ) ( fun msSend -> 
+                        msSend.WriteGuid( currentWriteID )
+                        x.Pack( msSend, DSetMetadataStorageFlag.HasPassword ||| DSetMetadataStorageFlag.StoreMetadata )
+                        let cmd = ControllerCommand( ControllerVerb.WriteMetadata, ControllerNoun.DSet ) 
+                        let queuePeer = x.Cluster.QueueForWrite(pi)
+                        // Get the receiving serial of the queuePeer, we may later know 
+                        // whether any command has ever been received from that peer. 
+                        if Utils.IsNotNull queuePeer && (not queuePeer.Shutdown) && queuePeer.CanSend then 
+                            queuePeer.ToSend( cmd, msSend )
+                            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Send Metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
+                    ) 
+        )
     member internal x.SendMetadataToAllPeers() = 
-        for pi = 0 to x.Cluster.NumNodes - 1 do 
-            let msSend = new MemStream( 1024 )
-            x.Pack( msSend, DSetMetadataStorageFlag.HasPassword ||| DSetMetadataStorageFlag.StoreMetadata )
-            let cmd = ControllerCommand( ControllerVerb.Update, ControllerNoun.DSet ) 
-            let queuePeer = x.Cluster.QueueForWrite(pi)
-            // Get the receiving serial of the queuePeer, we may later know 
-            // whether any command has ever been received from that peer. 
-            if Utils.IsNotNull queuePeer && (not queuePeer.Shutdown) && queuePeer.CanSend then 
-                queuePeer.ToSend( cmd, msSend )
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Send Metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
-            else
-                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Unable to send metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
-            msSend.DecRef()
-        
+        using ( x.TryExecuteSingleJobAction() ) ( fun jobObj -> 
+            if Utils.IsNotNull jobObj then 
+                let currentWriteID = jobObj.JobID   
+                for pi = 0 to x.Cluster.NumNodes - 1 do 
+                    using ( new MemStream( 1024 ) ) ( fun msSend -> 
+                        msSend.WriteGuid( currentWriteID )
+                        x.Pack( msSend, DSetMetadataStorageFlag.HasPassword ||| DSetMetadataStorageFlag.StoreMetadata )
+                        let cmd = ControllerCommand( ControllerVerb.Update, ControllerNoun.DSet ) 
+                        let queuePeer = x.Cluster.QueueForWrite(pi)
+                        // Get the receiving serial of the queuePeer, we may later know 
+                        // whether any command has ever been received from that peer. 
+                        if Utils.IsNotNull queuePeer && (not queuePeer.Shutdown) && queuePeer.CanSend then 
+                            queuePeer.ToSend( cmd, msSend )
+                            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Send Metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
+                        else
+                            Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Unable to send metadata of DSet %s:%s to peer %d" x.Name x.VersionString pi ))
+                    )
+        )        
     member private x.MulticastMetadataAfterReport() = 
         x.IncrementMetaDataVersion()
         if not (x.bIsClusterReplicate()) then 
@@ -1735,108 +1847,126 @@ and [<Serializable; AllowNullLiteral>]
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "MappingNumElems preupdate from host for DSet %s:%s" x.Name x.VersionString ))
         x.BaseWaitForCloseAllStreamsViaHandle( waithandles, jbInfo, start )
 
-    member internal x.WriteDSetCallback( cmd:ControllerCommand, peeri, msRcvd:StreamBase<byte> ) = 
-        try
-            let q = x.Cluster.Queue( peeri )
-            match ( cmd.Verb, cmd.Noun ) with 
-            | ( ControllerVerb.Acknowledge, ControllerNoun.DSet ) ->
-                ()
-            | ( ControllerVerb.Close, ControllerNoun.DSet ) ->
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Close DSet %s:%s received from peer %d" x.Name x.VersionString peeri ))
-                x.Cluster.CloseQueueAndRelease( peeri )
-            | ( ControllerVerb.Report, ControllerNoun.DSet ) ->
-                let nPartitions = msRcvd.ReadVInt32()
-                let activePartitions = Array.zeroCreate<_> nPartitions
-                for i = 0 to nPartitions - 1 do 
-                    let parti = msRcvd.ReadVInt32()
-                    let numElems = msRcvd.ReadVInt32()
-                    let streamLength = msRcvd.ReadInt64()
-                    activePartitions.[i] <- parti, numElems, streamLength
-                Logger.LogF( LogLevel.MediumVerbose, (fun _ -> sprintf "Report DSet %s:%s received from peer %d with partitions information %A"  x.Name x.VersionString peeri activePartitions ))
-                // Save peer reports
-                x.ReportDSet( peeri, activePartitions, true )
-            | ( ControllerVerb.ReportPartition, ControllerNoun.DSet ) ->
-                let nPartitions = msRcvd.ReadVInt32()
-                let activePartitions = Array.zeroCreate<_> nPartitions
-                for i = 0 to nPartitions - 1 do 
-                    let parti = msRcvd.ReadVInt32()
-                    let numElems = msRcvd.ReadVInt32()
-                    let streamLength = msRcvd.ReadInt64()
-                    activePartitions.[i] <- parti, numElems, streamLength
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "ReportPartition DSet %s:%s received from peer %d with partitions information %A"  x.Name x.VersionString peeri activePartitions ))
-                // Save peer reports
-                x.ReportPartition( peeri, activePartitions )
-            | ( ControllerVerb.ReportClose, ControllerNoun.DSet ) ->
-                // Final command after all streams have received. 
-                x.ReportClose( peeri )                
-            | ( ControllerVerb.ReplicateClose, ControllerNoun.DSet ) ->
-                let peerj = msRcvd.ReadVInt32()
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "ReplicateClose DSet confirmed from peer %d relayed by peer %d" peerj peeri ))
-            | ( ControllerVerb.Get, ControllerNoun.ClusterInfo ) ->
-//                let cluster = x.Cluster.ClusterInfo :> ClusterInfoBase
-                let msSend = new MemStream( 10240 ) 
-//                msSend.Serialize( cluster )
-                x.Cluster.ClusterInfo.Pack( msSend )
-                let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo ) 
-                // Expediate delivery of Cluster Information to the receiver
-                q.ToSend( cmd, msSend, true ) 
-                msSend.DecRef()
-            | ( ControllerVerb.Duplicate, ControllerNoun.DSet ) 
-            | ( ControllerVerb.Echo2, ControllerNoun.DSet ) ->
-                let parti = msRcvd.ReadVInt32()
-                let serial = msRcvd.ReadInt64()
-                let numElems = msRcvd.ReadVInt32()
-                let peerIdx = msRcvd.ReadVInt32()
-                if peeri = peerIdx then 
-                    Logger.Log( LogLevel.MediumVerbose, ( sprintf "%A dup confirm partition %d serial %d:%d by peer %d" cmd parti serial numElems peerIdx ))
-                else
-                    Logger.Log( LogLevel.MediumVerbose, ( sprintf "%A dup confirm partition %d serial %d:%d by peer %d relayed by peer %d" cmd parti serial numElems peerIdx peeri ))
-            | ( ControllerVerb.EchoReturn, ControllerNoun.DSet ) 
-            | ( ControllerVerb.Echo2Return, ControllerNoun.DSet ) ->
-                let parti = msRcvd.ReadVInt32()
-                if parti > partitionPending.Length then 
-                    // Client has received Current Cluster Info
-                    let msg =sprintf "Confirmed partition %d not exist" parti
-                    Logger.Log( LogLevel.Error, ( msg ))
-                    failwith msg 
-                else
-                    if ( x.Flag &&& DSetFlag.CountWriteDSet )<>DSetFlag.None then 
+    member internal x.WriteDSetCallback( cmd:ControllerCommand, peeri, msRcvd:StreamBase<byte>, jobID:Guid ) = 
+        using ( x.TryExecuteSingleJobAction() ) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                try
+                    match ( cmd.Verb, cmd.Noun ) with 
+                    | ( ControllerVerb.Exception, ControllerNoun.DSet ) -> 
+                        let ex = msRcvd.ReadException()
+                        let showMsg = sprintf "[WriteDSetCallback, Job already cancelled] Job %A, DSet %s, receive exception from peer %d message: %A" jobID x.Name peeri ex
+                        Logger.Log( LogLevel.Info, showMsg )
+                    | _ -> 
+                        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "[(may be OK)WriteDSetCallback, Job already cancelled] Job %A, DSet %s, receive cmd %A from peer %d of %dB"
+                                                                                jobID (x.Name) cmd peeri msRcvd.Length ) 
+                with
+                | ex -> 
+                    Logger.Log( LogLevel.Info, ( sprintf "WriteDSetCallback, Job %A, failed to parse exception message cmd %A, peer %d, with exception %A" jobID cmd peeri ex )    )
+            else 
+                try
+                    let q = x.Cluster.Queue( peeri )
+                    match ( cmd.Verb, cmd.Noun ) with 
+                    | ( ControllerVerb.Exception, ControllerNoun.DSet ) -> 
+                        let ex = msRcvd.ReadException()
+                        let showMsg = sprintf "WriteDSetCallback, Job %A, exception at peer %d, message: %A" jobID peeri ex
+                        jobAction.ReceiveExceptionAtCallback( ex, showMsg )
+                    | ( ControllerVerb.Acknowledge, ControllerNoun.DSet ) ->
+                        ()
+                    | ( ControllerVerb.Close, ControllerNoun.DSet ) ->
+                        Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Close DSet %s:%s received from peer %d" x.Name x.VersionString peeri ))
+                        x.Cluster.CloseQueueAndRelease( peeri )
+                    | ( ControllerVerb.Report, ControllerNoun.DSet ) ->
+                        let nPartitions = msRcvd.ReadVInt32()
+                        let activePartitions = Array.zeroCreate<_> nPartitions
+                        for i = 0 to nPartitions - 1 do 
+                            let parti = msRcvd.ReadVInt32()
+                            let numElems = msRcvd.ReadVInt32()
+                            let streamLength = msRcvd.ReadInt64()
+                            activePartitions.[i] <- parti, numElems, streamLength
+                        Logger.LogF( LogLevel.MediumVerbose, (fun _ -> sprintf "Report DSet %s:%s received from peer %d with partitions information %A"  x.Name x.VersionString peeri activePartitions ))
+                        // Save peer reports
+                        x.ReportDSet( peeri, activePartitions, true )
+                    | ( ControllerVerb.ReportPartition, ControllerNoun.DSet ) ->
+                        let nPartitions = msRcvd.ReadVInt32()
+                        let activePartitions = Array.zeroCreate<_> nPartitions
+                        for i = 0 to nPartitions - 1 do 
+                            let parti = msRcvd.ReadVInt32()
+                            let numElems = msRcvd.ReadVInt32()
+                            let streamLength = msRcvd.ReadInt64()
+                            activePartitions.[i] <- parti, numElems, streamLength
+                        Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "ReportPartition DSet %s:%s received from peer %d with partitions information %A"  x.Name x.VersionString peeri activePartitions ))
+                        // Save peer reports
+                        x.ReportPartition( peeri, activePartitions )
+                    | ( ControllerVerb.ReportClose, ControllerNoun.DSet ) ->
+                        // Final command after all streams have received. 
+                        x.ReportClose( peeri )                
+                    | ( ControllerVerb.ReplicateClose, ControllerNoun.DSet ) ->
+                        let peerj = msRcvd.ReadVInt32()
+                        Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "ReplicateClose DSet confirmed from peer %d relayed by peer %d" peerj peeri ))
+                    | ( ControllerVerb.Get, ControllerNoun.ClusterInfo ) ->
+                        using( new MemStream( 10240 ) ) ( fun msSend -> 
+                            x.Cluster.ClusterInfo.Pack( msSend )
+                            let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo ) 
+                            // Expediate delivery of Cluster Information to the receiver
+                            q.ToSend( cmd, msSend, true ) 
+                        )
+                    | ( ControllerVerb.Duplicate, ControllerNoun.DSet ) 
+                    | ( ControllerVerb.Echo2, ControllerNoun.DSet ) ->
+                        let parti = msRcvd.ReadVInt32()
                         let serial = msRcvd.ReadInt64()
                         let numElems = msRcvd.ReadVInt32()
                         let peerIdx = msRcvd.ReadVInt32()
-                        if ( cmd.Verb<>ControllerVerb.Echo2 ) then 
-                            partitionSerialConfirmed.[parti].Enqueue( serial, numElems, peerIdx )
                         if peeri = peerIdx then 
-                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "%A Confirmed partition %d serial %d:%d by peer %d" cmd parti serial numElems peerIdx ))
+                            Logger.Log( LogLevel.MediumVerbose, ( sprintf "%A dup confirm partition %d serial %d:%d by peer %d" cmd parti serial numElems peerIdx ))
                         else
-                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "%A Confirmed partition %d serial %d:%d by peer %d relayed by peer %d" cmd parti serial numElems peerIdx peeri ))
-                    if ( cmd.Verb = ControllerVerb.EchoReturn ) then 
-                        let retVal = ref 0
-                        let mutable cont = true
-                        while (cont && not partitionPending.[parti].IsEmpty) do
-                            if (partitionPending.[parti].TryDequeue(retVal)) then
-                                cont <- false
-                                let confirmed = !retVal
-                                partitionProgress.[parti] <- partitionProgress.[parti] + int64 confirmed
-                                if ( partitionProgress.[parti] - partitionCheckmark.[parti] > x.ProgressMonitor ) then 
-                                    partitionCheckmark.[parti] <- partitionCheckmark.[parti] + x.ProgressMonitor   
-                                    Logger.Log( LogLevel.MediumVerbose, ( sprintf "Partition %d: confirmed writing of %d MB" parti (partitionProgress.[parti]>>>20) ))
-                    let resHash = msRcvd.ReadBytesToEnd() 
-                    let refValue = ref Unchecked.defaultof<_>
-                    if resHash.Length>0 && deliveryQueue.TryGetValue( resHash, refValue ) then 
-                        let startTicks, parti, bufSend, count = !refValue
-                        // All replication is accounted for
-                        if (!count)+1 >= x.NumReplications then
-                            if (deliveryQueue.TryRemove( resHash, refValue )) then
-                                let _, _, bufSendMs, _ = !refValue
-                                bufSendMs.DecRef() // decrease the ref count
+                            Logger.Log( LogLevel.MediumVerbose, ( sprintf "%A dup confirm partition %d serial %d:%d by peer %d relayed by peer %d" cmd parti serial numElems peerIdx peeri ))
+                    | ( ControllerVerb.EchoReturn, ControllerNoun.DSet ) 
+                    | ( ControllerVerb.Echo2Return, ControllerNoun.DSet ) ->
+                        let parti = msRcvd.ReadVInt32()
+                        if parti > partitionPending.Length then 
+                            // Client has received Current Cluster Info
+                            let msg =sprintf "Confirmed partition %d not exist" parti
+                            Logger.Log( LogLevel.Error, ( msg ))
+                            failwith msg 
                         else
-                            Interlocked.Increment( count ) |> ignore
-            | _ ->
-                Logger.Log( LogLevel.Info, ( sprintf "DSet.Callback: Unexpected command from peer %d, command %A" peeri cmd ))
-        with
-        | e ->
-            Logger.Log( LogLevel.Info, ( sprintf "Error in processing DSet.Callback, cmd %A, peer %d, with exception %A" cmd peeri e )    )
+                            if ( x.Flag &&& DSetFlag.CountWriteDSet )<>DSetFlag.None then 
+                                let serial = msRcvd.ReadInt64()
+                                let numElems = msRcvd.ReadVInt32()
+                                let peerIdx = msRcvd.ReadVInt32()
+                                if ( cmd.Verb<>ControllerVerb.Echo2 ) then 
+                                    partitionSerialConfirmed.[parti].Enqueue( serial, numElems, peerIdx )
+                                if peeri = peerIdx then 
+                                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "%A Confirmed partition %d serial %d:%d by peer %d" cmd parti serial numElems peerIdx ))
+                                else
+                                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "%A Confirmed partition %d serial %d:%d by peer %d relayed by peer %d" cmd parti serial numElems peerIdx peeri ))
+                            if ( cmd.Verb = ControllerVerb.EchoReturn ) then 
+                                let retVal = ref 0
+                                let mutable cont = true
+                                while (cont && not partitionPending.[parti].IsEmpty) do
+                                    if (partitionPending.[parti].TryDequeue(retVal)) then
+                                        cont <- false
+                                        let confirmed = !retVal
+                                        partitionProgress.[parti] <- partitionProgress.[parti] + int64 confirmed
+                                        if ( partitionProgress.[parti] - partitionCheckmark.[parti] > x.ProgressMonitor ) then 
+                                            partitionCheckmark.[parti] <- partitionCheckmark.[parti] + x.ProgressMonitor   
+                                            Logger.Log( LogLevel.MediumVerbose, ( sprintf "Partition %d: confirmed writing of %d MB" parti (partitionProgress.[parti]>>>20) ))
+                            let resHash = msRcvd.ReadBytesToEnd() 
+                            let refValue = ref Unchecked.defaultof<_>
+                            if resHash.Length>0 && deliveryQueue.TryGetValue( resHash, refValue ) then 
+                                let startTicks, parti, bufSend, count = !refValue
+                                // All replication is accounted for
+                                if (!count)+1 >= x.NumReplications then
+                                    if (deliveryQueue.TryRemove( resHash, refValue )) then
+                                        let _, _, bufSendMs, _ = !refValue
+                                        bufSendMs.DecRef() // decrease the ref count
+                                else
+                                    Interlocked.Increment( count ) |> ignore
+                    | _ ->
+                        Logger.Log( LogLevel.Info, ( sprintf "DSet.Callback: Unexpected command from peer %d, command %A" peeri cmd ))
+                with
+                | e ->
+                    Logger.Log( LogLevel.Info, ( sprintf "Error in processing DSet.Callback, cmd %A, peer %d, with exception %A" cmd peeri e )    )
+        )
         true
     /// AggregateSegmentByPeer will processing series of:
     ///     peeri, parti, serial, numElems
@@ -2023,11 +2153,10 @@ and [<Serializable; AllowNullLiteral>]
     member val internal ParentDSets = null with get, set
     member internal  x.FreeDSetResource() = 
         x.SeenPartition <- null            
-    member private x.ResetAllImpl() = 
-        x.FreeBaseResource()
+    member private x.ResetAllImpl( jbInfo ) = 
+        x.FreeBaseResource( jbInfo )
         x.ResetForRead( null )
         x.FreeDSetResource()
-        x.InJobResetForRemapping()
         x.ResetCache() 
         x.MappingPartitionToParent <- null
         x.ParentDSets <- null 
@@ -2081,304 +2210,312 @@ and [<Serializable; AllowNullLiteral>]
         // Use as small async as possible
     member internal  x.SyncIterateParent (jbInfo:JobInformation) (parti:int) func = 
         // Pass through type  
-        match x.Dependency with 
-        | StandAlone -> 
-            let wrapperFunc( meta, ms:StreamBase<byte> ) = 
-                if not (jbInfo.CancellationToken.IsCancellationRequested) then 
-                    func( meta, ms :> Object )
-            /// trigger read from stream
-            x.SyncReadChunk jbInfo parti wrapperFunc 
-        | Passthrough oneParent  -> 
-            let parentDSet = oneParent.TargetDSet
-            // a Decoder will be automatically installed if it is of type MemStream
-            let wrapperFunc( meta, elemObject ) = 
-                if not (jbInfo.CancellationToken.IsCancellationRequested) then 
-                    let currentFunc = x.FunctionObj
-                    if Utils.IsNotNull elemObject then 
-                        // Pass to a DSet, so should code to Object
-                        let seqs = currentFunc.MapFunc( meta, elemObject, MapToKind.OBJECT )
-                        for newMeta, newElemObject in seqs do 
-                            if Utils.IsNotNull newElemObject then 
-                                func( newMeta, newElemObject )
-                            else
-                                // The entire data segment is filtered out, don't generate a call in this case. 
-                                ()
-                    else
-                        // Encounter the end, MapFunc is called with keyArray being null only once in the execution
-                        let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
-                        let lastTuple = ref Unchecked.defaultof<_>
-                        for tuple in seqs do
-    //                        lastTuple := tuple
-                            let newMeta, newElemObject = tuple
-                            if Utils.IsNotNull newElemObject then 
-                                func( newMeta, newElemObject )
-                            else
-                                // The entire data segment is filtered out, don't generate a call in this case. 
-                                ()
-    //                    let finalMeta, _ = !lastTuple
-                        // Final meta will be passed through
-                        func( meta, null )                        
-            parentDSet.SyncIterate jbInfo parti wrapperFunc
-        | Bypass ( oneParent, brothers ) -> 
-            let parentDSet = oneParent.TargetDSet           
-            // parentDSet has Decoder/Encoder installed 
-            let wrapperFunc( meta, elemObject ) = 
-                if not (jbInfo.CancellationToken.IsCancellationRequested) then 
-                    let currentFunc = x.FunctionObj
-                    if Utils.IsNotNull elemObject then 
-                        // Push down original ojbect to the brother DSet in downstream direction. 
-                        for bro in brothers do 
-                            let broDSet = bro.TargetDSet
-                            broDSet.SyncExecuteDownstream jbInfo parti meta elemObject
-                        let seqs = currentFunc.MapFunc( meta, elemObject, MapToKind.OBJECT )
-                        for newMeta, newElemObject in seqs do 
-                            if Utils.IsNotNull newElemObject then 
-                                func( newMeta, newElemObject )
-                            else
-                                // The entire data segment is filtered out, don't generate a call in this case. 
-                                ()
-                    else
-                        func( meta, null )  
-                        for bro in brothers do 
-                            let broDSet = bro.TargetDSet
-                            broDSet.SyncExecuteDownstream jbInfo parti meta null                
-                        // Encounter the end, MapFunc is called with keyArray being null only once in the execution
-                        let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
-    //                    let lastTuple = ref Unchecked.defaultof<_>
-                        for tuple in seqs do
-    //                        lastTuple := tuple
-                            let newMeta, newElemObject = tuple
-                            if Utils.IsNotNull newElemObject then 
-                                func( newMeta, newElemObject )
-                            else
-                                // The entire data segment is filtered out, don't generate a call in this case. 
-                                ()
-    //                    let finalMeta, _ = !lastTuple
-            parentDSet.SyncIterate jbInfo parti wrapperFunc
-        | Source -> 
-            x.SyncInit jbInfo parti func
-        | MixFrom oneParent ->  
-            x.InitializeCache( true )
-            let bInitialied = x.InitializeCachePartitionWStatus( parti ) 
-            let cache = x.CachedPartition.[parti]
-            let retVal = cache.RetrieveNonBlocking( )
-            match retVal with 
-            | CacheDataRetrieved (meta, elemObject ) -> 
-                func( meta, elemObject )
-                if not (Utils.IsNull elemObject) then 
-                    null, false
-                else
-                    null, true
-            | CacheSeqRetrieved seq -> 
-                let mutable bFinalObjectSeen = false
-                let mutable curMeta = BlobMetadata( parti, 0L, 0, 0 )
-                for (meta, elemObject) in seq do 
-                    if Utils.IsNull elemObject then 
-                        if not bFinalObjectSeen then 
-                            bFinalObjectSeen <- true
-                            curMeta <- meta
-                            func( meta, elemObject)
-                        else
-                            // Filter out, final object already seen
-                            ()
-                    else
-                        curMeta <- meta
-                        func( meta, elemObject)
-                if not bFinalObjectSeen then 
-                    let finalMeta = BlobMetadata( curMeta, 0 )
-                    func( finalMeta, null )
+        using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                Logger.LogF ( LogLevel.WildVerbose, fun _ -> sprintf "[Job %A cancelled for SyncIterateParent], DSet %s:%s, partition %d"
+                                                                jbInfo.JobID x.Name x.VersionString parti
+                            )
                 null, true
-            | CacheBlocked handle -> 
-                handle, false
-        | WildMixFrom (oneParent, parentS) -> 
-            x.InitializeCache( true )
-            let bInitialied = x.InitializeCachePartitionWStatus( parti ) 
-            let cache = x.CachedPartition.[parti]
-            let retVal = cache.RetrieveNonBlocking( )
-            match retVal with 
-            | CacheDataRetrieved (meta, elemObject ) -> 
-                func( meta, elemObject )
-                if not (Utils.IsNull elemObject) then 
-                    null, false
-                else
-                    null, true
-            | CacheSeqRetrieved seq -> 
-                let mutable bFinalObjectSeen = false
-                let mutable curMeta = BlobMetadata( parti, 0L, 0, 0 )
-                for (meta, elemObject) in seq do 
-                    if Utils.IsNull elemObject then 
-                        if not bFinalObjectSeen then 
-                            bFinalObjectSeen <- true
-                            curMeta <- meta
-                            func( meta, elemObject)
-                        else
-                            // Filter out, final object already seen
-                            ()
-                    else
-                        curMeta <- meta
-                        func( meta, elemObject)
-                if not bFinalObjectSeen then 
-                    let finalMeta = BlobMetadata( curMeta, 0 )
-                    func( finalMeta, null )
-                null, true
-            | CacheBlocked handle -> 
-                handle, false
-        | UnionFrom parents -> 
-            let parenti, parentpart = x.MappingPartitionToParent.[ parti ] 
-            let parentDSet = parents.[parenti].TargetDSet
-            let wrapperFunc( meta, elemObject ) = 
-                if not (jbInfo.CancellationToken.IsCancellationRequested) then 
-                    let currentFunc = x.FunctionObj
-                    if Utils.IsNotNull elemObject then 
-                        // Pass to a DSet, so should code to Object
-                        let seqs = currentFunc.MapFunc( meta, elemObject, MapToKind.OBJECT )
-                        for newMeta, newElemObject in seqs do 
-                            if Utils.IsNotNull newElemObject then 
-                                let outMeta = BlobMetadata( newMeta, parti, newMeta.Serial, newMeta.NumElems )
-                                func( outMeta, newElemObject )
-                            else
-                                // The entire data segment is filtered out, don't generate a call in this case. 
-                                ()
-                    else
-                        // Encounter the end, MapFunc is called with keyArray being null only once in the execution
-                        let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
-                        let lastTuple = ref Unchecked.defaultof<_>
-                        for tuple in seqs do
-    //                        lastTuple := tuple
-                            let newMeta, newElemObject = tuple
-                            if Utils.IsNotNull newElemObject then 
-                                let outMeta = BlobMetadata( newMeta, parti, newMeta.Serial, newMeta.NumElems )
-                                func( outMeta, newElemObject )
-                            else
-                                // The entire data segment is filtered out, don't generate a call in this case. 
-                                ()
-    //                    let finalMeta, _ = !lastTuple
-                        // Final meta will be passed through
-                        let outMeta = BlobMetadata( meta, parti, meta.Serial, meta.NumElems )
-                        func( outMeta, null )                        
-            parentDSet.SyncIterate jbInfo parentpart wrapperFunc 
-        | CorrelatedMixFrom parents -> 
-            let currentFunc = x.FunctionObj
-            currentFunc.InitAll()            
-            let parentFunctions = x.ParentDSets |> Array.mapi ( fun parenti parentDSet -> ( fun _ -> parentDSet.SyncIterate jbInfo parti (currentFunc.DepositFunc parenti)) )
-            x.LaunchForkedThreadsFunction (x.NumParallelExecution) (jbInfo.CancellationToken.Token) parti ( fun pi -> sprintf "Thread for DSet %s:%s CorrelatedMixFrom partition %d parent %d" x.Name x.VersionString parti pi) parentFunctions
-            // Execute action of parents
-            let mutable bEnd = false
-            while not (jbInfo.CancellationToken.IsCancellationRequested) && not bEnd do
-                    // Pass to a DSet, so should code to Object
-                    let seqs = currentFunc.ExecuteFunc parti 
-                    for newMeta, newElemObject in seqs do 
-                        func( newMeta, newElemObject )
-                        if Utils.IsNull newElemObject then 
-                            bEnd <- true
-            null, true
-        
-        | CrossJoinFrom (parent0, parent1) -> 
-            let parent0DSet = parent0.TargetDSet
-            let parent1DSet = parent1.TargetDSet
-            let curfunc = x.FunctionObj
-            curfunc.InitAll()
-            let wrappedFunc (meta:BlobMetadata, o:Object) =
-                if not (jbInfo.CancellationToken.IsCancellationRequested) then 
-                    if Utils.IsNotNull o then 
-                        curfunc.DepositFunc meta.Partition (meta, o) 
-                        // Filter out null object from CrossJoin
-                        let innerWrappedFunc (innerMeta:BlobMetadata, innerObject:Object) =
-                            if not (jbInfo.CancellationToken.IsCancellationRequested) then 
-                                if Utils.IsNotNull innerObject then 
-                                    let combinedobj = ( meta.Partition, innerObject ) 
-                                    let seqs = curfunc.MapFunc( innerMeta, combinedobj :> Object, MapToKind.OBJECT )
-                                    for newMeta, newElemObject in seqs do 
-                                        if Utils.IsNotNull newElemObject then  
-                                            func( newMeta, newElemObject )
-                                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, compute part %A x %A yield %A" 
-                                                                                                   parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta innerMeta newMeta )        )
-                        for p1parti = 0 to parent1DSet.NumPartitions - 1 do
-                            let mutable bDone = false
-                            while not bDone do 
-                                let ev, bTerminate = parent1DSet.SyncIterate jbInfo p1parti innerWrappedFunc
-                                bDone <- bTerminate
-                                if not bDone && Utils.IsNotNull ev then 
-                                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, part %A, wait for part %d" 
-                                                                                   parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta p1parti ))
-                                    ThreadPoolWaitHandles.safeWaitOne( ev ) |> ignore
-                                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, part %A, done waiting for part %d" 
-                                                                                   parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta p1parti ))
-                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, done part %A x part %d" 
-                                                                                   parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta p1parti ))
-                        // All of the object is done execution. 
-                        let seqs = curfunc.ExecuteFunc meta.Partition
-                        for newMeta, newElemObject in seqs do 
-                            if Utils.IsNotNull newElemObject then  
-                                func( newMeta, newElemObject )
-                                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, final ops on part %A yield %A" 
-                                                                                       parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta newMeta ))
-                    else
-                        let finalMeta = curfunc.GetFinalMetadata parti
-                        func( finalMeta, null )
-                        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, part %d reaches final with %A" 
-                                                                               parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString parti finalMeta ))
-
-            parent0DSet.SyncIterate jbInfo parti wrappedFunc            
-        | HashJoinFrom (parent0, parent1) -> 
-            let parent0DSet = parent0.TargetDSet
-            let parent1DSet = parent1.TargetDSet
-            if parent1DSet.CacheType &&& CacheKind.ConcurrectDictionary <> CacheKind.None && 
-                parent1DSet.CacheType &&& CacheKind.UnifiedCache <> CacheKind.None then 
-                // Concurrent Dictionary & Unified cache
-                let curfunc = x.FunctionObj
-                curfunc.InitAll()
-                let cache = parent1DSet.InitializeCachePartitionWStatus
-                /// Unified cache if in use
-                /// The cache support a concurrent dictionary type 
-                parent1DSet.InitializeCache( true )
-                let cache = parent1DSet.CachedPartition.[0]
-                let mutable bCacheReady = false
-                /// Wait for cache to be ready
-                while not bCacheReady do 
-                    let cacheStatus = cache.RetrieveNonBlocking()
-                    match cacheStatus with 
-                    | CacheBlocked ev -> 
-                        bCacheReady <- ThreadPoolWaitHandles.safeWaitOne( ev ) 
-                    | _ -> 
-                        bCacheReady <- true
-                /// Deposit cache 
-                curfunc.DepositFunc parti (BlobMetadata(), cache :> Object )
-                let wrappedFunc (meta:BlobMetadata, o:Object) =
-                    if not (jbInfo.CancellationToken.IsCancellationRequested) then 
-                        if Utils.IsNotNull o then 
-                            // Pass to a DSet, so should code to Object
-                            let seqs = curfunc.MapFunc( meta, o, MapToKind.OBJECT )
-                            for newMeta, newElemObject in seqs do 
-                                if Utils.IsNotNull newElemObject then 
-                                    func( newMeta, newElemObject )
-                                else
-                                    // The entire data segment is filtered out, don't generate a call in this case. 
-                                    ()
-                        else
-                            // Encounter the end, MapFunc is called with keyArray being null only once in the execution
-                            let seqs = curfunc.MapFunc( meta, null, MapToKind.OBJECT )
-                            let lastTuple = ref Unchecked.defaultof<_>
-                            for tuple in seqs do
-        //                        lastTuple := tuple
-                                let newMeta, newElemObject = tuple
-                                if Utils.IsNotNull newElemObject then 
-                                    func( newMeta, newElemObject )
-                                else
-                                    // The entire data segment is filtered out, don't generate a call in this case. 
-                                    ()
-        //                    let finalMeta, _ = !lastTuple
-                            // Final meta will be passed through
-                            func( meta, null )                       
-                parent0DSet.SyncIterate jbInfo parti wrappedFunc  
             else
-                let msg = sprintf "Error in DSet.SyncIterateParent, DSet %s:%s HashJoinFrom need the joined DSet %s:%s to support ConcurrentDictionary Cache type, but type %A is found " x.Name x.VersionString parent1DSet.Name parent1DSet.VersionString parent1DSet.CacheType
-                Logger.Log( LogLevel.Error, msg )
-                failwith msg
-        | _ ->
-            let msg = sprintf "Error in DSet.SyncIterateParent, DSet %s:%s has an unsupported dependency type %A" x.Name x.VersionString (x.Dependency)
-            Logger.Log( LogLevel.Error, msg )
-            failwith msg
+                match x.Dependency with 
+                | StandAlone -> 
+                    let wrapperFunc( meta, ms:StreamBase<byte> ) = 
+                        if not (jobAction.IsCancelled) then 
+                            func( meta, ms :> Object )
+                    /// trigger read from stream
+                    x.SyncReadChunk jbInfo parti wrapperFunc 
+                | Passthrough oneParent  -> 
+                    let parentDSet = oneParent.TargetDSet
+                    // a Decoder will be automatically installed if it is of type MemStream
+                    let wrapperFunc( meta, elemObject ) = 
+                        if not (jobAction.IsCancelled) then 
+                            let currentFunc = x.FunctionObj
+                            if Utils.IsNotNull elemObject then 
+                                // Pass to a DSet, so should code to Object
+                                let seqs = currentFunc.MapFunc( meta, elemObject, MapToKind.OBJECT )
+                                for newMeta, newElemObject in seqs do 
+                                    if Utils.IsNotNull newElemObject then 
+                                        func( newMeta, newElemObject )
+                                    else
+                                        // The entire data segment is filtered out, don't generate a call in this case. 
+                                        ()
+                            else
+                                // Encounter the end, MapFunc is called with keyArray being null only once in the execution
+                                let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
+                                let lastTuple = ref Unchecked.defaultof<_>
+                                for tuple in seqs do
+            //                        lastTuple := tuple
+                                    let newMeta, newElemObject = tuple
+                                    if Utils.IsNotNull newElemObject then 
+                                        func( newMeta, newElemObject )
+                                    else
+                                        // The entire data segment is filtered out, don't generate a call in this case. 
+                                        ()
+            //                    let finalMeta, _ = !lastTuple
+                                // Final meta will be passed through
+                                func( meta, null )                        
+                    parentDSet.SyncIterate jbInfo parti wrapperFunc
+                | Bypass ( oneParent, brothers ) -> 
+                    let parentDSet = oneParent.TargetDSet           
+                    // parentDSet has Decoder/Encoder installed 
+                    let wrapperFunc( meta, elemObject ) = 
+                        if not (jobAction.IsCancelled) then 
+                            let currentFunc = x.FunctionObj
+                            if Utils.IsNotNull elemObject then 
+                                // Push down original ojbect to the brother DSet in downstream direction. 
+                                for bro in brothers do 
+                                    let broDSet = bro.TargetDSet
+                                    broDSet.SyncExecuteDownstream jbInfo parti meta elemObject
+                                let seqs = currentFunc.MapFunc( meta, elemObject, MapToKind.OBJECT )
+                                for newMeta, newElemObject in seqs do 
+                                    if Utils.IsNotNull newElemObject then 
+                                        func( newMeta, newElemObject )
+                                    else
+                                        // The entire data segment is filtered out, don't generate a call in this case. 
+                                        ()
+                            else
+                                func( meta, null )  
+                                for bro in brothers do 
+                                    let broDSet = bro.TargetDSet
+                                    broDSet.SyncExecuteDownstream jbInfo parti meta null                
+                                // Encounter the end, MapFunc is called with keyArray being null only once in the execution
+                                let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
+            //                    let lastTuple = ref Unchecked.defaultof<_>
+                                for tuple in seqs do
+            //                        lastTuple := tuple
+                                    let newMeta, newElemObject = tuple
+                                    if Utils.IsNotNull newElemObject then 
+                                        func( newMeta, newElemObject )
+                                    else
+                                        // The entire data segment is filtered out, don't generate a call in this case. 
+                                        ()
+            //                    let finalMeta, _ = !lastTuple
+                    parentDSet.SyncIterate jbInfo parti wrapperFunc
+                | Source -> 
+                    x.SyncInit jbInfo parti func
+                | MixFrom oneParent ->  
+                    x.InitializeCache( true )
+                    let bInitialied = x.InitializeCachePartitionWStatus( parti ) 
+                    let cache = x.CachedPartition.[parti]
+                    let retVal = cache.RetrieveNonBlocking( )
+                    match retVal with 
+                    | CacheDataRetrieved (meta, elemObject ) -> 
+                        func( meta, elemObject )
+                        if not (Utils.IsNull elemObject) then 
+                            null, false
+                        else
+                            null, true
+                    | CacheSeqRetrieved seq -> 
+                        let mutable bFinalObjectSeen = false
+                        let mutable curMeta = BlobMetadata( parti, 0L, 0, 0 )
+                        for (meta, elemObject) in seq do 
+                            if Utils.IsNull elemObject then 
+                                if not bFinalObjectSeen then 
+                                    bFinalObjectSeen <- true
+                                    curMeta <- meta
+                                    func( meta, elemObject)
+                                else
+                                    // Filter out, final object already seen
+                                    ()
+                            else
+                                curMeta <- meta
+                                func( meta, elemObject)
+                        if not bFinalObjectSeen then 
+                            let finalMeta = BlobMetadata( curMeta, 0 )
+                            func( finalMeta, null )
+                        null, true
+                    | CacheBlocked handle -> 
+                        handle, false
+                | WildMixFrom (oneParent, parentS) -> 
+                    x.InitializeCache( true )
+                    let bInitialied = x.InitializeCachePartitionWStatus( parti ) 
+                    let cache = x.CachedPartition.[parti]
+                    let retVal = cache.RetrieveNonBlocking( )
+                    match retVal with 
+                    | CacheDataRetrieved (meta, elemObject ) -> 
+                        func( meta, elemObject )
+                        if not (Utils.IsNull elemObject) then 
+                            null, false
+                        else
+                            null, true
+                    | CacheSeqRetrieved seq -> 
+                        let mutable bFinalObjectSeen = false
+                        let mutable curMeta = BlobMetadata( parti, 0L, 0, 0 )
+                        for (meta, elemObject) in seq do 
+                            if Utils.IsNull elemObject then 
+                                if not bFinalObjectSeen then 
+                                    bFinalObjectSeen <- true
+                                    curMeta <- meta
+                                    func( meta, elemObject)
+                                else
+                                    // Filter out, final object already seen
+                                    ()
+                            else
+                                curMeta <- meta
+                                func( meta, elemObject)
+                        if not bFinalObjectSeen then 
+                            let finalMeta = BlobMetadata( curMeta, 0 )
+                            func( finalMeta, null )
+                        null, true
+                    | CacheBlocked handle -> 
+                        handle, false
+                | UnionFrom parents -> 
+                    let parenti, parentpart = x.MappingPartitionToParent.[ parti ] 
+                    let parentDSet = parents.[parenti].TargetDSet
+                    let wrapperFunc( meta, elemObject ) = 
+                        if not (jobAction.IsCancelled) then 
+                            let currentFunc = x.FunctionObj
+                            if Utils.IsNotNull elemObject then 
+                                // Pass to a DSet, so should code to Object
+                                let seqs = currentFunc.MapFunc( meta, elemObject, MapToKind.OBJECT )
+                                for newMeta, newElemObject in seqs do 
+                                    if Utils.IsNotNull newElemObject then 
+                                        let outMeta = BlobMetadata( newMeta, parti, newMeta.Serial, newMeta.NumElems )
+                                        func( outMeta, newElemObject )
+                                    else
+                                        // The entire data segment is filtered out, don't generate a call in this case. 
+                                        ()
+                            else
+                                // Encounter the end, MapFunc is called with keyArray being null only once in the execution
+                                let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
+                                let lastTuple = ref Unchecked.defaultof<_>
+                                for tuple in seqs do
+            //                        lastTuple := tuple
+                                    let newMeta, newElemObject = tuple
+                                    if Utils.IsNotNull newElemObject then 
+                                        let outMeta = BlobMetadata( newMeta, parti, newMeta.Serial, newMeta.NumElems )
+                                        func( outMeta, newElemObject )
+                                    else
+                                        // The entire data segment is filtered out, don't generate a call in this case. 
+                                        ()
+            //                    let finalMeta, _ = !lastTuple
+                                // Final meta will be passed through
+                                let outMeta = BlobMetadata( meta, parti, meta.Serial, meta.NumElems )
+                                func( outMeta, null )                        
+                    parentDSet.SyncIterate jbInfo parentpart wrapperFunc 
+                | CorrelatedMixFrom parents -> 
+                    let currentFunc = x.FunctionObj
+                    currentFunc.InitAll()            
+                    let parentFunctions = x.ParentDSets |> Array.mapi ( fun parenti parentDSet -> ( fun _ -> parentDSet.SyncIterate jbInfo parti (currentFunc.DepositFunc parenti)) )
+                    x.LaunchForkedThreadsFunction (x.NumParallelExecution) jbInfo parti ( fun pi -> sprintf "Thread for DSet %s:%s CorrelatedMixFrom partition %d parent %d" x.Name x.VersionString parti pi) parentFunctions
+                    // Execute action of parents
+                    let mutable bEnd = false
+                    while not (jobAction.IsCancelled) && not bEnd do
+                            // Pass to a DSet, so should code to Object
+                            let seqs = currentFunc.ExecuteFunc parti 
+                            for newMeta, newElemObject in seqs do 
+                                func( newMeta, newElemObject )
+                                if Utils.IsNull newElemObject then 
+                                    bEnd <- true
+                    null, true
+        
+                | CrossJoinFrom (parent0, parent1) -> 
+                    let parent0DSet = parent0.TargetDSet
+                    let parent1DSet = parent1.TargetDSet
+                    let curfunc = x.FunctionObj
+                    curfunc.InitAll()
+                    let wrappedFunc (meta:BlobMetadata, o:Object) =
+                        if not (jobAction.IsCancelled) then 
+                            if Utils.IsNotNull o then 
+                                curfunc.DepositFunc meta.Partition (meta, o) 
+                                // Filter out null object from CrossJoin
+                                let innerWrappedFunc (innerMeta:BlobMetadata, innerObject:Object) =
+                                    if not (jobAction.IsCancelled) then 
+                                        if Utils.IsNotNull innerObject then 
+                                            let combinedobj = ( meta.Partition, innerObject ) 
+                                            let seqs = curfunc.MapFunc( innerMeta, combinedobj :> Object, MapToKind.OBJECT )
+                                            for newMeta, newElemObject in seqs do 
+                                                if Utils.IsNotNull newElemObject then  
+                                                    func( newMeta, newElemObject )
+                                                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, compute part %A x %A yield %A" 
+                                                                                                           parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta innerMeta newMeta )        )
+                                for p1parti = 0 to parent1DSet.NumPartitions - 1 do
+                                    let mutable bDone = false
+                                    while not bDone do 
+                                        let ev, bTerminate = parent1DSet.SyncIterate jbInfo p1parti innerWrappedFunc
+                                        bDone <- bTerminate
+                                        if not bDone && Utils.IsNotNull ev then 
+                                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, part %A, wait for part %d" 
+                                                                                           parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta p1parti ))
+                                            ThreadPoolWaitHandles.safeWaitOne( ev ) |> ignore
+                                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, part %A, done waiting for part %d" 
+                                                                                           parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta p1parti ))
+                                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, done part %A x part %d" 
+                                                                                           parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta p1parti ))
+                                // All of the object is done execution. 
+                                let seqs = curfunc.ExecuteFunc meta.Partition
+                                for newMeta, newElemObject in seqs do 
+                                    if Utils.IsNotNull newElemObject then  
+                                        func( newMeta, newElemObject )
+                                        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, final ops on part %A yield %A" 
+                                                                                               parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString meta newMeta ))
+                            else
+                                let finalMeta = curfunc.GetFinalMetadata parti
+                                func( finalMeta, null )
+                                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CrossJoin DSet %s:%s with DSet %s:%s, part %d reaches final with %A" 
+                                                                                       parent0DSet.Name parent0DSet.VersionString parent1DSet.Name parent1DSet.VersionString parti finalMeta ))
+
+                    parent0DSet.SyncIterate jbInfo parti wrappedFunc            
+                | HashJoinFrom (parent0, parent1) -> 
+                    let parent0DSet = parent0.TargetDSet
+                    let parent1DSet = parent1.TargetDSet
+                    if parent1DSet.CacheType &&& CacheKind.ConcurrectDictionary <> CacheKind.None && 
+                        parent1DSet.CacheType &&& CacheKind.UnifiedCache <> CacheKind.None then 
+                        // Concurrent Dictionary & Unified cache
+                        let curfunc = x.FunctionObj
+                        curfunc.InitAll()
+                        let cache = parent1DSet.InitializeCachePartitionWStatus
+                        /// Unified cache if in use
+                        /// The cache support a concurrent dictionary type 
+                        parent1DSet.InitializeCache( true )
+                        let cache = parent1DSet.CachedPartition.[0]
+                        let mutable bCacheReady = false
+                        /// Wait for cache to be ready
+                        while not bCacheReady do 
+                            let cacheStatus = cache.RetrieveNonBlocking()
+                            match cacheStatus with 
+                            | CacheBlocked ev -> 
+                                bCacheReady <- ThreadPoolWaitHandles.safeWaitOne( ev ) 
+                            | _ -> 
+                                bCacheReady <- true
+                        /// Deposit cache 
+                        curfunc.DepositFunc parti (BlobMetadata(), cache :> Object )
+                        let wrappedFunc (meta:BlobMetadata, o:Object) =
+                            if not (jobAction.IsCancelled) then 
+                                if Utils.IsNotNull o then 
+                                    // Pass to a DSet, so should code to Object
+                                    let seqs = curfunc.MapFunc( meta, o, MapToKind.OBJECT )
+                                    for newMeta, newElemObject in seqs do 
+                                        if Utils.IsNotNull newElemObject then 
+                                            func( newMeta, newElemObject )
+                                        else
+                                            // The entire data segment is filtered out, don't generate a call in this case. 
+                                            ()
+                                else
+                                    // Encounter the end, MapFunc is called with keyArray being null only once in the execution
+                                    let seqs = curfunc.MapFunc( meta, null, MapToKind.OBJECT )
+                                    let lastTuple = ref Unchecked.defaultof<_>
+                                    for tuple in seqs do
+                //                        lastTuple := tuple
+                                        let newMeta, newElemObject = tuple
+                                        if Utils.IsNotNull newElemObject then 
+                                            func( newMeta, newElemObject )
+                                        else
+                                            // The entire data segment is filtered out, don't generate a call in this case. 
+                                            ()
+                //                    let finalMeta, _ = !lastTuple
+                                    // Final meta will be passed through
+                                    func( meta, null )                       
+                        parent0DSet.SyncIterate jbInfo parti wrappedFunc  
+                    else
+                        let msg = sprintf "Error in DSet.SyncIterateParent, DSet %s:%s HashJoinFrom need the joined DSet %s:%s to support ConcurrentDictionary Cache type, but type %A is found " x.Name x.VersionString parent1DSet.Name parent1DSet.VersionString parent1DSet.CacheType
+                        Logger.Log( LogLevel.Error, msg )
+                        failwith msg
+                | _ ->
+                    let msg = sprintf "Exception in DSet.SyncIterateParent, Job %A, DSet %s:%s has an unsupported dependency type %A" jbInfo.JobID x.Name x.VersionString (x.Dependency)
+                    jobAction.ThrowExceptionAtContainer( msg )
+                    null, true
+        )
     /// Implement init for source
     member internal  x.SyncInit (jbInfo:JobInformation) (parti:int) func = 
             let meta = ref (BlobMetadata( parti, 0L, 0 ))
@@ -2387,7 +2524,7 @@ and [<Serializable; AllowNullLiteral>]
                 let seqs = x.FunctionObj.MapFunc( !meta, Object(), MapToKind.OBJECT )
                 let lastmeta = ref (BlobMetadata( parti, 0L, 0 ))
                 for newMeta, newObj in seqs do 
-                    Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "DSet.Init %s:%s for partition %d, Serial %d, %d Elems" x.Name x.VersionString newMeta.Parti newMeta.Serial newMeta.NumElems ) )
+                    Logger.LogF( jbInfo.JobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "DSet.Init %s:%s for partition %d, Serial %d, %d Elems" x.Name x.VersionString newMeta.Parti newMeta.Serial newMeta.NumElems ) )
                     func( newMeta, newObj ) 
                     lastmeta := newMeta
                     bEndReached := (Utils.IsNull newObj)
@@ -2692,588 +2829,102 @@ and [<Serializable; AllowNullLiteral>]
             Logger.Flush()
             failwith msg
     member private x.SyncIterateImpl jbInfo parti func = 
-        let ty = x.StorageType &&& StorageKind.StorageMediumMask
-        if ty<>StorageKind.RAM then 
-            x.SyncIterateParent jbInfo parti func
-        else
-            // Need in RAM cache or index
-            let wrapperFunc( meta, elemObject ) = 
-                if not jbInfo.CancellationToken.IsCancellationRequested then 
-                    let currentFunc = x.FunctionObj
-                    let cache( newMeta:BlobMetadata, newElemObject:Object ) = 
-                        if Utils.IsNotNull newElemObject then 
-                            if not x.ReachCacheLimit then  
-                                // Install cache 
+        using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                Logger.LogF ( LogLevel.WildVerbose, fun _ -> sprintf "[Job %A cancelled for SyncIterateImpl], DSet %s:%s, partition %d"
+                                                                jbInfo.JobID x.Name x.VersionString parti
+                            )
+                null, true
+            else
+                let ty = x.StorageType &&& StorageKind.StorageMediumMask
+                if ty<>StorageKind.RAM then 
+                    x.SyncIterateParent jbInfo parti func
+                else
+                    // Need in RAM cache or index
+                    let wrapperFunc( meta, elemObject ) = 
+                        if not jobAction.IsCancelled then 
+                            let currentFunc = x.FunctionObj
+                            let cache( newMeta:BlobMetadata, newElemObject:Object ) = 
+                                if Utils.IsNotNull newElemObject then 
+                                    if not x.ReachCacheLimit then  
+                                        // Install cache 
+                                        // This assumes partition i of the upstream maps to the same partition i, 
+                                        // If we assume .Persist() is always installed after an identity mapping operation, this is OK. 
+                                        let newParti = newMeta.Partition
+                                        let newSerial = newMeta.Serial
+                                        let newNumElems = newMeta.NumElems
+                                        match ty with 
+                                        | StorageKind.RAM ->
+                                            x.InitializeCachePartition( newParti )
+                                            if not x.TrackSeenKeyValue || not ( x.SeenPartition.[newParti].ContainsKey( newSerial, newNumElems ) ) then 
+                                                if x.TrackSeenKeyValue then 
+                                                    x.SeenPartition.[newParti].Item( (newSerial, newNumElems) ) <- true
+                    //                            let bMemoryPressure = MemoryStatus.CheckMemoryPressure() 
+                    //                            if bMemoryPressure then 
+                    //                                Logger.LogF( LogLevel.WildVerbose,  fun _ -> sprintf "Partition %d, set %d, memory usage increased to %dMB" parti (x.CachedPartition.[parti].Count + 1) MemoryStatus.MaxUsedMemoryInMB  )
+                                                let curMemoryUsage = MemoryStatus.CurMemoryInMB
+                                                if curMemoryUsage >= DeploymentSettings.MaxMemoryLimitInMB then 
+                                                    x.ReachCacheLimit <- true
+                                                    x.CachedPartition.[newParti] <- null
+                                                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Turn off cache for partition %d, memory usage increased to %dMB" parti curMemoryUsage )                               )
+                                                else
+                                                    x.CachedPartition.[newParti].Add( newMeta, newElemObject, false )                            
+                                            else
+                                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "!!! Filter out !!! DSet %s:%s %s" x.Name x.VersionString (meta.ToString()) ))
+                                        | _ ->
+                                            ()
+                                    func( newMeta, newElemObject )
+                                else
+                                    // The entire data segment is filtered out, don't generate a call in this case. 
+                                    ()
+                            if Utils.IsNotNull elemObject then 
+                                let seqs = currentFunc.MapFunc( meta, elemObject, MapToKind.OBJECT )
+                                for tuple in seqs do 
+                                    cache( tuple )    
+                            else
+                                // Calling MapFunc with null once at the end. 
+                                let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
+                                let lastTuple = ref Unchecked.defaultof<_>
+                                for tuple in seqs do
+                                    lastTuple := tuple
+                                    cache( tuple )
                                 // This assumes partition i of the upstream maps to the same partition i, 
                                 // If we assume .Persist() is always installed after an identity mapping operation, this is OK. 
-                                let newParti = newMeta.Partition
-                                let newSerial = newMeta.Serial
-                                let newNumElems = newMeta.NumElems
-                                match ty with 
-                                | StorageKind.RAM ->
+                                let lastMeta, _ = !lastTuple
+                                let newParti = lastMeta.Partition
+                                if not x.ReachCacheLimit then 
                                     x.InitializeCachePartition( newParti )
-                                    if not x.TrackSeenKeyValue || not ( x.SeenPartition.[newParti].ContainsKey( newSerial, newNumElems ) ) then 
-                                        if x.TrackSeenKeyValue then 
-                                            x.SeenPartition.[newParti].Item( (newSerial, newNumElems) ) <- true
-            //                            let bMemoryPressure = MemoryStatus.CheckMemoryPressure() 
-            //                            if bMemoryPressure then 
-            //                                Logger.LogF( LogLevel.WildVerbose,  fun _ -> sprintf "Partition %d, set %d, memory usage increased to %dMB" parti (x.CachedPartition.[parti].Count + 1) MemoryStatus.MaxUsedMemoryInMB  )
-                                        let curMemoryUsage = MemoryStatus.CurMemoryInMB
-                                        if curMemoryUsage >= DeploymentSettings.MaxMemoryLimitInMB then 
-                                            x.ReachCacheLimit <- true
-                                            x.CachedPartition.[newParti] <- null
-                                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Turn off cache for partition %d, memory usage increased to %dMB" parti curMemoryUsage )                               )
-                                        else
-                                            x.CachedPartition.[newParti].Add( newMeta, newElemObject, false )                            
-                                    else
-                                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "!!! Filter out !!! DSet %s:%s %s" x.Name x.VersionString (meta.ToString()) ))
-                                | _ ->
-                                    ()
-                            func( newMeta, newElemObject )
+                                    // Mark partition i as complete.                     
+                                    x.AllCachedPartition.[newParti] <- true
+                                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Cache DSet %s:%s partition %d" x.Name x.VersionString parti ))
+                                else
+                                    if Utils.IsNotNull x.CachedPartition.[newParti] then 
+                                        x.CachedPartition.[newParti] <- null
+                                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Release cache DSet %s:%s partition %d" x.Name x.VersionString parti ))
+                                // guarantee func is called with null only one time at last
+                                func( meta, null )
                         else
-                            // The entire data segment is filtered out, don't generate a call in this case. 
-                            ()
-                    if Utils.IsNotNull elemObject then 
-                        let seqs = currentFunc.MapFunc( meta, elemObject, MapToKind.OBJECT )
-                        for tuple in seqs do 
-                            cache( tuple )    
-                    else
-                        // Calling MapFunc with null once at the end. 
-                        let seqs = currentFunc.MapFunc( meta, null, MapToKind.OBJECT )
-                        let lastTuple = ref Unchecked.defaultof<_>
-                        for tuple in seqs do
-                            lastTuple := tuple
-                            cache( tuple )
-                        // This assumes partition i of the upstream maps to the same partition i, 
-                        // If we assume .Persist() is always installed after an identity mapping operation, this is OK. 
-                        let lastMeta, _ = !lastTuple
-                        let newParti = lastMeta.Partition
-                        if not x.ReachCacheLimit then 
-                            x.InitializeCachePartition( newParti )
-                            // Mark partition i as complete.                     
-                            x.AllCachedPartition.[newParti] <- true
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Cache DSet %s:%s partition %d" x.Name x.VersionString parti ))
-                        else
-                            if Utils.IsNotNull x.CachedPartition.[newParti] then 
-                                x.CachedPartition.[newParti] <- null
-                                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Release cache DSet %s:%s partition %d" x.Name x.VersionString parti ))
-                        // guarantee func is called with null only one time at last
-                        func( meta, null )
-                else
-                    // Receive cancellation, we will clear caches
-                    x.AllCachedPartition.[meta.Partition] <- false
-                    x.CachedPartition.[meta.Partition] <- null    
+                            // Receive cancellation, we will clear caches
+                            x.AllCachedPartition.[meta.Partition] <- false
+                            x.CachedPartition.[meta.Partition] <- null    
             
-            x.InitializeCache( false ) 
-            if not x.AllCachedPartition.[parti] then 
-                // Reinitialize cache to deal with write
-                x.InitializeCache( true ) 
-                match x.Dependency with 
-                | WildMixFrom (_,_) -> 
-                    // No cache, as add cache is performed by network
-                    x.SyncIterateParent jbInfo parti func
-                | _ -> 
-                    x.SyncIterateParent jbInfo parti wrapperFunc
-            else
-                x.CachedPartition.[parti].ToSeq() 
-                |> Seq.filter ( fun _ -> not jbInfo.CancellationToken.IsCancellationRequested ) 
-                |> Seq.iter func
-                null, true
-                // Cancel operation if cancellationToken is flag as true
-
-    /// allow information to be captured on peer failure in the DSet 
-    member val internal bMetaDataSet = false with get, set
-    member val internal bDSetMetaRead : bool[] = null with get, set
-    member val internal bPeerFailed : bool[] = null with get, set
-    member val internal PeerDSet : DSet[] = null with get, set
-    member val internal bLastPeerFailedPattern : bool[] = null with get, set
-    member val internal peersTriedForPartition = null with get, set
-    member val internal peersFailedForPartition = null with get, set
-    member val internal peersNonExistPartition = null with get, set
-    member val internal partitionReadFromPeers = null with get, set
-    member val internal bFailingPartitionReported = null with get, set
-    member val internal bPartitionReadSent = null with get, set
-    member val internal numErrorPartition = null with get, set
-    member val internal numDSetMetadataRead = 0 with get, set
-    member val internal numPeerRespond = 0 with get, set
-    member val internal clockLastRemapping = 0L with get, set
-    member val internal remappingInterval = DeploymentSettings.RemappingInterval with get, set
-    member val internal bFirstReadCommand = null with get, set
-    member val internal numPeerPartitionCmdSent = null with get, set
-    member val internal numPeerPartitionCmdRcvd = null with get, set
-    /// Connection state
-    member internal curDSet.ClearConnectionState() = 
-        // These are mainly for DSet read. 
-        curDSet.bDSetMetaRead <- null
-        curDSet.bPeerFailed <- null
-        curDSet.bLastPeerFailedPattern <- null
-        curDSet.peersTriedForPartition <- null
-        curDSet.peersFailedForPartition <- null
-        curDSet.peersNonExistPartition <- null
-        curDSet.partitionReadFromPeers <- null
-        curDSet.bFailingPartitionReported <- null
-        curDSet.bPartitionReadSent <- null
-        curDSet.numErrorPartition <- null
-        curDSet.numDSetMetadataRead <- 0
-        curDSet.numPeerRespond <- 0
-        curDSet.clockLastRemapping <- 0L
-        curDSet.remappingInterval <- DeploymentSettings.RemappingInterval 
-    /// Peer availability and fail pattern, bMetaRead, bPeerF should be an array of the size of the cluster 
-    member internal curDSet.SetMetaDataAvailability( bMetaRead, bPeerF ) = 
-        curDSet.bDSetMetaRead <- bMetaRead
-        curDSet.bPeerFailed <- bPeerF
-        curDSet.bLastPeerFailedPattern <- Array.copy curDSet.bPeerFailed 
-    /// Initiate Partition Status to ready to communicate to other peer owned by DSet
-    member internal curDSet.InitiatePartitionStatus() = 
-//        let mapping = curDSet.GetMapping()
-//        curDSet.NumPartitions <- mapping.Length
-        curDSet.bPartitionReadSent <- Array.create curDSet.NumPartitions false
-        curDSet.numErrorPartition <- Array.create curDSet.NumPartitions Int32.MaxValue
-        curDSet.peersFailedForPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
-        curDSet.peersNonExistPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
-        curDSet.peersTriedForPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
-        curDSet.partitionReadFromPeers <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
-        curDSet.bFailingPartitionReported <- Array.create curDSet.NumPartitions false
-
-    member internal curDSet.InitiateCommandStatus () =
-        // We will use a common remapping function to deal with partition mapping. 
-        curDSet.bFirstReadCommand <- Array.create curDSet.Cluster.NumNodes true
-        curDSet.numPeerPartitionCmdSent <- Array.create curDSet.Cluster.NumNodes (ref 0)
-        curDSet.numPeerPartitionCmdRcvd <- Array.create curDSet.Cluster.NumNodes (ref 0)
-
-    member internal curDSet.PartitionAnalysis( ) =
-        // Has all partition been processed? 
-        if Utils.IsNotNull curDSet.numErrorPartition then 
-            let partitionNonExist = Dictionary<_,_>()
-            let partitionError = Dictionary<_,_>()
-            let peerNonExist = Dictionary<_,_>()
-            let peerError = Dictionary<_,_>()
-            for parti = 0 to curDSet.numErrorPartition.Length - 1 do 
-                if curDSet.numErrorPartition.[parti] <> 0 then 
-                    if curDSet.peersNonExistPartition.[parti].Count = curDSet.peersFailedForPartition.[parti].Count then 
-                        partitionNonExist.Item(parti) <- true
-                        for peeri in curDSet.peersTriedForPartition.[parti] do
-                            peerNonExist.Item( peeri ) <- true
+                    x.InitializeCache( false ) 
+                    if not x.AllCachedPartition.[parti] then 
+                        // Reinitialize cache to deal with write
+                        x.InitializeCache( true ) 
+                        match x.Dependency with 
+                        | WildMixFrom (_,_) -> 
+                            // No cache, as add cache is performed by network
+                            x.SyncIterateParent jbInfo parti func
+                        | _ -> 
+                            x.SyncIterateParent jbInfo parti wrapperFunc
                     else
-                        partitionError.Item( parti ) <- true
-                        for peeri in curDSet.peersTriedForPartition.[parti] do
-                            peerError.Item( peeri ) <- true
-            let partitionNonExistArr = partitionNonExist.Keys |> Seq.toArray |> Array.sort
-            let peerNonExistArr = peerNonExist.Keys |> Seq.toArray |> Array.sort
-            let partitionErrorArr = partitionError.Keys |> Seq.toArray |> Array.sort
-            let peerErrorArr = peerError.Keys |> Seq.toArray |> Array.sort
-            if partitionErrorArr.Length > 0 then 
-                Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "The following partition encounter error in processing %A" (partitionErrorArr) ))
-                Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "The following peer may encounter error in processing %A" (peerErrorArr) ))
-                
-            if partitionNonExistArr.Length > 0 then 
-                // Non Existing partition can be caused by partitioning function, in which no data is allocated to a certain 
-                // partition, that may be OK. 
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "The following partition of DSet %s:%s doesn't exist: %A" curDSet.Name curDSet.VersionString partitionNonExistArr ))
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSet %s:%s the following peer may have nonexisting partitions in cluster %A" curDSet.Name curDSet.VersionString peerNonExistArr ))
-
-    member internal curDSet.CheckMetaData() =
-        for i = 0 to curDSet.Cluster.NumNodes-1 do
-            if (curDSet.bDSetMetaRead.[i]) then
-                if Utils.IsNotNull curDSet.PeerDSet.[i] then
-                     if (curDSet.PeerDSet.[i].Version > curDSet.Version ||
-                         (curDSet.PeerDSet.[i].Version = curDSet.Version && curDSet.PeerDSet.[i].MetaDataVersion > curDSet.MetaDataVersion)) then
-                         // reset
-                         curDSet.CopyMetaData(curDSet.PeerDSet.[i], DSetMetadataCopyFlag.Copy)
-        // check other versions for matching
-        curDSet.numDSetMetadataRead <- 0
-        for j = 0 to curDSet.Cluster.NumNodes-1 do
-            if Utils.IsNotNull curDSet.PeerDSet.[j] then
-                if (curDSet.PeerDSet.[j].Version = curDSet.Version &&
-                    curDSet.PeerDSet.[j].MetaDataVersion = curDSet.MetaDataVersion) then
-                    curDSet.bPeerFailed.[j] <- false
-                    curDSet.numDSetMetadataRead <- curDSet.numDSetMetadataRead + 1
-                else
-                    curDSet.bPeerFailed.[j] <- true
-                    Logger.LogF( LogLevel.Info, (fun _ -> sprintf "RetrieveMetaDataCallback: Failed peer %d because of inconsistent metadata" j))
-            else
-                curDSet.bPeerFailed.[j] <- false
-
-    /// Retrieve meta data of DSet
-    /// Please note that if there are metadata of multiple DSet to be retired, the RetrieveMetaData call for job should be used instead. 
-    member internal curDSet.RetrieveOneMetaData() =
-        if Utils.IsNull curDSet.Cluster then 
-            let msg = sprintf "Failed to load Source DSet %s:%s \n. Details: the program can't locate local metadata, it attempts to load remote metadata, but the cluster parameter has not been specified." curDSet.Name curDSet.VersionString
-            Logger.Log( LogLevel.Error, msg )
-            failwith msg
-//        let curDSet = x.CurDSet
-        curDSet.Cluster.RegisterCallback( curDSet.Name, 0L, [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata);
-                                                             ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet); |],
-                { new NetworkCommandCallback with 
-                    member this.Callback( cmd, peeri, ms, name, verNumber, cl ) = 
-                        curDSet.RetrieveMetaDataCallback( cmd, peeri, ms, name, verNumber )
-                } )
-        curDSet.bDSetMetaRead <- Array.create curDSet.Cluster.NumNodes false
-        curDSet.bPeerFailed <- Array.create curDSet.Cluster.NumNodes false
-        curDSet.PeerDSet <- Array.zeroCreate curDSet.Cluster.NumNodes
-        curDSet.numPeerRespond <- 0
-        curDSet.numDSetMetadataRead <- 0
-        curDSet.bMetaDataSet <- false
-
-        curDSet.Cluster.ConnectAll()
-        Cluster.Connects.Initialize()
-
-        let bSentGetDSet = Array.create curDSet.Cluster.NumNodes false
-        let mutable bMetaDataRetrieved = false
-        let clock_start = curDSet.Clock.ElapsedTicks
-        let mutable maxWait = clock_start + curDSet.ClockFrequency * int64 curDSet.TimeoutLimit
-        let msSend = new MemStream( 1024 )
-        msSend.WriteString( curDSet.Name )
-        msSend.WriteInt64( curDSet.Version.Ticks )
-        msSend.WriteInt64( curDSet.Cluster.Version.Ticks )
-        
-        // Reset curDSet version so that we can read in the latest DSet version. 
-        curDSet.Version <- DateTime.MinValue   
-        
-        // Calculated required number of response for metadata
-        let numRequiredPeerRespond = curDSet.RequiredNodes( curDSet.MinNodeResponded )
-        let numRequiredVlidResponse = curDSet.RequiredNodes( curDSet.MinValidResponded )
-        while not bMetaDataRetrieved && curDSet.Clock.ElapsedTicks<maxWait do
-            // Try send out Get, DSet request. 
-            for peeri=0 to curDSet.Cluster.NumNodes-1 do
-                if not bSentGetDSet.[peeri] then 
-                    let queue = curDSet.Cluster.QueueForWrite( peeri )
-                    if Utils.IsNotNull queue && queue.CanSend then 
-                        queue.ToSend( ControllerCommand( ControllerVerb.Get, ControllerNoun.DSet ), msSend )
-                        bSentGetDSet.[peeri] <- true
-            curDSet.CheckMetaData()
-            if curDSet.numPeerRespond>=numRequiredPeerRespond && curDSet.numDSetMetadataRead>=numRequiredVlidResponse then 
-                bMetaDataRetrieved <- true    
-            else if curDSet.numPeerRespond>=curDSet.Cluster.NumNodes then 
-                // All peer responded, timeout
-                maxWait <- clock_start
-            else if curDSet.numDSetMetadataRead + ( curDSet.Cluster.NumNodes - curDSet.numPeerRespond ) < numRequiredVlidResponse then 
-                // Enough failed response gathered, we won't be able to succeed. 
-                maxWait <- clock_start
-
-            Threading.Thread.Sleep( 5 )
-
-        msSend.DecRef()
-
-        // by setting bMetaDataSet, we stop update metadata, all further peer response with different DSet version will be considered as a failed peer. 
-        curDSet.PeerDSet <- null
-        curDSet.bMetaDataSet <- true
-        curDSet.bLastPeerFailedPattern <- Array.copy curDSet.bPeerFailed 
-
-        curDSet.Cluster.ConnectAll()
-        if (not bMetaDataRetrieved) then
-            Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Failed to load metadata for DSet %s:%A" curDSet.Name curDSet.Version))
-        bMetaDataRetrieved
-
-    member internal curDSet.ToClose() = 
-//        let curDSet = x.CurDSet
-        if (Utils.IsNotNull curDSet.Cluster) then
-            curDSet.Cluster.UnRegisterCallback( curDSet.Name, 0L, [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata);
-                                                                    ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet); |] )
-                
-    /// Callback function used during metadata retrieval phase
-    member internal curDSet.RetrieveMetaDataCallback( cmd, peeri, msRcvd, name, verNumber ) = 
-        try
-//            let curDSet = x.CurDSet
-            let q = curDSet.Cluster.Queue( peeri )
-            match ( cmd.Verb, cmd.Noun ) with 
-            | ( ControllerVerb.Set, ControllerNoun.Metadata ) ->
-                // Set, Metadata usually is used for Src/Destination DSet, in which there should not be a function object (03/13/2014)
-                let readDSet = DSet.Unpack( msRcvd, false )
-                if readDSet.Cluster.Version.Ticks = curDSet.Cluster.Version.Ticks then
-                    let peerDSet = curDSet.PeerDSet
-                    if Utils.IsNotNull peerDSet then
-                        peerDSet.[peeri] <- readDSet
-                    curDSet.bDSetMetaRead.[peeri] <- true
-                    if curDSet.bMetaDataSet then
-                        if (readDSet.Version <> curDSet.Version ||
-                            readDSet.MetaDataVersion <> curDSet.MetaDataVersion) then
-                            curDSet.bPeerFailed.[peeri] <- true
-                            Logger.Log( LogLevel.Info, ( sprintf "RetrieveMetaDataCallback: Failed peer %d because of inconsistent metadata" peeri ))
-                else
-                    // Older version, or wrong cluster, peer failed. 
-                    curDSet.bPeerFailed.[peeri] <- true
-                    Logger.Log( LogLevel.Info, ( sprintf "RetrieveMetaDataCallback: Failed peer %d because a wrong cluster or expired metadata file is encountered" peeri ))
-                curDSet.numPeerRespond <- curDSet.numPeerRespond + 1
-            | ( ControllerVerb.NonExist, ControllerNoun.DSet ) ->
-                if Utils.IsNotNull curDSet.bDSetMetaRead then 
-                    curDSet.bDSetMetaRead.[peeri] <- true                  
-                curDSet.bPeerFailed.[peeri] <- true
-                curDSet.numPeerRespond <- curDSet.numPeerRespond + 1   
-                Logger.Log( LogLevel.Info, ( sprintf "RetrieveMetaDataCallback: failed peer %d because it doesn't have DSet %s:%s" peeri curDSet.Name curDSet.VersionString ))
-            | _ ->
-                Logger.Log( LogLevel.Info, ( sprintf "RetrieveMetaDataCallback: Unexpected command from peer %d, command %A" peeri cmd ))
-        with
-        | e ->
-            Logger.Log( LogLevel.Info, ( sprintf "Error in RetrieveMetaDataCallback, cmd %A, peer %d, exception %A" cmd peeri e)    )
-        true
-    member internal x.InJobResetForRemapping() = 
-        ()
-    member internal x.InJobBeginForRemapping( jbInfo:JobInformation ) = 
-        if not x.bNetworkInitialized then
-            // These structure may be initailized multiple times. 
-            x.GetPeer <- x.CurClusterInfo.QueueForWriteBetweenContainer
-            x.bPeerFailed <- Array.create x.Cluster.NumNodes false
-            x.bLastPeerFailedPattern <- Array.create x.Cluster.NumNodes false
-            x.InitiatePartitionStatus()
-            let bExecuteInitialization = x.BaseNetworkReady(jbInfo)
-            ()
-
-    member val internal GetPeer = fun (peeri:int) -> thisDSet.Cluster.Queue(peeri) with get, set
-
-    member internal curDSet.TriggerRemapping() = 
-        curDSet.clockLastRemapping <- curDSet.Clock.ElapsedTicks - curDSet.ClockFrequency 
-    member internal curDSet.IsRemapping() =
-        // Remapping is rather expensive, so we trigger every 100ms  
-        curDSet.Clock.ElapsedTicks - curDSet.clockLastRemapping >= curDSet.ClockFrequency / curDSet.remappingInterval && (Utils.IsNotNull curDSet.bPeerFailed)
-    /// Find new peers that will be assigned with partitions, send those partition information. 
-    /// Return :
-    ///      True: there are pending remapping command to be sentout. 
-    ///      False: there is no remapping command pending. 
-    member internal curDSet.Remapping() = 
-        curDSet.clockLastRemapping <- curDSet.Clock.ElapsedTicks
-//        let curDSet = x.CurDSet
-        // Identify new failing peers 
-        for peeri = 0 to curDSet.Cluster.NumNodes-1 do 
-            let queue = curDSet.GetPeer(peeri)
-            if not curDSet.bPeerFailed.[peeri] then 
-                if (NetworkCommandQueue.QueueFail(queue)) then 
-                    curDSet.bPeerFailed.[peeri] <- true
-                    Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Remapping, remove peer %d as its socket failed" peeri ))
-        // Identify newly failed peers. 
-        let newlyFailedPeer = List<int>()
-        let failedPeer = List<int>()
-        for peeri = 0 to curDSet.Cluster.NumNodes-1 do 
-            if curDSet.bPeerFailed.[peeri] then 
-                failedPeer.Add( peeri ) 
-                if not curDSet.bLastPeerFailedPattern.[peeri] then 
-                    curDSet.bLastPeerFailedPattern.[peeri] <- curDSet.bPeerFailed.[peeri]
-                    newlyFailedPeer.Add( peeri )
-//        if String.Compare( curDSet.Name, "SortGen_sort1", StringComparison.OrdinalIgnoreCase ) = 0 then 
-//            let a = 4
-//            ()
-
-        let mapping = curDSet.GetMapping()
-        // Regenerating the matrix partitionReadFromPeers that indicate what peer is assigned to job of a certain partition. 
-        // We have three lists to manage:
-        // peersFailedForPartition: black list, those peers are proven failure 
-        // peersTriedForPartition: pending, those peers have been contacted to perform action
-        // partitionReadFromPeers: current list, those peers are to be contacted (but haven't, e.g., because connection hasn't been established)
-        for parti=0 to curDSet.partitionReadFromPeers.Length-1 do
-            let readFromPeerList = curDSet.partitionReadFromPeers.[parti]
-            let peerFailedForList = curDSet.peersFailedForPartition.[parti]
-            let peerTriedForList = curDSet.peersTriedForPartition.[parti]
-            if curDSet.numErrorPartition.[parti]<>0 then 
-                // Don't do anything if the partition has already been processed successfully. 
-
-                // Any peer that is in to be replicated partition is proven in failing?
-                // Remove the peer and put in in the failed list
-                if readFromPeerList.Count>0 then 
-                    let peerArray = readFromPeerList |> Seq.toArray
-                    for peeri in peerArray do 
-                        if failedPeer.Contains( peeri ) then 
-                            readFromPeerList.Remove( peeri ) |> ignore
-                            if not (peerFailedForList.Contains(peeri)) then 
-                                peerFailedForList.Add( peeri )
-                if peerTriedForList.Count>0 then 
-                    let peerArray = peerTriedForList |> Seq.toArray
-                    for peeri in peerArray do 
-                        if failedPeer.Contains( peeri ) then 
-                            peerTriedForList.Remove( peeri ) |> ignore
-                            if not (peerFailedForList.Contains(peeri)) then 
-                                peerFailedForList.Add( peeri )
-
-                        (* Deprecated. 
-                // The first condition, this partition has not been assigned. 
-                // The second condition: there are some error during returned by the peer that is assigned to the partition. 
-                //  indicate that this peer hasn't been successfully read yet. 
-                // The third condition: the partition is assigned to a peer that just failed. 
-    //            if partitionReadFromPeers.[parti].Count <= 0 
-    //                || ( numErrorPartition.[parti]<>0 && peersFailedForPartition.[parti].Contains(partitionReadFromPeers.[parti]) )
-    //                || failedPeer.Contains( partitionReadFromPeers.[parti] ) then 
-    *)
-                let partimapping = mapping.[parti]
-                // Trigger seeking new peer, 
-                // If 1) there is no pending peer in the readFrom List and Tried list 
-                // and 2) not all peers in the partition mapping have been tried. 
-                if readFromPeerList.Count=0 && peerTriedForList.Count=0 && peerFailedForList.Count < partimapping.Length then 
-                    // We need to find a new peer for this partition. 
-                    let mutable idx = 0 
-                    // find an alternative peer 
-                    while idx<partimapping.Length do
-                        let peeri = partimapping.[idx]
-                        if not (peerFailedForList.Contains(peeri)) then 
-                            if not curDSet.bPeerFailed.[peeri] then 
-                                // we find a peer that can be tried. 
-                                // whether we put multiple peer in the readFromPeerList depending on whether the bit DSetFlag.ReadAllReplica is set
-                                if readFromPeerList.Count=0 || ( curDSet.Flag &&& DSetFlag.ReadAllReplica <> DSetFlag.None ) then 
-                                    readFromPeerList.Add( peeri )  
-                            else
-                                peerFailedForList.Add( peeri ) 
-                           
-                        idx <- idx + 1
-                    // If we can't find any peer 
-                    if readFromPeerList.Count=0 then 
-                        if not curDSet.bFailingPartitionReported.[parti] then 
-                            curDSet.bFailingPartitionReported.[parti] <- true
-                            // This message is suppressed as it is very possible that there is no partition parti written out to DSet in the process. 
-                            Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "DSet.SendReadDSetCommand fail, can't find live peer to read partition %d" parti ))
-                    else
-                        Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Partition %d --> Peer %d from %A" parti readFromPeerList.[0] partimapping ))
-            else
-                // This partition has already been successfully processed, but some peer is still lingering to be read.  
-                // Clear the list of to be requested peer, so that we can end the call. 
-                if readFromPeerList.Count>0 then 
-                    for peeri in readFromPeerList do 
-                        if not (peerFailedForList.Contains(peeri)) then 
-                            peerFailedForList.Add( peeri )
-                    readFromPeerList.Clear()
-//                      Allow failing partition to continue the read operation. 
-//                    failwith msg
-//                else
-//                    bPartitionReadSent.[parti] <- false
-        // Remapping for some partition that fails to read successfully. 
-        curDSet.SeekNewMapping( ) 
-    // Find new peers that will be assigned with partitions, send those partition information. 
-    // Return :
-    //      True: there are pending remapping command to be sentout. 
-    //      False: there is no remapping command pending. 
-    member internal curDSet.SeekNewMapping( ) = 
-//        let curDSet = x.CurDSet
-        let newPartitionForPeers = Array.create curDSet.Cluster.NumNodes null
-        let mutable bAnyPending = false
-        for parti=0 to curDSet.NumPartitions-1 do 
-//            if not bPartitionReadSent.[parti] then 
-                let readFromPeerList = curDSet.partitionReadFromPeers.[parti]
-                for peeri in readFromPeerList do
-                    if peeri>=0 then 
-                        if Utils.IsNull newPartitionForPeers.[peeri] then 
-                            newPartitionForPeers.[peeri] <- List<int>()
-                        newPartitionForPeers.[peeri].Add( parti )
-                        bAnyPending <- true
-        if bAnyPending then              
-            curDSet.DoRemapping( newPartitionForPeers )
-        else
-            false
-    /// an example of a remapping command. 
-    /// Parameter: peeri: int, send the command to ith peer
-    ///            peeriPartitionArray: int[], the command applies to the following partitions. 
-    ///            dset : the command applies to the following DSet
-    static member internal RemappingCommandForRead( peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
-        let msPayload = new MemStream( 1024 )
-        msPayload.WriteString( curDSet.Name )
-        msPayload.WriteInt64( curDSet.Version.Ticks )
-        msPayload.WriteVInt32( peeriPartitionArray.Length )
-        for parti in peeriPartitionArray do 
-            msPayload.WriteVInt32( parti )
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Request to peer %d partition %A" peeri peeriPartitionArray ))
-        ControllerCommand( ControllerVerb.Read, ControllerNoun.DSet), msPayload
-
-    member val internal DoRemapping = thisDSet.ExecuteNewMapping with get, set
-    /// Call back function used by Execute New Mapping, set this call back to have customized command to send to DSet.
-    /// Parameter: peeri: int, send the command to ith peer
-    ///            peeriPartitionArray: int[], the command applies to the following partitions. 
-    ///            dset : the command applies to the following DSet
-    member val internal RemappingCommandCallback = DSet.RemappingCommandForRead with get, set
-    /// Send outgoing DSet command. 
-    /// Return :
-    ///      True: there are pending remapping command to be sentout. 
-    ///      False: there is no remapping command pending. 
-    member internal curDSet.ExecuteNewMapping(newPartitionForPeers) =
-        let mutable bAnyRemapping = false
-        for peeri=0 to newPartitionForPeers.Length-1 do
-            //if Utils.IsNotNull newPartitionForPeers.[peeri] then 
-            //let peeriPartitionArray = newPartitionForPeers.[peeri] |> Seq.toArray
-            let peeriPartitionArray = if Utils.IsNull (newPartitionForPeers.[peeri]) then
-                                          [||]
-                                      else
-                                          newPartitionForPeers.[peeri] |> Seq.toArray
-            // if peeriPartitionArray.Length>0 then 
-            bAnyRemapping <- true
-            let queue = curDSet.Cluster.QueueForWrite( peeri ) 
-            if Utils.IsNotNull queue && queue.CanSend then        
-                if curDSet.bFirstReadCommand.[peeri] then 
-                    curDSet.bFirstReadCommand.[peeri] <- false
-                    let msSend = new MemStream( 1024 )
-                    msSend.WriteString( curDSet.Name )
-                    msSend.WriteInt64( curDSet.Version.Ticks )
-                    queue.ToSend( ControllerCommand( ControllerVerb.Use, ControllerNoun.DSet), msSend )
-                    msSend.DecRef()
-                for parti in peeriPartitionArray do 
-                    curDSet.SentCmd( peeri, parti ) 
-                let cmd, msPayload = curDSet.RemappingCommandCallback( peeri, peeriPartitionArray, curDSet )
-                queue.ToSend( cmd, msPayload )
-                msPayload.DecRef()
-                let node = curDSet.Cluster.Nodes.[peeri]
-                if curDSet.PeerRcvdSpeedLimit < node.NetworkSpeed then 
-                    let msSpeed = new MemStream( 1024 )
-                    msSpeed.WriteString( curDSet.Name ) 
-                    msSpeed.WriteInt64( curDSet.Version.Ticks )
-                    msSpeed.WriteInt64( curDSet.PeerRcvdSpeedLimit )
-                    queue.SetRcvdSpeed(curDSet.PeerRcvdSpeedLimit)
-                    queue.ToSend( ControllerCommand( ControllerVerb.LimitSpeed, ControllerNoun.DSet), msSpeed )  
-                    msSpeed.DecRef()
-                // One more Read DSet command outstanding. 
-                Interlocked.Increment( curDSet.numPeerPartitionCmdSent.[peeri] ) |> ignore
-        bAnyRemapping
-    /// We have sent request to peeri for parti
-    member internal curDSet.SentCmd( peeri, parti ) = 
-        curDSet.partitionReadFromPeers.[parti].Remove(peeri ) |> ignore
-        curDSet.peersTriedForPartition.[parti].Add(peeri)
-        curDSet.bPartitionReadSent.[parti] <- true
-    member internal curDSet.PartitionFailed( peeri, parti ) = 
-        if not (curDSet.peersFailedForPartition.[parti].Contains(peeri)) then 
-            curDSet.peersFailedForPartition.[parti].Add( peeri )
-        curDSet.peersTriedForPartition.[parti].Remove(peeri ) |> ignore
-        curDSet.partitionReadFromPeers.[parti].Remove(peeri ) |> ignore
-        curDSet.bPartitionReadSent.[parti] <- false
-        
-    /// A peer encounter some error in processing parti
-    member internal curDSet.ProcessedPartition( peeri, parti, numError ) = 
-        if numError = 0 then 
-            // Signal a certain partition is succesfully read
-            curDSet.numErrorPartition.[parti] <- numError
-        else
-            // record failing peer for the partition. 
-            curDSet.PartitionFailed( peeri, parti )
-            if curDSet.numErrorPartition.[parti]<>0 then 
-                curDSet.numErrorPartition.[parti] <- numError  
-    /// peeri sends feedback that it doesn't have a set of partitions. 
-    member internal curDSet.NotExistPartitions( peeri, notFindPartitions ) = 
-        let bRemapped = ref false
-        for parti in notFindPartitions do 
-            let mutable bRemap = true
-            if Utils.IsNotNull curDSet.MappingNumElems then 
-                if curDSet.MappingNumElems.[parti].[0]<=0 then 
-                    bRemap <- false
-            if bRemap then 
-                bRemapped := true
-                curDSet.PartitionFailed( peeri, parti )
-                if not (curDSet.peersNonExistPartition.[parti].Contains( peeri) ) then 
-                    curDSet.peersNonExistPartition.[parti].Add( peeri )
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> 
-           if !bRemapped then 
-               sprintf "Received non exist partition %A from peer %d execute remapping" notFindPartitions peeri 
-           else
-               sprintf "Received non exist partition %A from peer %d, but those partitions are empty during write" notFindPartitions peeri ))
-        !bRemapped
-// We rewrote the interface to not expose the following member.
-//    member x.NumErrorPartition with get() = numErrorPartition             
-//    member x.PeersFailedForPartition with get() = peersFailedForPartition
-//    member x.PartitionReadFromPeers with get() = partitionReadFromPeers
-    /// Have we read all DSets? 
-    member internal curDSet.AllDSetsRead( ) = 
-        let mutable bEndReached = true
-        for peeri=0 to curDSet.Cluster.NumNodes - 1 do
-            let numRcvd = Volatile.Read( curDSet.numPeerPartitionCmdRcvd.[peeri])
-            let numSent = Volatile.Read( curDSet.numPeerPartitionCmdSent.[peeri])
-            if not curDSet.bPeerFailed.[peeri] && numRcvd<numSent then 
-                // At least one peer still active
-                bEndReached <- false
-        bEndReached 
-    /// Indicate a Close, Partition or equivalent command has received from a peer, and the job requested from the peer has been completed. 
-    member internal curDSet.PeerCmdComplete( peeri ) = 
-        Interlocked.Increment(curDSet.numPeerPartitionCmdRcvd.[peeri]) |> ignore 
+                        x.CachedPartition.[parti].ToSeq() 
+                        |> Seq.filter ( fun _ -> not jobAction.IsCancelled ) 
+                        |> Seq.iter func
+                        null, true
+                        // Cancel operation if cancellationToken is flag as true
+        )
 
     /// Turn a local or network folder into seq<string, byte[]> to be fed into DSet.store
     /// sPattern, sOption is the search pattern and option used in Directory.GetFiles
@@ -3369,34 +3020,573 @@ and [<Serializable; AllowNullLiteral>]
         else
             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSet %s:%s, SyncDecodeToDownstream called, add parti %d blob %A" x.Name x.VersionString parti decMeta ))
     // Start a thread to execute down stream
-    member internal x.NewThreadToExecuteDownstream jbInfo parti () = 
-        let cache = x.CachedPartition.[parti]
-        let ret = cache.RetrieveNonBlocking()
-        match ret with 
-        | CacheDataRetrieved ( meta, o ) -> 
-            x.SyncExecuteDownstream jbInfo parti meta o
-            if Utils.IsNull o then 
+    // These actions may throw independent exception and needs to be wrapped in cancellation. 
+    member internal x.NewThreadToExecuteDownstream (jbInfo:JobInformation) parti () = 
+        using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "[NewThreadToExecuteDownstream, Job %A has already been cancelled] DSet %s:%s partition %d"
+                                                                        jbInfo.JobID x.Name x.VersionString parti
+                           )
                 null, true
             else
-                null, false
-        | CacheSeqRetrieved seq -> 
-            let mutable bFinalObjectSeen = false
-            let mutable curMeta = BlobMetadata( parti, 0L, 0, 0 )
-            for (meta, elemObject) in seq do 
-                if Utils.IsNull elemObject then 
-                    if not bFinalObjectSeen then 
-                        bFinalObjectSeen <- true
-                        curMeta <- meta
-                        x.SyncExecuteDownstream jbInfo parti meta elemObject
+                try 
+                    let cache = x.CachedPartition.[parti]
+                    let ret = cache.RetrieveNonBlocking()
+                    match ret with 
+                    | CacheDataRetrieved ( meta, o ) -> 
+                        x.SyncExecuteDownstream jbInfo parti meta o
+                        if Utils.IsNull o then 
+                            null, true
+                        else
+                            null, false
+                    | CacheSeqRetrieved seq -> 
+                        let mutable bFinalObjectSeen = false
+                        let mutable curMeta = BlobMetadata( parti, 0L, 0, 0 )
+                        for (meta, elemObject) in seq do 
+                            if Utils.IsNull elemObject then 
+                                if not bFinalObjectSeen then 
+                                    bFinalObjectSeen <- true
+                                    curMeta <- meta
+                                    x.SyncExecuteDownstream jbInfo parti meta elemObject
+                                else
+                                    // Filter out, final object already seen
+                                    ()
+                            else
+                                curMeta <- meta
+                                x.SyncExecuteDownstream jbInfo parti meta elemObject
+                        if not bFinalObjectSeen then 
+                            let finalMeta = BlobMetadata( curMeta, 0 )
+                            x.SyncExecuteDownstream jbInfo parti finalMeta null
+                        null, true      
+                    | CacheBlocked handle -> 
+                        handle, false     
+                with
+                | ex -> 
+                    // Recoverable failures 
+                    jbInfo.PartitionFailure( ex, "___ NewThreadToExecuteDownstream ___ ", parti )
+                    null, true
+        )
+
+// Data structure related to an instance of the job 
+// E.g., what partition has been read, remapped, etc.. 
+type internal DJobInstance(curDSet: DSet, getSingleJobAction: unit -> SingleJobActionApp ) as thisInstance =  
+    let remappingInterval = int64 DeploymentSettings.RemappingIntervalInMillisecond * TimeSpan.TicksPerMillisecond
+    let mutable clockLastRemapping = (PerfADateTime.UtcNowTicks())
+    do
+        // Make sure memory release upon cancellation
+        using ( getSingleJobAction() ) ( fun jobAction -> 
+            if Utils.IsNotNull jobAction then 
+                jobAction.LifeCycleObject.OnDisposeFS( thisInstance.ClearConnectionState )
+        )
+    member val JobID = Guid.Empty with get, set
+    /// allow information to be captured on peer failure in the DSet 
+    member val internal bMetaDataSet = false with get, set
+    member val internal bDSetMetaRead : bool[] = null with get, set
+    member val internal bPeerFailed : bool[] = null with get, set
+    member val internal PeerDSet : DSet[] = null with get, set
+    member val internal bLastPeerFailedPattern : bool[] = null with get, set
+    member val internal peersTriedForPartition = null with get, set
+    member val internal peersFailedForPartition = null with get, set
+    member val internal peersNonExistPartition = null with get, set
+    member val internal partitionReadFromPeers = null with get, set
+    member val internal bFailingPartitionReported = null with get, set
+    member val internal bPartitionReadSent = null with get, set
+    member val internal numErrorPartition = null with get, set
+    member val internal numDSetMetadataRead = 0 with get, set
+    member val internal numPeerRespond = 0 with get, set
+    member val internal bFirstReadCommand = null with get, set
+    member val internal numPeerPartitionCmdSent = null with get, set
+    member val internal numPeerPartitionCmdRcvd = null with get, set
+    member internal x.TriggerRemapping() = 
+        clockLastRemapping <- (PerfADateTime.UtcNowTicks()) - remappingInterval 
+    member internal x.IsRemapping() =
+        let curTicks = (PerfADateTime.UtcNowTicks())
+        // Remapping is rather expensive, so we trigger every 100ms  
+        curTicks - clockLastRemapping >= remappingInterval && (Utils.IsNotNull x.bPeerFailed)
+    /// Connection state
+    member internal x.ClearConnectionState() = 
+        // These are mainly for DSet read. 
+        x.bDSetMetaRead <- null
+        x.bPeerFailed <- null
+        x.bLastPeerFailedPattern <- null
+        x.peersTriedForPartition <- null
+        x.peersFailedForPartition <- null
+        x.peersNonExistPartition <- null
+        x.partitionReadFromPeers <- null
+        x.bFailingPartitionReported <- null
+        x.bPartitionReadSent <- null
+        x.numErrorPartition <- null
+        x.numDSetMetadataRead <- 0
+        x.numPeerRespond <- 0
+    /// Peer availability and fail pattern, bMetaRead, bPeerF should be an array of the size of the cluster 
+    member internal x.SetMetaDataAvailability( bMetaRead, bPeerF ) = 
+        x.bDSetMetaRead <- bMetaRead
+        x.bPeerFailed <- bPeerF
+        x.bLastPeerFailedPattern <- Array.copy x.bPeerFailed 
+    /// Initiate Partition Status to ready to communicate to other peer owned by DSet
+    member internal x.InitiatePartitionStatus() = 
+//        let mapping = curDSet.GetMapping()
+//        curDSet.NumPartitions <- mapping.Length
+        x.bPartitionReadSent <- Array.create curDSet.NumPartitions false
+        x.numErrorPartition <- Array.create curDSet.NumPartitions Int32.MaxValue
+        x.peersFailedForPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
+        x.peersNonExistPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
+        x.peersTriedForPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
+        x.partitionReadFromPeers <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
+        x.bFailingPartitionReported <- Array.create curDSet.NumPartitions false
+
+    member internal x.InitiateCommandStatus () =
+        // We will use a common remapping function to deal with partition mapping. 
+        x.bFirstReadCommand <- Array.create curDSet.Cluster.NumNodes true
+        x.numPeerPartitionCmdSent <- Array.create curDSet.Cluster.NumNodes (ref 0)
+        x.numPeerPartitionCmdRcvd <- Array.create curDSet.Cluster.NumNodes (ref 0)
+
+    member internal x.PartitionAnalysis( ) =
+        // Has all partition been processed? 
+        if Utils.IsNotNull x.numErrorPartition then 
+            let partitionNonExist = Dictionary<_,_>()
+            let partitionError = Dictionary<_,_>()
+            let peerNonExist = Dictionary<_,_>()
+            let peerError = Dictionary<_,_>()
+            for parti = 0 to x.numErrorPartition.Length - 1 do 
+                if x.numErrorPartition.[parti] <> 0 then 
+                    if x.peersNonExistPartition.[parti].Count = x.peersFailedForPartition.[parti].Count then 
+                        partitionNonExist.Item(parti) <- true
+                        for peeri in x.peersTriedForPartition.[parti] do
+                            peerNonExist.Item( peeri ) <- true
                     else
-                        // Filter out, final object already seen
-                        ()
+                        partitionError.Item( parti ) <- true
+                        for peeri in x.peersTriedForPartition.[parti] do
+                            peerError.Item( peeri ) <- true
+            let partitionNonExistArr = partitionNonExist.Keys |> Seq.toArray |> Array.sort
+            let peerNonExistArr = peerNonExist.Keys |> Seq.toArray |> Array.sort
+            let partitionErrorArr = partitionError.Keys |> Seq.toArray |> Array.sort
+            let peerErrorArr = peerError.Keys |> Seq.toArray |> Array.sort
+            if partitionErrorArr.Length > 0 then 
+                Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "The following partition encounter error in processing %A" (partitionErrorArr) ))
+                Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "The following peer may encounter error in processing %A" (peerErrorArr) ))
+                
+            if partitionNonExistArr.Length > 0 then 
+                // Non Existing partition can be caused by partitioning function, in which no data is allocated to a certain 
+                // partition, that may be OK. 
+                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "The following partition of DSet %s:%s doesn't exist: %A" curDSet.Name curDSet.VersionString partitionNonExistArr ))
+                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSet %s:%s the following peer may have nonexisting partitions in cluster %A" curDSet.Name curDSet.VersionString peerNonExistArr ))
+
+    member internal x.CheckMetaData() =
+        for i = 0 to curDSet.Cluster.NumNodes-1 do
+            if (x.bDSetMetaRead.[i]) then
+                if Utils.IsNotNull x.PeerDSet.[i] then
+                     if (x.PeerDSet.[i].Version > curDSet.Version ||
+                         (x.PeerDSet.[i].Version = curDSet.Version && x.PeerDSet.[i].MetaDataVersion > curDSet.MetaDataVersion)) then
+                         // reset
+                         curDSet.CopyMetaData(x.PeerDSet.[i], DSetMetadataCopyFlag.Copy)
+        // check other versions for matching
+        x.numDSetMetadataRead <- 0
+        for j = 0 to curDSet.Cluster.NumNodes-1 do
+            if Utils.IsNotNull x.PeerDSet.[j] then
+                if (x.PeerDSet.[j].Version = curDSet.Version &&
+                    x.PeerDSet.[j].MetaDataVersion = curDSet.MetaDataVersion) then
+                    x.bPeerFailed.[j] <- false
+                    x.numDSetMetadataRead <- x.numDSetMetadataRead + 1
                 else
-                    curMeta <- meta
-                    x.SyncExecuteDownstream jbInfo parti meta elemObject
-            if not bFinalObjectSeen then 
-                let finalMeta = BlobMetadata( curMeta, 0 )
-                x.SyncExecuteDownstream jbInfo parti finalMeta null
-            null, true      
-        | CacheBlocked handle -> 
-            handle, false     
+                    x.bPeerFailed.[j] <- true
+                    Logger.LogF( LogLevel.Info, (fun _ -> sprintf "RetrieveMetaDataCallback: Failed peer %d because of inconsistent metadata" j))
+            else
+                x.bPeerFailed.[j] <- false
+
+    /// Retrieve meta data of DSet
+    /// Please note that if there are metadata of multiple DSet to be retired, the RetrieveMetaData call for job should be used instead. 
+    member internal x.RetrieveOneMetaData( jobID ) =
+        if Utils.IsNull curDSet.Cluster then 
+            let msg = sprintf "Failed to load Source DSet %s:%s \n. Details: the program can't locate local metadata, it attempts to load remote metadata, but the cluster parameter has not been specified." curDSet.Name curDSet.VersionString
+            Logger.Log( LogLevel.Error, msg )
+            failwith msg
+        curDSet.Cluster.RegisterCallback( jobID, curDSet.Name, 0L, [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata);
+                                                             ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet); 
+                                                             ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet); |],
+                { new NetworkCommandCallback with 
+                    member this.Callback( cmd, peeri, ms, jobID, name, verNumber, cl ) = 
+                        x.RetrieveMetaDataCallback( cmd, peeri, ms, jobID, name, verNumber )
+                } )
+        x.bDSetMetaRead <- Array.create curDSet.Cluster.NumNodes false
+        x.bPeerFailed <- Array.create curDSet.Cluster.NumNodes false
+        x.PeerDSet <- Array.zeroCreate curDSet.Cluster.NumNodes
+        x.numPeerRespond <- 0
+        x.numDSetMetadataRead <- 0
+        x.bMetaDataSet <- false
+
+        curDSet.Cluster.ConnectAll()
+        Cluster.Connects.Initialize()
+
+        let bSentGetDSet = Array.create curDSet.Cluster.NumNodes false
+        let bMetaDataRetrieved = ref false
+        let clock_start = curDSet.Clock.ElapsedTicks
+        let maxWait = ref (clock_start + curDSet.ClockFrequency * int64 curDSet.TimeoutLimit)
+        using ( new MemStream( 1024 ) ) ( fun msSend -> 
+            msSend.WriteGuid( x.JobID )
+            msSend.WriteString( curDSet.Name )
+            msSend.WriteInt64( curDSet.Version.Ticks )
+            msSend.WriteInt64( curDSet.Cluster.Version.Ticks )
+        
+            // Reset curDSet version so that we can read in the latest DSet version. 
+            curDSet.Version <- DateTime.MinValue   
+        
+            // Calculated required number of response for metadata
+            let numRequiredPeerRespond = curDSet.RequiredNodes( curDSet.MinNodeResponded )
+            let numRequiredVlidResponse = curDSet.RequiredNodes( curDSet.MinValidResponded )
+            // Make sure memory release upon cancellation
+            using ( getSingleJobAction() ) ( fun jobAction -> 
+                if Utils.IsNotNull jobAction then 
+                    while not !bMetaDataRetrieved && curDSet.Clock.ElapsedTicks<(!maxWait) && not jobAction.IsCancelledAndThrow do
+                        // Try send out Get, DSet request. 
+                        for peeri=0 to curDSet.Cluster.NumNodes-1 do
+                            if not bSentGetDSet.[peeri] then 
+                                let queue = curDSet.Cluster.QueueForWrite( peeri )
+                                if Utils.IsNotNull queue && queue.CanSend && not jobAction.IsCancelledAndThrow then 
+                                    queue.ToSend( ControllerCommand( ControllerVerb.Get, ControllerNoun.DSet ), msSend )
+                                    bSentGetDSet.[peeri] <- true
+                        x.CheckMetaData()
+                        if x.numPeerRespond>=numRequiredPeerRespond && x.numDSetMetadataRead>=numRequiredVlidResponse then 
+                            bMetaDataRetrieved := true    
+                        else if x.numPeerRespond>=curDSet.Cluster.NumNodes then 
+                            // All peer responded, timeout
+                            maxWait := clock_start
+                        else if x.numDSetMetadataRead + ( curDSet.Cluster.NumNodes - x.numPeerRespond ) < numRequiredVlidResponse then 
+                            // Enough failed response gathered, we won't be able to succeed. 
+                            maxWait := clock_start
+
+                        ThreadPoolWaitHandles.safeWaitOne( jobAction.WaitHandle, 5 ) |> ignore 
+                )
+        )
+
+        // by setting bMetaDataSet, we stop update metadata, all further peer response with different DSet version will be considered as a failed peer. 
+        x.PeerDSet <- null
+        x.bMetaDataSet <- true
+        x.bLastPeerFailedPattern <- Array.copy x.bPeerFailed 
+
+        curDSet.Cluster.ConnectAll()
+        if (not !bMetaDataRetrieved) then
+            Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Failed to load metadata for DSet %s:%A" curDSet.Name curDSet.Version))
+        !bMetaDataRetrieved
+
+    member internal x.ToClose() = 
+//        let curDSet = x.CurDSet
+        if (Utils.IsNotNull curDSet.Cluster) then
+            curDSet.Cluster.UnRegisterCallback( x.JobID, [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata);
+                                                                    ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet);
+                                                                    ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet); |] )
+                
+    /// Callback function used during metadata retrieval phase
+    member internal x.RetrieveMetaDataCallback( cmd, peeri, msRcvd, jobID, name, verNumber ) = 
+        using ( getSingleJobAction() ) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                try
+                    match ( cmd.Verb, cmd.Noun ) with 
+                    | ( ControllerVerb.Exception, ControllerNoun.DSet ) -> 
+                        let ex = msRcvd.ReadException()
+                        let showMsg = sprintf "[RetrieveMetaDataCallback, Job already cancelled] Job %A, DSet %s, receive exception from peer %d message: %A" jobID name peeri ex
+                        Logger.Log( LogLevel.Info, showMsg )
+                    | _ -> 
+                        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "[(may be OK)RetrieveMetaDataCallback, Job already cancelled] Job %A, DSet %s, receive cmd %A from peer %d of %dB"
+                                                                                jobID name cmd peeri msRcvd.Length ) 
+                with
+                | ex -> 
+                    Logger.Log( LogLevel.Info, ( sprintf "RetrieveMetaDataCallback, Job %A, failed to parse exception message cmd %A, peer %d, with exception %A" jobID cmd peeri ex )    )
+            else 
+                try
+                    let q = curDSet.Cluster.Queue( peeri )
+                    match ( cmd.Verb, cmd.Noun ) with 
+                    | ( ControllerVerb.Set, ControllerNoun.Metadata ) ->
+                        // Set, Metadata usually is used for Src/Destination DSet, in which there should not be a function object (03/13/2014)
+                        let readDSet = DSet.Unpack( msRcvd, false )
+                        if readDSet.Cluster.Version.Ticks = curDSet.Cluster.Version.Ticks then
+                            let peerDSet = x.PeerDSet
+                            if Utils.IsNotNull peerDSet then
+                                peerDSet.[peeri] <- readDSet
+                            x.bDSetMetaRead.[peeri] <- true
+                            if x.bMetaDataSet then
+                                if (readDSet.Version <> curDSet.Version ||
+                                    readDSet.MetaDataVersion <> curDSet.MetaDataVersion) then
+                                            x.bPeerFailed.[peeri] <- true
+                                            Logger.Log( LogLevel.Info, ( sprintf "RetrieveMetaDataCallback: Failed peer %d because of inconsistent metadata" peeri ))
+                        else
+                            // Older version, or wrong cluster, peer failed. 
+                            x.bPeerFailed.[peeri] <- true
+                            Logger.Log( LogLevel.Info, ( sprintf "RetrieveMetaDataCallback: Failed peer %d because a wrong cluster or expired metadata file is encountered" peeri ))
+                        x.numPeerRespond <- x.numPeerRespond + 1
+                    | ( ControllerVerb.NonExist, ControllerNoun.DSet ) ->
+                        if Utils.IsNotNull x.bDSetMetaRead then 
+                            x.bDSetMetaRead.[peeri] <- true                  
+                        x.bPeerFailed.[peeri] <- true
+                        x.numPeerRespond <- x.numPeerRespond + 1   
+                        Logger.Log( LogLevel.Info, ( sprintf "RetrieveMetaDataCallback: failed peer %d because it doesn't have DSet %s:%s" peeri curDSet.Name curDSet.VersionString ))
+                    | (ControllerVerb.Exception, ControllerNoun.DSet ) -> 
+                        let ex = msRcvd.ReadException()
+                        let showMsg = sprintf "RetrieveMetaDataCallback, Job %A, exception at peer %d, message: %A" jobID peeri ex
+                        jobAction.ReceiveExceptionAtCallback( ex, showMsg )
+                    | _ ->
+                        Logger.Log( LogLevel.Warning, ( sprintf "RetrieveMetaDataCallback: Unexpected command from peer %d, command %A" peeri cmd ))
+                with
+                | ex ->
+                    let addMsg = sprintf "Error in RetrieveMetaDataCallback, cmd %A, peer %d, exception %A" cmd peeri ex
+                    jobAction.EncounterExceptionAtCallback( ex, addMsg )
+        )
+        true
+
+    member val internal GetPeer = fun (peeri:int) -> curDSet.Cluster.Queue(peeri) with get, set
+
+    /// Find new peers that will be assigned with partitions, send those partition information. 
+    /// Return :
+    ///      True: there are pending remapping command to be sentout. 
+    ///      False: there is no remapping command pending. 
+    member internal x.Remapping(  ) = 
+        clockLastRemapping <- (PerfADateTime.UtcNowTicks())
+//        let curDSet = x.CurDSet
+        // Identify new failing peers 
+        for peeri = 0 to curDSet.Cluster.NumNodes-1 do 
+            let queue = x.GetPeer(peeri)
+            if not x.bPeerFailed.[peeri] then 
+                if (NetworkCommandQueue.QueueFail(queue)) then 
+                    x.bPeerFailed.[peeri] <- true
+                    Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Remapping, remove peer %d as its socket failed" peeri ))
+        // Identify newly failed peers. 
+        let newlyFailedPeer = List<int>()
+        let failedPeer = List<int>()
+        for peeri = 0 to curDSet.Cluster.NumNodes-1 do 
+            if x.bPeerFailed.[peeri] then 
+                failedPeer.Add( peeri ) 
+                if not x.bLastPeerFailedPattern.[peeri] then 
+                    x.bLastPeerFailedPattern.[peeri] <- x.bPeerFailed.[peeri]
+                    newlyFailedPeer.Add( peeri )
+//        if String.Compare( curDSet.Name, "SortGen_sort1", StringComparison.OrdinalIgnoreCase ) = 0 then 
+//            let a = 4
+//            ()
+
+        let mapping = curDSet.GetMapping()
+        // Regenerating the matrix partitionReadFromPeers that indicate what peer is assigned to job of a certain partition. 
+        // We have three lists to manage:
+        // peersFailedForPartition: black list, those peers are proven failure 
+        // peersTriedForPartition: pending, those peers have been contacted to perform action
+        // partitionReadFromPeers: current list, those peers are to be contacted (but haven't, e.g., because connection hasn't been established)
+        for parti=0 to x.partitionReadFromPeers.Length-1 do
+            let readFromPeerList = x.partitionReadFromPeers.[parti]
+            let peerFailedForList = x.peersFailedForPartition.[parti]
+            let peerTriedForList = x.peersTriedForPartition.[parti]
+            if x.numErrorPartition.[parti]<>0 then 
+                // Don't do anything if the partition has already been processed successfully. 
+
+                // Any peer that is in to be replicated partition is proven in failing?
+                // Remove the peer and put in in the failed list
+                if readFromPeerList.Count>0 then 
+                    let peerArray = readFromPeerList |> Seq.toArray
+                    for peeri in peerArray do 
+                        if failedPeer.Contains( peeri ) then 
+                            readFromPeerList.Remove( peeri ) |> ignore
+                            if not (peerFailedForList.Contains(peeri)) then 
+                                peerFailedForList.Add( peeri )
+                if peerTriedForList.Count>0 then 
+                    let peerArray = peerTriedForList |> Seq.toArray
+                    for peeri in peerArray do 
+                        if failedPeer.Contains( peeri ) then 
+                            peerTriedForList.Remove( peeri ) |> ignore
+                            if not (peerFailedForList.Contains(peeri)) then 
+                                peerFailedForList.Add( peeri )
+
+                        (* Deprecated. 
+                // The first condition, this partition has not been assigned. 
+                // The second condition: there are some error during returned by the peer that is assigned to the partition. 
+                //  indicate that this peer hasn't been successfully read yet. 
+                // The third condition: the partition is assigned to a peer that just failed. 
+    //            if partitionReadFromPeers.[parti].Count <= 0 
+    //                || ( numErrorPartition.[parti]<>0 && peersFailedForPartition.[parti].Contains(partitionReadFromPeers.[parti]) )
+    //                || failedPeer.Contains( partitionReadFromPeers.[parti] ) then 
+    *)
+                let partimapping = mapping.[parti]
+                // Trigger seeking new peer, 
+                // If 1) there is no pending peer in the readFrom List and Tried list 
+                // and 2) not all peers in the partition mapping have been tried. 
+                if readFromPeerList.Count=0 && peerTriedForList.Count=0 && peerFailedForList.Count < partimapping.Length then 
+                    // We need to find a new peer for this partition. 
+                    let mutable idx = 0 
+                    // find an alternative peer 
+                    while idx<partimapping.Length do
+                        let peeri = partimapping.[idx]
+                        if not (peerFailedForList.Contains(peeri)) then 
+                            if not x.bPeerFailed.[peeri] then 
+                                // we find a peer that can be tried. 
+                                // whether we put multiple peer in the readFromPeerList depending on whether the bit DSetFlag.ReadAllReplica is set
+                                if readFromPeerList.Count=0 || ( curDSet.Flag &&& DSetFlag.ReadAllReplica <> DSetFlag.None ) then 
+                                    readFromPeerList.Add( peeri )  
+                            else
+                                peerFailedForList.Add( peeri ) 
+                           
+                        idx <- idx + 1
+                    // If we can't find any peer 
+                    if readFromPeerList.Count=0 then 
+                        if not x.bFailingPartitionReported.[parti] then 
+                            x.bFailingPartitionReported.[parti] <- true
+                            // This message is suppressed as it is very possible that there is no partition parti written out to DSet in the process. 
+                            Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "DSet.SendReadDSetCommand fail, can't find live peer to read partition %d" parti ))
+                    else
+                        Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Partition %d --> Peer %d from %A" parti readFromPeerList.[0] partimapping ))
+            else
+                // This partition has already been successfully processed, but some peer is still lingering to be read.  
+                // Clear the list of to be requested peer, so that we can end the call. 
+                if readFromPeerList.Count>0 then 
+                    for peeri in readFromPeerList do 
+                        if not (peerFailedForList.Contains(peeri)) then 
+                            peerFailedForList.Add( peeri )
+                    readFromPeerList.Clear()
+//                      Allow failing partition to continue the read operation. 
+//                    failwith msg
+//                else
+//                    bPartitionReadSent.[parti] <- false
+        // Remapping for some partition that fails to read successfully. 
+        x.SeekNewMapping( ) 
+    // Find new peers that will be assigned with partitions, send those partition information. 
+    // Return :
+    //      True: there are pending remapping command to be sentout. 
+    //      False: there is no remapping command pending. 
+    member internal x.SeekNewMapping(  ) = 
+//        let curDSet = x.CurDSet
+        let newPartitionForPeers = Array.create curDSet.Cluster.NumNodes null
+        let mutable bAnyPending = false
+        for parti=0 to curDSet.NumPartitions-1 do 
+//            if not bPartitionReadSent.[parti] then 
+                let readFromPeerList = x.partitionReadFromPeers.[parti]
+                for peeri in readFromPeerList do
+                    if peeri>=0 then 
+                        if Utils.IsNull newPartitionForPeers.[peeri] then 
+                            newPartitionForPeers.[peeri] <- List<int>()
+                        newPartitionForPeers.[peeri].Add( parti )
+                        bAnyPending <- true
+        if bAnyPending then              
+            x.DoRemapping( newPartitionForPeers )
+        else
+            false
+    /// an example of a remapping command. 
+    /// Parameter: peeri: int, send the command to ith peer
+    ///            peeriPartitionArray: int[], the command applies to the following partitions. 
+    ///            dset : the command applies to the following DSet
+    member internal x.RemappingCommandForRead ( queue:NetworkCommandQueue, peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
+        using( new MemStream( 1024 ) ) ( fun msPayload ->
+            // Add Job ID to DSet
+            msPayload.WriteGuid( x.JobID )
+            msPayload.WriteString( curDSet.Name )
+            msPayload.WriteInt64( curDSet.Version.Ticks )
+            msPayload.WriteVInt32( peeriPartitionArray.Length )
+            for parti in peeriPartitionArray do 
+                msPayload.WriteVInt32( parti )
+            Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Request to peer %d partition %A" peeri peeriPartitionArray ))
+            queue.ToSend( ControllerCommand( ControllerVerb.Read, ControllerNoun.DSet), msPayload )
+        )
+    member val internal DoRemapping = thisInstance.ExecuteNewMapping with get, set
+    /// Call back function used by Execute New Mapping, set this call back to have customized command to send to DSet.
+    /// Parameter: peeri: int, send the command to ith peer
+    ///            peeriPartitionArray: int[], the command applies to the following partitions. 
+    ///            dset : the command applies to the following DSet
+    member val internal RemappingCommandCallback = thisInstance.RemappingCommandForRead with get, set
+    /// Send outgoing DSet command. 
+    /// Return :
+    ///      True: there are pending remapping command to be sentout. 
+    ///      False: there is no remapping command pending. 
+    member internal x.ExecuteNewMapping(newPartitionForPeers) =
+        let bAnyRemappingRef = ref false
+        using ( getSingleJobAction() ) ( fun jobAction -> 
+            if Utils.IsNotNull jobAction then 
+                for peeri=0 to newPartitionForPeers.Length-1 do
+                    //if Utils.IsNotNull newPartitionForPeers.[peeri] then 
+                    //let peeriPartitionArray = newPartitionForPeers.[peeri] |> Seq.toArray
+                    let peeriPartitionArray = if Utils.IsNull (newPartitionForPeers.[peeri]) then
+                                                  [||]
+                                              else
+                                                  newPartitionForPeers.[peeri] |> Seq.toArray
+                    // if peeriPartitionArray.Length>0 then 
+                    bAnyRemappingRef := true
+                    let queue = curDSet.Cluster.QueueForWrite( peeri ) 
+                    if Utils.IsNotNull queue && queue.CanSend then        
+                        if x.bFirstReadCommand.[peeri] && not jobAction.IsCancelled then 
+                            x.bFirstReadCommand.[peeri] <- false
+                            using ( new MemStream( 1024 ) ) ( fun msSend -> 
+                                msSend.WriteGuid( x.JobID )
+                                msSend.WriteString( curDSet.Name )
+                                msSend.WriteInt64( curDSet.Version.Ticks )
+                                queue.ToSend( ControllerCommand( ControllerVerb.Use, ControllerNoun.DSet), msSend )
+                            )
+                        if not jobAction.IsCancelled then 
+                            for parti in peeriPartitionArray do 
+                                x.SentCmd( peeri, parti ) 
+                        if not jobAction.IsCancelled then 
+                            x.RemappingCommandCallback( queue, peeri, peeriPartitionArray, curDSet )
+                        let node = curDSet.Cluster.Nodes.[peeri]
+                        if curDSet.PeerRcvdSpeedLimit < node.NetworkSpeed && not jobAction.IsCancelled then 
+                            using ( new MemStream( 1024 ) ) ( fun msSpeed -> 
+                                msSpeed.WriteGuid( x.JobID )
+                                msSpeed.WriteString( curDSet.Name ) 
+                                msSpeed.WriteInt64( curDSet.Version.Ticks )
+                                msSpeed.WriteInt64( curDSet.PeerRcvdSpeedLimit )
+                                queue.SetRcvdSpeed(curDSet.PeerRcvdSpeedLimit)
+                                queue.ToSend( ControllerCommand( ControllerVerb.LimitSpeed, ControllerNoun.DSet), msSpeed )  
+                            )
+                        // One more Read DSet command outstanding. 
+                        Interlocked.Increment( x.numPeerPartitionCmdSent.[peeri] ) |> ignore
+            )
+        !bAnyRemappingRef
+    /// We have sent request to peeri for parti
+    member internal x.SentCmd( peeri, parti ) = 
+        x.partitionReadFromPeers.[parti].Remove(peeri ) |> ignore
+        x.peersTriedForPartition.[parti].Add(peeri)
+        x.bPartitionReadSent.[parti] <- true
+    member internal x.PartitionFailed( peeri, parti ) = 
+        if not (x.peersFailedForPartition.[parti].Contains(peeri)) then 
+            x.peersFailedForPartition.[parti].Add( peeri )
+        x.peersTriedForPartition.[parti].Remove(peeri ) |> ignore
+        x.partitionReadFromPeers.[parti].Remove(peeri ) |> ignore
+        x.bPartitionReadSent.[parti] <- false
+        
+    /// A peer encounter some error in processing parti
+    member internal x.ProcessedPartition( peeri, parti, numError ) = 
+        if numError = 0 then 
+            // Signal a certain partition is succesfully read
+            x.numErrorPartition.[parti] <- numError
+        else
+            // record failing peer for the partition. 
+            x.PartitionFailed( peeri, parti )
+            if x.numErrorPartition.[parti]<>0 then 
+                x.numErrorPartition.[parti] <- numError  
+    /// peeri sends feedback that it doesn't have a set of partitions. 
+    member internal x.NotExistPartitions( peeri, notFindPartitions ) = 
+        let bRemapped = ref false
+        for parti in notFindPartitions do 
+            let mutable bRemap = true
+            if Utils.IsNotNull curDSet.MappingNumElems then 
+                if curDSet.MappingNumElems.[parti].[0]<=0 then 
+                    bRemap <- false
+            if bRemap then 
+                bRemapped := true
+                x.PartitionFailed( peeri, parti )
+                if not (x.peersNonExistPartition.[parti].Contains( peeri) ) then 
+                    x.peersNonExistPartition.[parti].Add( peeri )
+        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> 
+           if !bRemapped then 
+               sprintf "Received non exist partition %A from peer %d execute remapping" notFindPartitions peeri 
+           else
+               sprintf "Received non exist partition %A from peer %d, but those partitions are empty during write" notFindPartitions peeri ))
+        !bRemapped
+// We rewrote the interface to not expose the following member.
+//    member x.NumErrorPartition with get() = numErrorPartition             
+//    member x.PeersFailedForPartition with get() = peersFailedForPartition
+//    member x.PartitionReadFromPeers with get() = partitionReadFromPeers
+    /// Have we read all DSets? 
+    member internal x.AllDSetsRead( ) = 
+        let mutable bEndReached = true
+        for peeri=0 to curDSet.Cluster.NumNodes - 1 do
+            let numRcvd = Volatile.Read( x.numPeerPartitionCmdRcvd.[peeri])
+            let numSent = Volatile.Read( x.numPeerPartitionCmdSent.[peeri])
+            if not x.bPeerFailed.[peeri] && numRcvd<numSent then 
+                // At least one peer still active
+                bEndReached <- false
+        bEndReached 
+    /// Indicate a Close, Partition or equivalent command has received from a peer, and the job requested from the peer has been completed. 
+    member internal x.PeerCmdComplete( peeri ) = 
+        Interlocked.Increment(x.numPeerPartitionCmdRcvd.[peeri]) |> ignore 

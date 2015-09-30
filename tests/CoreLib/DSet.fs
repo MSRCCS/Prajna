@@ -1536,3 +1536,74 @@ type DSetTests () =
         x.SaveToHDDTestWithMonitor 7 9 true
         x.SaveToHDDTestWithMonitor 9 11 true
         x.SaveToHDDTestWithMonitor 11 13 true
+
+    /// At this moment, remote exception will be directly carried back. 
+    /// In the future, we may choose to retry exception at partition (in other node), and only fails the job/partition after repeated retry. 
+    [<Test(Description = "Test: Throw Remote Exception and catch locally")>]
+    member x.DSetThrowRemoteExceptionAndCatchLocally () = 
+        let guid = Guid.NewGuid().ToString("D")
+        let dset = DSet<_> ( Name = guid, Cluster = cluster)
+        let refExceptionCatched = ref "Exception not propagated from client"
+        let refAdditionalInfo = ref null
+        let msg = "Test on Remote Exception"
+        try 
+            let result = (dset |> DSet.source ( fun () -> seq { let ex = System.OperationCanceledException( msg )
+                                                                raise(ex)
+                                                                yield (sprintf "%i-%i" (System.Diagnostics.Process.GetCurrentProcess().Id) 
+                                                                                            (Thread.CurrentThread.ManagedThreadId)) })).ToSeq() |> Array.ofSeq
+
+            Assert.IsEmpty(result)
+        with
+        | :? System.AggregateException as ex -> 
+            refExceptionCatched := null
+            for exIn in ex.InnerExceptions do 
+                match exIn with 
+                | :? System.OperationCanceledException as exInner -> 
+                    if String.Compare( exInner.Message, msg, StringComparison.Ordinal) <> 0 then 
+                        refExceptionCatched := "Incorrect inner exception message"
+                | _ -> 
+                    refExceptionCatched := "Incorrect inner exception type"
+        | ex -> 
+            refExceptionCatched := null
+            refAdditionalInfo := sprintf "[DSetThrowRemoteExceptionAndCatchLocally] Caught exception %A" ex
+        Assert.AreEqual( !refExceptionCatched, null )
+        if Utils.IsNotNull !refAdditionalInfo then 
+            Logger.Log( LogLevel.MildVerbose, !refAdditionalInfo)
+
+
+    member x.MapConcurrentTest (dsetName:string) numPartitions numRowsPerPartition sLimit (mapFunc : DSet<int> -> DSet<int * int>) (expectedFun : int -> int*int )=
+        let d = DSet<_> ( Name = dsetName, Cluster = cluster, SerializationLimit = sLimit)
+               |> DSet.sourceI numPartitions (fun i -> seq { for j in 0..(numRowsPerPartition-1) do yield (i * numRowsPerPartition + j)})
+
+        let d1 = d |> mapFunc
+
+        let r = d1.ToSeq() |> Array.ofSeq |> Array.sort
+
+        Assert.IsNotEmpty(r)
+        Assert.AreEqual(numPartitions * numRowsPerPartition, r.Length)
+
+        r |> Array.iteri ( fun i v ->  Assert.AreEqual (expectedFun i, v))
+                                                        
+    [<Test(Description = "Test for Concurrent read of DSet")>]
+    member x.DSetMapConcurrentTest() =
+        let guid = Guid.NewGuid().ToString("D")
+        System.Threading.Tasks.Parallel.For( 2, 4, fun numPartitions -> 
+            x.MapConcurrentTest guid numPartitions 13 1 (DSet.map ( fun v -> (v, v * v))) (fun i -> (i, i * i)) ) |> ignore 
+
+    [<Test(Description = "Test for Seq.take read of DSet")>]
+    member x.DSetMapSeqTakeTest() =
+        let numPartitions = 4 
+        let guid = Guid.NewGuid().ToString("D")
+        let d = DSet<_> ( Name = guid, Cluster = cluster)
+               |> DSet.sourceI numPartitions (fun i -> seq { for i = 0 to 100000 do yield 1})
+// We could use an infinite loop in the source. It will stress the UnitTest machine though, as the read job will pour data to the 
+// aggregator, before job is cancelled by Seq.take. 
+//        let d = DSet<_> ( Name = guid, Cluster = cluster)
+//               |> DSet.sourceI numPartitions (fun i -> seq { while true do yield 1})
+
+        let take length  = d.ToSeq() |> Seq.take length |> Array.ofSeq |> Array.sum
+
+        for test = 1 to 10 do 
+            let sum = take (test*10)
+            Assert.AreEqual( sum, test*10 )
+

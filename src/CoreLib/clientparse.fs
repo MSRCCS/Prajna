@@ -257,42 +257,62 @@ type internal Listener =
         Listener._Current
     static member NullReturn( ) : ControllerCommand * MemStream = 
         ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null    
-
-    member x.ParseServerCommand (queuePeer : NetworkCommandQueuePeer) 
+    static member ErrorAtDaemon( queue:NetworkCommandQueuePeer, msg ) = 
+        Logger.Log( LogLevel.Error, msg )
+        use msgError = new MemStream( 1024 )
+        msgError.WriteString( msg )
+        queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msgError )
+    static member ExceptionOfDSetAtDaemon ( queue: NetworkCommandQueuePeer, jobID: Guid, name, ver, ex ) = 
+        use msException = new MemStream(1024)
+        msException.WriteGuid( jobID )
+        msException.WriteString( name )
+        msException.WriteInt64( ver )
+        msException.WriteException( ex )
+        Logger.LogF( LogLevel.Info, fun _ -> sprintf "ExceptionOfDSetAtDaemon at job %A, DSet: %s, message :%A" jobID name ex )
+        queue.ToSend( ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet), msException )
+    member x.ParseSendBackAtDaemon( queuePeer : NetworkCommandQueuePeer, returnCmd : ControllerCommand, ms:MemStream ) = 
+        if queuePeer.CanSend then 
+            if returnCmd.Verb<>ControllerVerb.Unknown then 
+                queuePeer.ToSend( returnCmd, ms )
+    member x.ParseSendBackAtDaemonAndDispose( queuePeer : NetworkCommandQueuePeer, returnCmd : ControllerCommand, ms:MemStream ) = 
+        if queuePeer.CanSend then 
+            if returnCmd.Verb<>ControllerVerb.Unknown then 
+                queuePeer.ToSend( returnCmd, ms )
+        if Utils.IsNotNull ms then 
+            ( ms :> IDisposable ).Dispose()
+    /// Parse Command At Daemon
+    member x.ParseCommandAtDaemon (queuePeer : NetworkCommandQueuePeer) 
                                 (command : ControllerCommand)
                                 (ms : StreamBase<byte>) =
         let queue = queuePeer :> NetworkCommandQueue
         Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Command: %A" command))
-        let returnCmd, messageSendBack = 
+        // messageSendBack will be disposed at the end of the function if it is not null
+        // Command will be send directly if parsed 
+        if true then 
             try 
                 match (command.Verb, command.Noun ) with 
                 | (ControllerVerb.Availability, ControllerNoun.Blob ) ->
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ParseServerCommand Monitor: Availability, Blob rcvd ... "))
+                    Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "ParseCommandAtDaemon Monitor: Availability, Blob rcvd ... "))
                 | _ -> 
                     ()
-                let retOpt = x.TaskQueue.ParseCommand( queuePeer, command, ms ) 
-                match retOpt with 
-                | Some ( x ) ->
-                    x
-                | None ->
-                    let msSend = new MemStream( 1024 )
+                let bParsed = x.TaskQueue.ParseCommandAtDaemon( queuePeer, command, ms ) 
+                if not bParsed then 
                     match (command.Verb, command.Noun ) with
                     | (ControllerVerb.Unknown, _ ) ->
-                        ( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Message ), null )
+                        ()
                     // Command: Nothing Message - just measure bandwidth
                     | (ControllerVerb.Nothing, ControllerNoun.Message) ->
                         queue.MonitorRcvd()
-                        Listener.NullReturn()
                     // Command: Echo Message
                     | (ControllerVerb.Echo, ControllerNoun.Message ) ->
                         let len = int ( ms.Length - ms.Position )
                         let sendBuf = Array.zeroCreate<byte> len
                         ms.Read( sendBuf, 0, len ) |> ignore
-                        let msSend = new MemStream( len )
+                        use msSend = new MemStream( len )
                         msSend.Write( sendBuf, 0, len )
                         let retCmd = ControllerCommand( ControllerVerb.EchoReturn, ControllerNoun.Message )
                         queue.MonitorRcvd()
-                        ( retCmd, msSend ) 
+                        queue.ToSend( retCmd, msSend ) 
                     // Command: Set CurrentClusterInfo
                     | (ControllerVerb.Set, ControllerNoun.ClusterInfo ) ->
                         if Utils.IsNotNull queuePeer then 
@@ -300,43 +320,49 @@ type internal Listener =
                             let obj = ClusterInfo.Unpack( ms )
                             match obj with
                             | Some ( cluster ) ->
-                                cluster.Persist()
+                                let fname = cluster.Persist()
                                 if Utils.IsNotNull queuePeer.SetDSetMSG then 
-                                    queuePeer.SetDSet( )
+                                    let cmd, msSend = queuePeer.SetDSet( Guid.Empty )
+                                    x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msSend )
                                 else    
-                                    ( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.ClusterInfo ), null )
+                                    queue.ToSend( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.ClusterInfo ), null )
                             | None ->
                                 let msg = "Set CurrentClusterInfo can't be unpacked, object is not based on ClusterInfoBase"
                                 Logger.Log( LogLevel.Error, msg )
+                                let msSend = new MemStream(1024)
                                 msSend.WriteString( msg )
-                                ( ControllerCommand( ControllerVerb.Error, ControllerNoun.ClusterInfo ), msSend )
+                                queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.ClusterInfo ), msSend )
                         else
                             let msg = "Set CurrentClusterInfo is received on a socket that is not returned from accept()"
                             Logger.Log( LogLevel.Error, msg )
+                            use msSend = new MemStream(1024)
                             msSend.WriteString( msg )
-                            ( ControllerCommand( ControllerVerb.Error, ControllerNoun.ClusterInfo ), msSend )
+                            queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.ClusterInfo ), msSend )
                     // Command : Set DSet
                     | (ControllerVerb.Set, ControllerNoun.DSet ) ->
+                        let jobID = ms.ReadGuid()
+                        let name, verNumber = DSet.Peek( ms )
+                        let jobLifeCycleObj = JobLifeCycleCollectionDaemon.BeginJob( jobID, name, verNumber, queue.RemoteEndPointSignature )
                         if Utils.IsNotNull queuePeer then 
-                            queuePeer.SetDSet( ms ) 
+                            let cmd, msReply = queuePeer.SetDSet( jobID, ms ) 
+                            x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply )
                         else
                             let msg = "Set DSet should not be called from outgoing connection"
                             Logger.Log( LogLevel.Error, msg )
+                            use msSend = new MemStream(1024)
                             msSend.WriteString( msg )
-                            ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msSend )
+                            x.ParseSendBackAtDaemon( queuePeer, ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msSend ) 
                     | (ControllerVerb.Get, ControllerNoun.DSet ) ->
+                        let jobID = ms.ReadGuid() 
                         let name = ms.ReadString()
                         let verNumber = ms.ReadInt64()
                         let verCluster = ms.ReadInt64()
-                        DSetPeer.ParsePeerDSet( name, verNumber, verCluster )
+                        let cmd, msReply = DSetPeer.ParsePeerDSet( jobID, name, verNumber, verCluster )
+                        x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | (ControllerVerb.WriteMetadata, ControllerNoun.DSet ) -> 
-                        if Utils.IsNotNull queuePeer then 
-                                    queuePeer.UpdateDSet( ms ) 
-                                else
-                                    let msg = "Update DSet should not be called from outgoing connection"
-                                    Logger.Log( LogLevel.Error, msg )
-                                    msSend.WriteString( msg )
-                                    ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msSend )
+                        let jobID = ms.ReadGuid()
+                        let cmd, msReply = queuePeer.UpdateDSet( jobID, ms ) 
+                        x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | (ControllerVerb.Update, ControllerNoun.DSet )
                     | (ControllerVerb.Read, ControllerNoun.DSet ) 
                     | (ControllerVerb.LimitSpeed, ControllerNoun.DSet ) 
@@ -346,6 +372,7 @@ type internal Listener =
                     | (ControllerVerb.Write, ControllerNoun.DSet ) 
                     | (ControllerVerb.Use, ControllerNoun.DSet ) 
                     | (ControllerVerb.Close, ControllerNoun.DSet ) 
+                    | (ControllerVerb.Cancel, ControllerNoun.DSet ) 
                     | (ControllerVerb.ReplicateClose, ControllerNoun.DSet ) 
                     | (ControllerVerb.Fold, ControllerNoun.DSet ) 
                     | (ControllerVerb.ReadToNetwork, ControllerNoun.DSet ) 
@@ -353,182 +380,198 @@ type internal Listener =
                     | (ControllerVerb.Start, ControllerNoun.Service ) 
                     | (ControllerVerb.Stop, ControllerNoun.Service ) ->
                         let bufPos = int ms.Position
-                        let name, verNumber = 
-                            match command.Verb with
-                            | (ControllerVerb.Update ) ->
-                                DSet.Peek( ms )
-                            | _ -> 
-                                ms.ReadString(), ms.ReadInt64()                                            
-//                                            let fullname = name + StringTools.VersionToString( DateTime(verNumber) )
-                        let curDSet = DSetPeerFactory.ResolveDSetPeer( name, verNumber )
-                        if Utils.IsNotNull curDSet then  
-                            // DSet is in the client space. 
-                            match (command.Verb, command.Noun ) with
-                            | (ControllerVerb.Update, ControllerNoun.DSet ) ->
-                                if Utils.IsNotNull queuePeer then 
-                                    queuePeer.UpdateDSet( ms ) 
-                                else
-                                    let msg = "Set DSet should not be called from outgoing connection"
-                                    Logger.Log( LogLevel.Error, msg )
-                                    msSend.WriteString( msg )
-                                    ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msSend )
-                            | (ControllerVerb.Read, ControllerNoun.DSet ) ->                                                   
-                                let npart = ms.ReadVInt32()
-                                let partitions = Array.zeroCreate<int> npart
-                                for i=0 to partitions.Length - 1 do
-                                    partitions.[i] <- ms.ReadVInt32()
-                                let cmd, msInfo, task = Task.ReadDSet( curDSet, queuePeer, partitions )
-                                if Utils.IsNotNull task then 
-                                    let foundTask = x.TaskQueue.AddTask( task, null )
-                                    ( cmd, msInfo )
-                                else
-                                    // Nothing to read
-                                    let msWire = new MemStream( 1024 )
-                                    msWire.WriteString( name ) 
-                                    msWire.WriteInt64( verNumber )
-                                    ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet ), msWire
-                            | (ControllerVerb.LimitSpeed, ControllerNoun.DSet ) ->
-                                let rcvdSpeed = ms.ReadInt64()
-                                curDSet.PeerRcvdSpeed <- rcvdSpeed
-                                let msg = sprintf "Peer %d: Set recieving speed of every peer to %d" curDSet.CurPeerIndex rcvdSpeed
-                                let msInfo = new MemStream(1024)
-                                msInfo.WriteString( msg ) 
-                                Logger.Log( LogLevel.WildVerbose, msg )
-                                ( ControllerCommand( ControllerVerb.Info, ControllerNoun.Message ), msInfo )
-                            | (ControllerVerb.WriteAndReplicate, ControllerNoun.DSet )
-                            | (ControllerVerb.ReplicateWrite, ControllerNoun.DSet )
-                            | (ControllerVerb.Write, ControllerNoun.DSet ) ->
-                                if ( command.Verb = ControllerVerb.WriteAndReplicate ) then 
-                                    // In case of replication, we will need to start at an earlier position. 
-                                    let cmd, msInfo = curDSet.ReplicateDSet( ms, bufPos ) 
-                                    let hostQueue = curDSet.HostQueue
-                                    match (cmd.Verb) with 
-                                    | ControllerVerb.Error 
-                                    | ControllerVerb.Verbose
-                                    | ControllerVerb.Warning ->
-                                        if Utils.IsNotNull hostQueue && hostQueue.CanSend then 
-                                            hostQueue.ToSend( cmd, msInfo )
-                                    | _ ->
-                                        ()
-                                curDSet.WriteDSet( ms, queue, command.Verb=ControllerVerb.ReplicateWrite ) 
-                            | (ControllerVerb.Close, ControllerNoun.Partition ) ->
-                                let parti = ms.ReadVInt32()
-                                let nError = ms.ReadVInt32()
-                                curDSet.EndPartition( ms, queue, parti, x.callback )                                                  
-                            | (ControllerVerb.Close, ControllerNoun.DSet ) 
-                            | (ControllerVerb.ReplicateClose, ControllerNoun.DSet ) ->
-                                curDSet.CloseDSet( ms, queue, command.Verb=ControllerVerb.ReplicateClose, x.callback ) 
-                            | (ControllerVerb.Use, ControllerNoun.DSet ) ->
-                                DSetPeer.UseDSet( name, verNumber )
-                            | (ControllerVerb.Echo, ControllerNoun.DSet ) ->                                                      
-                                Listener.NullReturn()
-                            | _ -> 
-                                Logger.LogF( LogLevel.Warning, (fun _ -> sprintf "receive command %A direct to a DSetPeer %s:%s, don't know how to process, discard the message" 
-                                                                           command curDSet.Name curDSet.VersionString))
-                                ( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Message ), null )
-                        else 
-                            // DSet is in the task space? 
-                            // Is DSet in one of the job that is being executed?
-                            let dsetTask = x.TaskQueue.FindDSet( name, verNumber )
-                            if not (Utils.IsNull dsetTask) then 
-                                let msTask = new MemStream( 1024 )
-                                msTask.WriteString( dsetTask.Name ) 
-                                msTask.WriteInt64( dsetTask.Version.Ticks ) 
-                                msTask.WriteIPEndPoint( queue.RemoteEndPoint :?> IPEndPoint )
-                                msTask.WriteVInt32( int FunctionParamType.DSet )
-                                ms.Seek( int64 bufPos, SeekOrigin.Begin ) |> ignore
-                                ms.InsertBefore( msTask ) |> ignore
-                                let msForward = msTask
-                                msSend.WriteString( name )
-                                msSend.WriteInt64( verNumber )                                                    
-                                match (command.Verb, command.Noun ) with
-                                | (ControllerVerb.Read, ControllerNoun.DSet ) ->                                                                                                      
-                                    dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Read, ControllerNoun.Job ), msForward )
-                                    ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend  
-                                | (ControllerVerb.Fold, ControllerNoun.DSet ) ->
-                                    dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Fold, ControllerNoun.Job ), msForward )
-                                    ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend  
-                                | (ControllerVerb.ReadToNetwork, ControllerNoun.DSet ) ->
-                                    dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.ReadToNetwork, ControllerNoun.Job ), msForward )
-                                    ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend  
-                                | (ControllerVerb.Update, ControllerNoun.DSet ) ->
-                                    Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Send UpdateParam to %A for %s" dsetTask.QueueAtClient.EPInfo name))
-                                    dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.UpdateParam, ControllerNoun.Job ), msForward )
-                                    ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend  
-                                | (ControllerVerb.Echo, ControllerNoun.DSet ) ->
-                                    dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Echo2, ControllerNoun.Job ), msForward )
-                                    Listener.NullReturn()
-                                | (ControllerVerb.Use, ControllerNoun.DSet ) ->
-                                    ( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend )  
-                                | (ControllerVerb.Start, ControllerNoun.Service ) ->
-                                    dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Start, ControllerNoun.Service ), msForward )
-                                    let taskHolder = dsetTask.TaskHolder
-                                    if not ( Utils.IsNull taskHolder ) then 
-                                        /// Service doubled as DSet name 
-                                        taskHolder.LaunchedServices.GetOrAdd( dsetTask.Name, true ) |> ignore 
-                                    ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend  
-                                | (ControllerVerb.Stop, ControllerNoun.Service ) ->
-                                    dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Stop, ControllerNoun.Service ), msForward )
-                                    let taskHolder = dsetTask.TaskHolder
-                                    if not ( Utils.IsNull taskHolder ) then 
-                                        /// Service doubled as DSet name 
-                                        taskHolder.LaunchedServices.TryRemove( dsetTask.Name ) |> ignore 
-                                    ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend  
-                                | _ ->
-                                    failwith "Logic error, should never reach here"
+                        let jobID = ms.ReadGuid()
+                        using ( SingleJobActionDaemon.TryFind(jobID)) ( fun jobAction -> 
+                            if Utils.IsNull jobAction then 
+                                Logger.LogF( jobID, LogLevel.Warning, (fun _ -> sprintf "receive command %A of payload %dB, however, can't find corresponding jobLifeCycle object, the command will be discarded. " 
+                                                                                            command ms.Length))
                             else
-                                match (command.Verb, command.Noun ) with
-                                | (ControllerVerb.Use, ControllerNoun.DSet ) ->
-                                    DSetPeer.UseDSet( name, verNumber )
-                                | (ControllerVerb.Stop, ControllerNoun.Service ) ->
-                                    let serviceName = ms.ReadString() 
-                                    let taskHolder = x.TaskQueue.FindTaskHolderByService( serviceName ) 
-                                    let mutable bSuccess = false
-                                    if not (Utils.IsNull taskHolder) then 
-                                        let queueAtClient = taskHolder.JobLoopbackQueue 
-                                        if not (Utils.IsNull queueAtClient) && queueAtClient.CanSend then 
-                                            let msTask = new MemStream( 1024 )
-                                            msTask.WriteString( "" ) 
-                                            msTask.WriteInt64( 0L ) 
+                                try 
+                                    let name, verNumber = 
+                                        match command.Verb with
+                                        | (ControllerVerb.Update ) ->
+                                            DSet.Peek( ms )
+                                        | _ -> 
+                                            ms.ReadString(), ms.ReadInt64()                                            
+                                    let curDSet = DSetPeerFactory.ResolveDSetPeer( name, verNumber )
+                                    if Utils.IsNotNull curDSet then  
+                                        // DSet is in the client space. 
+                                        match (command.Verb, command.Noun ) with
+                                        | (ControllerVerb.Update, ControllerNoun.DSet ) ->
+                                            if Utils.IsNotNull queuePeer then 
+                                                let cmd, msReply = queuePeer.UpdateDSet( jobID, ms ) 
+                                                x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
+                                            else
+                                                let msg = "Set DSet should not be called from outgoing connection"
+                                                Listener.ErrorAtDaemon( queuePeer, msg )
+                                        | (ControllerVerb.Read, ControllerNoun.DSet ) ->                                                   
+                                            let npart = ms.ReadVInt32()
+                                            let partitions = Array.zeroCreate<int> npart
+                                            for i=0 to partitions.Length - 1 do
+                                                partitions.[i] <- ms.ReadVInt32()
+                                            let cmd, msInfo, task = Task.ReadDSet( curDSet, queuePeer, partitions )
+                                            if Utils.IsNotNull task then 
+                                                let foundTask = x.TaskQueue.AddTask( task, null )
+                                                x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msInfo )
+                                            else
+                                                // Nothing to read
+                                                use msWire = new MemStream( 1024 )
+                                                msWire.WriteString( name ) 
+                                                msWire.WriteInt64( verNumber )
+                                                queuePeer.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet ), msWire )
+                                        | (ControllerVerb.LimitSpeed, ControllerNoun.DSet ) ->
+                                            let rcvdSpeed = ms.ReadInt64()
+                                            curDSet.PeerRcvdSpeed <- rcvdSpeed
+                                            let msg = sprintf "Peer %d: Set recieving speed of every peer to %d" curDSet.CurPeerIndex rcvdSpeed
+                                            let msInfo = new MemStream(1024)
+                                            msInfo.WriteString( msg ) 
+                                            Logger.Log( LogLevel.WildVerbose, msg )
+                                            queuePeer.ToSend( ControllerCommand( ControllerVerb.Info, ControllerNoun.Message ), msInfo )
+                                        | (ControllerVerb.WriteAndReplicate, ControllerNoun.DSet )
+                                        | (ControllerVerb.ReplicateWrite, ControllerNoun.DSet )
+                                        | (ControllerVerb.Write, ControllerNoun.DSet ) ->
+                                            if ( command.Verb = ControllerVerb.WriteAndReplicate ) then 
+                                                // In case of replication, we will need to start at an earlier position. 
+                                                let cmd, msInfo = curDSet.ReplicateDSet( ms, bufPos ) 
+                                                let hostQueue = curDSet.HostQueue
+                                                match (cmd.Verb) with 
+                                                | ControllerVerb.Error 
+                                                | ControllerVerb.Verbose
+                                                | ControllerVerb.Warning ->
+                                                    if Utils.IsNotNull hostQueue && hostQueue.CanSend then 
+                                                        hostQueue.ToSend( cmd, msInfo )
+                                                | _ ->
+                                                    ()
+                                            let cmd, msReply =curDSet.WriteDSet( ms, queue, command.Verb=ControllerVerb.ReplicateWrite ) 
+                                            x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
+                                        | (ControllerVerb.Close, ControllerNoun.Partition ) ->
+                                            let parti = ms.ReadVInt32()
+                                            let nError = ms.ReadVInt32()
+                                            let cmd, msReply =curDSet.EndPartition( ms, queue, parti, x.callback )                                                  
+                                            x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
+                                        | (ControllerVerb.Close, ControllerNoun.DSet ) 
+                                        | (ControllerVerb.ReplicateClose, ControllerNoun.DSet ) ->
+                                            let cmd, msReply = curDSet.CloseDSet( jobID, ms, queue, command.Verb=ControllerVerb.ReplicateClose, x.callback ) 
+                                            x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
+                                        | (ControllerVerb.Use, ControllerNoun.DSet ) ->
+                                            let cmd, msReply = DSetPeer.UseDSet( jobID, name, verNumber )
+                                            x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
+                                        | (ControllerVerb.Echo, ControllerNoun.DSet ) ->                                                      
+                                            ()
+                                        | (ControllerVerb.Cancel, ControllerNoun.DSet ) ->
+                                            jobAction.CancelJob()
+                                        | _ -> 
+                                            Logger.LogF( LogLevel.Warning, (fun _ -> sprintf "receive command %A direct to a DSetPeer %s:%s, don't know how to process, discard the message" 
+                                                                                       command curDSet.Name curDSet.VersionString))
+                                            ( )
+                                    else 
+                                        // DSet is in the task space? 
+                                        // Is DSet in one of the job that is being executed?
+                                        let dsetTask = x.TaskQueue.FindDSet( name, verNumber )
+                                        if not (Utils.IsNull dsetTask) then 
+                                            use msTask = new MemStream( 1024 )
+                                            msTask.WriteGuid( jobID )
+                                            msTask.WriteString( dsetTask.Name ) 
+                                            msTask.WriteInt64( dsetTask.Version.Ticks ) 
                                             msTask.WriteIPEndPoint( queue.RemoteEndPoint :?> IPEndPoint )
                                             msTask.WriteVInt32( int FunctionParamType.DSet )
-                                            msTask.WriteString( name ) 
-                                            msTask.WriteInt64( verNumber ) 
-                                            msTask.WriteString( serviceName ) 
-                                            queueAtClient.ToSend( ControllerCommand( ControllerVerb.Stop, ControllerNoun.Service ), msTask )
-                                            bSuccess <- true
-                                    if bSuccess then 
-                                        msSend.WriteString( name )
-                                        msSend.WriteInt64( verNumber )                                                    
-                                        ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend  
-                                    else
-                                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to stop service %s, while can't find running service in task holders %s ..." serviceName (x.TaskQueue.MonitorExecutionTable()) ))
-                                        let bSuccessToStop = true
-                                        let msInfo =  new MemStream( 1024 )
-                                        msInfo.WriteString( name )
-                                        msInfo.WriteInt64( verNumber ) 
-                                        msInfo.WriteBoolean( bSuccessToStop )
-                                        ( ControllerCommand( ControllerVerb.ConfirmStop, ControllerNoun.Service), msInfo )                                                    
-                                | _ -> 
-                                    let msg = sprintf "%A,%A, can't find DSet name %s:%s in both DSetPeerFactory and in existing tasks" command.Verb command.Noun name (VersionToString(DateTime(verNumber)))
-                                    Logger.Log( LogLevel.Error, msg )
-                                    msSend.WriteString( msg )
-                                    ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msSend )        
+                                            ms.Seek( int64 bufPos, SeekOrigin.Begin ) |> ignore
+                                            use msForward = ms.InsertBefore( msTask )
+                                            match (command.Verb, command.Noun ) with
+                                            | (ControllerVerb.Read, ControllerNoun.DSet ) ->                                                                                                      
+                                                dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Read, ControllerNoun.Job ), msForward )
+                                                () 
+                                            | (ControllerVerb.Fold, ControllerNoun.DSet ) ->
+                                                dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Fold, ControllerNoun.Job ), msForward )
+                                                ()
+                                            | (ControllerVerb.ReadToNetwork, ControllerNoun.DSet ) ->
+                                                dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.ReadToNetwork, ControllerNoun.Job ), msForward )
+                                                ()
+                                            | (ControllerVerb.Update, ControllerNoun.DSet ) ->
+                                                Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Send UpdateParam to %A for %s" dsetTask.QueueAtClient.EPInfo name))
+                                                dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.UpdateParam, ControllerNoun.Job ), msForward )
+                                                ()
+                                            | (ControllerVerb.Echo, ControllerNoun.DSet ) ->
+                                                dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Echo2, ControllerNoun.Job ), msForward )
+                                                ()
+                                            | (ControllerVerb.Use, ControllerNoun.DSet ) ->
+                                                ()  
+                                            | (ControllerVerb.Cancel, ControllerNoun.DSet ) ->
+                                                dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Cancel, ControllerNoun.Job ), msForward )
+                                            | (ControllerVerb.Start, ControllerNoun.Service ) ->
+                                                dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Start, ControllerNoun.Service ), msForward )
+                                                let taskHolder = dsetTask.TaskHolder
+                                                if not ( Utils.IsNull taskHolder ) then 
+                                                    /// Service doubled as DSet name 
+                                                    taskHolder.LaunchedServices.GetOrAdd( dsetTask.Name, true ) |> ignore 
+                                                ()
+                                            | (ControllerVerb.Stop, ControllerNoun.Service ) ->
+                                                dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Stop, ControllerNoun.Service ), msForward )
+                                                let taskHolder = dsetTask.TaskHolder
+                                                if not ( Utils.IsNull taskHolder ) then 
+                                                    /// Service doubled as DSet name 
+                                                    taskHolder.LaunchedServices.TryRemove( dsetTask.Name ) |> ignore 
+                                                ()
+                                            | _ ->
+                                                failwith "Logic error, should never reach here"
+                                        else
+                                            match (command.Verb, command.Noun ) with
+                                            | (ControllerVerb.Use, ControllerNoun.DSet ) ->
+                                                let cmd, msReply = DSetPeer.UseDSet( jobID, name, verNumber )
+                                                x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
+                                            | (ControllerVerb.Stop, ControllerNoun.Service ) ->
+                                                let serviceName = ms.ReadString() 
+                                                let taskHolder = x.TaskQueue.FindTaskHolderByService( serviceName ) 
+                                                let mutable bSuccess = false
+                                                if not (Utils.IsNull taskHolder) then 
+                                                    let queueAtClient = taskHolder.JobLoopbackQueue 
+                                                    if not (Utils.IsNull queueAtClient) && queueAtClient.CanSend then 
+                                                        use msTask = new MemStream( 1024 )
+                                                        msTask.WriteGuid( jobID )
+                                                        msTask.WriteString( "" ) 
+                                                        msTask.WriteInt64( 0L ) 
+                                                        msTask.WriteIPEndPoint( queue.RemoteEndPoint :?> IPEndPoint )
+                                                        msTask.WriteVInt32( int FunctionParamType.DSet )
+                                                        msTask.WriteString( name ) 
+                                                        msTask.WriteInt64( verNumber ) 
+                                                        msTask.WriteString( serviceName ) 
+                                                        queueAtClient.ToSend( ControllerCommand( ControllerVerb.Stop, ControllerNoun.Service ), msTask )
+                                                        bSuccess <- true
+                                                if bSuccess then 
+                                                    () 
+                                                else
+                                                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to stop service %s, while can't find running service in task holders %s ..." serviceName (x.TaskQueue.MonitorExecutionTable()) ))
+                                                    let bSuccessToStop = true
+                                                    use msInfo =  new MemStream( 1024 )
+                                                    msInfo.WriteGuid( jobID )
+                                                    msInfo.WriteString( name )
+                                                    msInfo.WriteInt64( verNumber ) 
+                                                    msInfo.WriteBoolean( bSuccessToStop )
+                                                    queuePeer.ToSend( ControllerCommand( ControllerVerb.ConfirmStop, ControllerNoun.Service), msInfo )                                                    
+                                            | _ -> 
+                                                let msg = sprintf "%A,%A, can't find DSet name %s:%s in both DSetPeerFactory and in existing tasks" command.Verb command.Noun name (VersionToString(DateTime(verNumber)))
+                                                Listener.ErrorAtDaemon( queuePeer, msg )
+                                with
+                                | ex -> 
+                                    jobAction.EncounterExceptionAtContainer( ex, "___ ParseCommandAtDaemon (Multiple Parser) ___")
+
+                        )
                     | ( ControllerVerb.Link, ControllerNoun.Program ) ->
                         let sigName = ms.ReadString()
                         let sigVersion = ms.ReadInt64()
                         let mutable bCanStart = true
                         let socket = queue.Socket
                         let ipEndPoint = queue.RemoteEndPoint :?> Net.IPEndPoint
-//                        if ipEndPoint.Address=Net.IPAddress.Loopback then 
-//                            () // JinL: Loopback is set before Listen operation. 
-//                        else
-//                            bCanStart <- false
-//                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Link, Program is not called to a loop back interface: %A" ipEndPoint.Address ))
-                        if not bCanStart then 
-                            ( ControllerCommand( ControllerVerb.Close, ControllerNoun.Program ), null )    
+                        if ipEndPoint.Address=Net.IPAddress.Loopback then 
+                            () // JinL: Loopback is set before Listen operation. 
                         else
-                            x.TaskQueue.LinkSeparateProgram( queue, sigName, sigVersion )                                                
+                            bCanStart <- false
+                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Link, Program is not called to a loop back interface: %A" ipEndPoint.Address ))
+                        if not bCanStart then 
+                            queuePeer.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.Program ), null )    
+                        else
+                            let cmd, msReply = x.TaskQueue.LinkSeparateProgram( queue, sigName, sigVersion )                                                
+                            x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | (ControllerVerb.Register, ControllerNoun.Contract ) -> 
                         // Register a certain service, it should come from loopback queue 
                         let ipEndPoint = queue.RemoteEndPoint :?> Net.IPEndPoint
@@ -536,7 +579,8 @@ type internal Listener =
                             // We don't expect service registration other than from loop back queue, but it can be supported later. 
                             Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf  "Receive Register, Service from endpoint %s, which is not a loopback interface" (LocalDNS.GetShowInfo(ipEndPoint)) ))
                         let name, info, bReload = ContractInfo.UnpackWithName( ms ) 
-                        ContractStoreAtDaemon.Current.RegisterContract( name, info, queue.RemoteEndPointSignature, bReload )
+                        let cmd, msReply = ContractStoreAtDaemon.Current.RegisterContract( name, info, queue.RemoteEndPointSignature, bReload )
+                        x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | (ControllerVerb.Get, ControllerNoun.Contract ) -> 
                         // Register a certain service, it should come from loopback queue 
                         let ipEndPoint = queue.RemoteEndPoint :?> Net.IPEndPoint
@@ -544,58 +588,56 @@ type internal Listener =
                             // We don't expect service registration other than from loop back queue, but it can be supported later. 
                             Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf  "Receive Get, Service from endpoint %s, which is not a loopback interface" (LocalDNS.GetShowInfo(ipEndPoint)) ))
                         let name = ms.ReadStringV()
-                        ContractStoreAtDaemon.Current.LookforContract( name, queue.RemoteEndPointSignature ) 
+                        let cmd, msReply = ContractStoreAtDaemon.Current.LookforContract( name, queue.RemoteEndPointSignature ) 
+                        x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | (ControllerVerb.Request, ControllerNoun.Contract ) -> 
-                        ContractStoreAtDaemon.Current.ProcessContractRequest( ms, queue.RemoteEndPointSignature )
+                        let cmd, msReply = ContractStoreAtDaemon.Current.ProcessContractRequest( ms, queue.RemoteEndPointSignature )
+                        x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | (ControllerVerb.Reply, ControllerNoun.Contract ) -> 
-                        ContractStoreAtDaemon.Current.ProcessContractReply( ms, queue.RemoteEndPointSignature )
+                        let cmd, msReply = ContractStoreAtDaemon.Current.ProcessContractReply( ms, queue.RemoteEndPointSignature )
+                        x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | (ControllerVerb.FailedReply, ControllerNoun.Contract ) -> 
-                        ContractStoreAtDaemon.Current.ProcessContractReply( ms, queue.RemoteEndPointSignature )
+                        let cmd, msReply = ContractStoreAtDaemon.Current.ProcessContractReply( ms, queue.RemoteEndPointSignature )
+                        x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | (ControllerVerb.FailedRequest, ControllerNoun.Contract ) -> 
-                        ContractStoreAtDaemon.Current.ProcessContractFailedRequest( ms, queue.RemoteEndPointSignature )
+                        let cmd, msReply = ContractStoreAtDaemon.Current.ProcessContractFailedRequest( ms, queue.RemoteEndPointSignature )
+                        x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply ) 
                     | ( ControllerVerb.Stop, ControllerNoun.Program ) ->
                         let sigName = ms.ReadString()
                         let sigVersion = ms.ReadInt64()
                         let ipEndPoint = queue.RemoteEndPoint :?> Net.IPEndPoint
-                        if ipEndPoint.Address=Net.IPAddress.Loopback || true then 
-                            x.TaskQueue.DelinkSeparateProgram( queue, sigName, sigVersion )                                                      
+                        if ipEndPoint.Address=Net.IPAddress.Loopback then 
+                            let cmd, msReply = x.TaskQueue.DelinkSeparateProgram( queue, sigName, sigVersion )   
+                            x.ParseSendBackAtDaemonAndDispose( queuePeer, cmd, msReply )                                                    
                         else
                             let msg = sprintf "Stop, Program is not called to a loop back interface: %A" ipEndPoint.Address
-                            Logger.Log( LogLevel.Info, msg )
-                            let msError = new MemStream( 1024 )
-                            msError.WriteString( msg ) 
-                            ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError ) 
+                            Listener.ErrorAtDaemon( queuePeer, msg )
                     | (ControllerVerb.Close, ControllerNoun.All ) ->
                         queue.Close()
-                        ( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )    
                     // Acknowledge, warning can be ignored
                     | (ControllerVerb.Acknowledge, _ ) ->
                         // Nothing needs to be returned. 
-                        ( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )
+                        ()
                     // Verbose message.
                     | (ControllerVerb.Verbose, _ ) ->
                         let msg = 
                             try ms.ReadString() with e -> "Failed when try to parse return message at Listener."
                         Logger.Log( LogLevel.MediumVerbose, ( sprintf "From socket %A, received... Command %A...  %s" queue.RemoteEndPoint command msg ))
-                        ( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )
                     // Acknowledge, warning can be ignored
                     | (ControllerVerb.Info, _ ) ->
                         let msg = 
                             try ms.ReadString() with e -> "Failed when try to parse return message at Listener."
                         Logger.Log( LogLevel.MildVerbose, ( sprintf "From socket %A, received... Command %A...  %s" queue.RemoteEndPoint command msg ))
-                        ( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )
                     | (ControllerVerb.Warning, _ ) ->
                         let msg = 
                             try ms.ReadString() with e -> "Failed when try to parse return message at Listener."
                         Logger.Log( LogLevel.Info, ( sprintf "From socket %A, received... Command %A...  %s" queue.RemoteEndPoint command msg ))
                         // Nothing needs to be returned. 
-                        ( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )
                     | (ControllerVerb.Error, _ ) ->
                         let msg = 
                             try ms.ReadString() with e -> "Failed when try to parse error message at Listener."
                         Logger.Log( LogLevel.MildVerbose, ( sprintf "Error from socket %A, received... Command %A...  %s" queue.RemoteEndPoint command msg ))
                         // Nothing needs to be returned. 
-                        ( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )
                     | ( ControllerVerb.Forward, ControllerNoun.Message ) -> 
                         // Forward message to a different endpoint. 
                         let nForwards = ms.ReadVInt32()
@@ -620,40 +662,16 @@ type internal Listener =
                                     Logger.Log( LogLevel.MildVerbose, ( sprintf "Forward Message: failed to find forwarding queue %A for command %A" endPoints.[i] cmd ))
                                 else
                                     Logger.Log( LogLevel.MildVerbose, ( sprintf "Forward Message: forwarding queue %A has been shutdown for command %A" queueSend.RemoteEndPoint cmd ))
-                        ( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Message ), null )
+                        ()
                     | _ ->
                         let msg = sprintf "Unknown Command %A with %dB payload" command ms.Length
-                        Logger.Log( LogLevel.Error, msg )
-                        msSend.WriteString( msg )
-                        ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Unknown ), msSend )
-//                            match ( retCmd.Verb, retCmd.Noun )  with 
-//                            | (ControllerVerb.Error, _ ) ->
-//                                let showStream = new MemStream( msSend.GetBuffer(), 0, int 
-//                                msSend.Length ) 
-//                                let info = showStream.ReadString()
-//                                Logger.Log( LogLevel.Info,  sprintf "Error %A ---> %s" retCmd.Noun info  )
-//                            | _ -> 
-//                                ()
+                        Listener.ErrorAtDaemon( queuePeer, msg )
             with
-            | e ->
-                let retCmd = ControllerCommand( ControllerVerb.Error, ControllerNoun.Message )
-                let msSend = new MemStream( 1024 )
-                let msg = sprintf "When parsing command %A buf %A get exception %A" command (ms.GetBuffer()) e
-                Logger.Log( LogLevel.Error, msg )
-                msSend.WriteString( msg )
-                ( retCmd, msSend )
-        if queue.CanSend then 
-            if returnCmd.Verb<>ControllerVerb.Unknown then 
-                queue.ToSend( returnCmd, messageSendBack )
-        if (Utils.IsNotNull messageSendBack) then
-            messageSendBack.DecRef()
-//        match ( returnCmd.Verb, returnCmd.Noun) with 
-//        | ( ControllerVerb.Error, _ )
-//        | ( ControllerVerb.Close, ControllerNoun.DSet ) ->
-//            // Close after first error 
-//            queue.Close()
-//        | _ ->
-//            ()   
+            | ex ->
+                let msg = sprintf "When parsing command %A buf %A get exception %A" command (ms.GetBuffer()) ex
+                Listener.ErrorAtDaemon( queuePeer, msg )
+
+ 
     static member StartServer( o: Object ) =
         let x = o :?> Listener
         // Maintaining listening state
@@ -765,10 +783,10 @@ type internal Listener =
                 // add processing for command 
                 let procItem = (
                     fun (cmd : NetworkCommand) -> 
-                        x.ParseServerCommand queue cmd.cmd (cmd.ms)
+                        x.ParseCommandAtDaemon queue cmd.cmd (cmd.ms)
                         null
                 )
-                queue.AddRecvProc procItem |> ignore
+                queue.GetOrAddRecvProc("ParseCommandAtDaemon", procItem ) |> ignore
                 // set queue to initialized
                 queue.Initialize()
                 // Post another listening request. 

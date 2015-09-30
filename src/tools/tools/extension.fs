@@ -357,3 +357,18 @@ type StringExtension =
     static member DeserializeFromJson( s: String ): 'T = 
         use ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(s))
         ms.ReadJson()
+    /// Helper function to pack a remote exception 
+    /// See: http://blogs.msdn.com/b/brada/archive/2005/03/27/402801.aspx
+    [<Extension>]
+    static member WriteException( x: Stream, ex: Exception ) = 
+        let fmt = System.Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+        fmt.Serialize( x, ex )
+    /// Helper function to pack a remote exception 
+    /// See: http://blogs.msdn.com/b/brada/archive/2005/03/27/402801.aspx
+    [<Extension>]
+    static member ReadException( x: Stream ) = 
+        let fmt = System.Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+        fmt.Deserialize( x ) :?> System.Exception
+
+
+

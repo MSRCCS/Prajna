@@ -297,7 +297,6 @@ type internal JobTraveseFromSource() =
 /// Put in traverse class here. 
 [<AllowNullLiteral>]
 type internal JobTraverseBase() = 
-    inherit JobInformation()
     /// Traverse all job object, with a direction
     member internal x.TraverseAllObjectsWDirection direction (allObj:List<_>) (cur:DistributedObject) action= 
         let mutable bFindObj = false
@@ -591,7 +590,7 @@ and
     let mutable bReady = false
     // Parameter Set of PrajnaDSets
     let jobParams = List<FunctionParam>()
-    static member val ContainerJobCollection = ConcurrentDictionary<_,Job>(BytesCompare()) with get
+    static member val ContainerJobCollection = ConcurrentDictionary<_,ContainerJob>(BytesCompare()) with get
     member val JobStartTicks = (PerfADateTime.UtcNowTicks()) with get, set
     /// A Job Holder contains Assembly & dependent files, a non job holder doesn't have those components. 
     member val internal IsJobHolder = false with get, set
@@ -603,6 +602,12 @@ and
     member val LaunchMode = DeploymentSettings.DefaultLaunchBehavior with get, set
     member val LaunchIDName = "" with get, set
     member val LaunchIDVersion = 0L with get, set
+    /// Job ID, uniquely identify the job, inserted on 9/2015
+    /// Job ID is initiated in DSetAction. 
+    member val JobID = Guid.Empty with get, set
+    /// Obtain a SingleJobActionApp object that is used for controlling the lifecycle of a job
+    /// This function is set by DSetAction
+    member val TryExecuteSingleJobActionFunc : (unit -> SingleJobActionApp) = ( fun _ -> null ) with get, set
     /// Job port to be used by remote execution container
     member val JobPort = 0us with get, set
     /// Signature Name & Version uniquely define a job that can be loaded into an AppDomain/Exe
@@ -617,6 +622,8 @@ and
                                         0L
                                     else
                                         x.LaunchIDVersion
+    /// Information of the clusters that uses the Job
+    member val internal ClustersInfo = List<ClusterJobInfo>() with get, set
 //    member val SignatureName = "" with get, set
 //    member val SignatureVersion = 0L with get, set
     member val MetadataStream : StreamBase<byte> = null with get, set
@@ -1013,7 +1020,7 @@ and
                 // retrigger hash computation
                 dobj.Blob.Hash <- null
                 dobj.Blob.StreamToBlob( dobj.Blob.Stream )
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Precode %A %s:%s, Object Hash=%s Total=%dB (Hash=%s)" 
+                Logger.LogF( x.JobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "Precode %A %s:%s, Object Hash=%s Total=%dB (Hash=%s)" 
                                                                            dobj.ParamType dobj.Name dobj.VersionString (BytesToHex(dobj.Hash)) 
                                                                            dobj.Blob.Stream.Length
                                                                            (BytesToHex(dobj.Blob.Hash)) 
@@ -1038,23 +1045,23 @@ and
         let passthroughDSetInfo = x.PassthroughDSet |> Seq.map ( fun dset -> dset.Name + ":" + dset.VersionString )
         let allDSets = [| x.SrcDSet; x.DstDSet; x.PassthroughDSet |] |> Seq.concat
         let dStreamInfo = x.DStreams |> Seq.map ( fun stream -> stream.Name + ":" + stream.VersionString )
-        Logger.Log( LogLevel.Info, ( "Clusters......... " + ( String.concat "," clInfo ) ) )
-        Logger.Log( LogLevel.Info, ( "SrcDSet .......... " + ( String.concat "," srcDSetInfo ) ))
-        Logger.Log( LogLevel.Info, ( "DstDSet .......... " + ( String.concat "," dstDSetInfo ) ))
-        Logger.Log( LogLevel.Info, ( "PassthroughDSet .. " + ( String.concat "," passthroughDSetInfo ) ))
-        Logger.Log( LogLevel.Info, ( "DStreams ........ " + ( String.concat "," dStreamInfo ) ))
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> ( "Clusters......... " + ( String.concat "," clInfo ) ) )
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> ( "SrcDSet .......... " + ( String.concat "," srcDSetInfo ) ))
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> ( "DstDSet .......... " + ( String.concat "," dstDSetInfo ) ))
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> ( "PassthroughDSet .. " + ( String.concat "," passthroughDSetInfo ) ))
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> ( "DStreams ........ " + ( String.concat "," dStreamInfo ) ))
         let except = ref Unchecked.defaultof<_>
         for dset in allDSets do 
             try 
-                Logger.Log( LogLevel.Info, (dset.ShowDependencyInfo()))
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> (dset.ShowDependencyInfo()))
             with e -> 
-                Logger.Log( LogLevel.Info, ( sprintf "Fail to show dependency information of DSet %s:%s" dset.Name dset.VersionString ) )
+                Logger.LogF( x.JobID, LogLevel.Warning, ( fun _ -> sprintf "Fail to show dependency information of DSet %s:%s" dset.Name dset.VersionString ) )
                 except := e
         for st in x.DStreams do 
             try
-                Logger.Log( LogLevel.Info, (st.ShowDependencyInfo()))
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> (st.ShowDependencyInfo()))
             with e -> 
-                Logger.Log( LogLevel.Info, ( sprintf "Fail to show dependency information of DStream %s:%s" st.Name st.VersionString ) )
+                Logger.LogF( x.JobID, LogLevel.Warning, ( fun _ -> sprintf "Fail to show dependency information of DStream %s:%s" st.Name st.VersionString ) )
                 except := e
         if Utils.IsNull !except then 
             ()
@@ -1177,9 +1184,9 @@ and
         else
             // x.LaunchIDName <- signature name // deprecated, we will use the name of the current executable as job name, if not specified. 
             x.LaunchIDName <- Path.GetFileName( System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName )
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Generate job launch signature, %d assemblies, hash = %s" 
-                                                           x.Assemblies.Count
-                                                           (x.LaunchIDVersion.ToString("X")) ))
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Generate job launch signature, %d assemblies, hash = %s" 
+                                                                           x.Assemblies.Count
+                                                                           (x.LaunchIDVersion.ToString("X")) ))
 // JinL: 01/09/2015, Signature is now attached to LaunchIDVersion, there is no need to inject part of signature to Version. 
 //        // The lower 32bit of the job version will be part of the signature, so that if the signature changes, the job version will change
 //        // As version of the job is a datetime structure, this will cause the time shown on the job to change a few minutes (plus or minus)
@@ -1212,15 +1219,16 @@ and
         ms.WriteInt64( x.Version.Ticks ) 
         ms.WriteString( x.LaunchIDName )
         ms.WriteInt64( x.LaunchIDVersion )
+        ms.WriteGuid( x.JobID )
         ms.WriteBoolean( x.IsContainer )
         // LaunchMode, specifically, Do not launch is needed by job
         ms.WriteVInt32( int x.LaunchMode )
 
         if x.IsContainer then 
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Send Job Information for job %s:%s, of task %s:%s, with launchmode %A"
-                                                           x.Name x.VersionString
-                                                           x.SignatureName (x.SignatureVersion.ToString("X"))
-                                                           x.LaunchMode ))
+            Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Send Job Information for job %s:%s, of task %s:%s, with launchmode %A"
+                                                                           x.Name x.VersionString
+                                                                           x.SignatureName (x.SignatureVersion.ToString("X"))
+                                                                           x.LaunchMode ))
             x.GetExecutionMode()
             ms.WriteVInt32( int x.TypeOf )
         // Deterministic Blob Start Serial Number, so that a restart job can sync
@@ -1377,6 +1385,16 @@ and
         ms.WriteString( "End-Job" )
         ms.WriteInt64( -1L )
     member val internal CustomizedFuncStream = null with get, set
+    /// Peek Serialized Job, extract Name, Version, and Job ID 
+    static member internal PeekJob( ms:Stream ) = 
+        let pos = ms.Position 
+        let name = ms.ReadString( ) 
+        let verNumber = ms.ReadInt64()
+        ms.ReadString() |> ignore 
+        ms.ReadInt64( ) |> ignore 
+        let jobID = ms.ReadGuid()
+        ms.Seek( pos, SeekOrigin.Begin ) |> ignore 
+        jobID, name, verNumber
     /// Deserialize Job description to Blob, 
     member x.UnpackToBlob( ms:StreamBase<byte> ) = 
         x.MetadataStream <- ms.Replicate()
@@ -1386,6 +1404,7 @@ and
         x.Version <- DateTime( ms.ReadInt64() )
         x.LaunchIDName <- ms.ReadString()
         x.LaunchIDVersion <- ms.ReadInt64( )
+        x.JobID <- ms.ReadGuid()
         x.IsContainer <- ms.ReadBoolean()
         x.LaunchMode <- enum<_> (ms.ReadVInt32())
         if x.IsContainer then 
@@ -1457,12 +1476,12 @@ and
     //                Utils.IsNotNull (System.Environment.GetEnvironmentVariable(DeploymentSettings.EnvStringCurrentJobDirectory ))) then
     //                failwith "Perhaps ambiguous meaning of job directory"
                 let result = ReplaceString value DeploymentSettings.EnvStringGetJobDirectory x.JobDirectory StringComparison.OrdinalIgnoreCase
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Set Environment Variable %s to %s [(%s)]" envvar result value))
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Set Environment Variable %s to %s [(%s)]" envvar result value))
                 x.JobEnvVars.Add((envvar, result))
             
             x.JobAsmBinding <- ConfigurationUtils.UnpackAsmBinding ms
             
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Try to use directory %s for Job %s:%s" x.JobDirectory x.Name x.VersionString ))
+            Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Try to use directory %s for Job %s:%s" x.JobDirectory x.Name x.VersionString ))
             // Create Job Directory if not exist
             FileTools.DirectoryInfoCreateIfNotExists x.JobDirectory |> ignore 
             // # of clusters 
@@ -1777,7 +1796,7 @@ and
                 let decodeDStream = DStream.Unpack( stream, true )
                 // This should not be used for DSetPeer
                 if Utils.IsNotNull decodeDStream then 
-                    let useDStream = decodeDStream // DStreamFactory.CacheDStream( decodeDStream )
+                    let useDStream = decodeDStream 
                     blob.Object <- useDStream
                     x.DStreams.[blob.Index] <- useDStream 
                     bDecodeSuccessful <- Utils.IsNotNull useDStream
@@ -1792,7 +1811,7 @@ and
             | BlobKind.ClusterWithInJobInfo -> 
                 let clusterJobInfo = ClusterJobInfo.Unpack( stream ) 
                 clusterJobInfo.bValidMetadata <- clusterJobInfo.Validate( x.Clusters.[ blob.Index ] )
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Decode cluster job information success:%A \n %s" clusterJobInfo.bValidMetadata (clusterJobInfo.ToString()) ))
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Decode cluster job information success:%A \n %s" clusterJobInfo.bValidMetadata (clusterJobInfo.ToString()) ))
                 if clusterJobInfo.bValidMetadata then 
                     x.ClustersInfo.[blob.Index] <- ClusterJobInfoFactory.CacheClusterJobInfo( x.SignatureName, x.SignatureVersion, clusterJobInfo ) 
                     x.ClustersInfo.[blob.Index].LinkedCluster <- x.Clusters.[ blob.Index ]
@@ -1823,17 +1842,18 @@ and
     /// Send blob to host, always use non hash version here.  
     member x.SendBlobToHost( queue:NetworkCommandQueue, blobi ) = 
         let blob = x.Blobs.[blobi]
-        let stream = x.EncodeToBlob( blob )
+        let stream = x.EncodeToBlob( blob ) 
         let buf, pos, count = stream.GetBufferPosLength()
         let msSend = new MemStream() 
+        msSend.WriteGuid( x.JobID )
         msSend.WriteString( x.Name ) 
         msSend.WriteInt64( x.Version.Ticks ) 
         msSend.WriteVInt32( blobi ) 
         msSend.Append(buf, int64 pos, int64 count)
         //msSend.WriteBytesWithOffset( buf, pos, count ) 
-        Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> let blob = x.Blobs.[blobi]
-                                                        sprintf "Write, Blob %d type %A, name %s to %s" 
-                                                               blobi blob.TypeOf blob.Name (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) ))
+        Logger.LogF( x.JobID, LogLevel.MediumVerbose, ( fun _ ->  let blob = x.Blobs.[blobi]
+                                                                  sprintf "Write, Blob %d type %A, name %s to %s" 
+                                                                             blobi blob.TypeOf blob.Name (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) ))
         queue.ToSend( ControllerCommand( ControllerVerb.Write, ControllerNoun.Blob), msSend )
         msSend.DecRef()
     /// Send blob to peer 
@@ -1842,17 +1862,17 @@ and
         let stream = x.EncodeToBlob( blob )
         match blob.TypeOf with 
         |  BlobKind.ClusterWithInJobInfo -> 
-            Logger.LogF( DeploymentSettings.TraceLevelBlobIO, ( fun _ -> sprintf "send Write, Blob of blob %d type %A, name %s to program %s, pos %d, count %d length %d" 
-                                                                           blobi blob.TypeOf blob.Name (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) 
-                                                                           stream.Position (stream.Length-stream.Position)
-                                                                           stream.Length ))
+            Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobIO, ( fun _ -> sprintf "send Write, Blob of blob %d type %A, name %s to program %s, pos %d, count %d length %d" 
+                                                                                               blobi blob.TypeOf blob.Name (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) 
+                                                                                               stream.Position (stream.Length-stream.Position)
+                                                                                               stream.Length ))
             queue.ToSend( ControllerCommand( ControllerVerb.Write, ControllerNoun.Blob), stream )
             stream.DecRef()
         |  _ -> 
-            Logger.LogF( DeploymentSettings.TraceLevelBlobIO, ( fun _ -> sprintf "send Set, Blob of blob %d type %A to program %s, pos %d, count %d length %d" 
-                                                                           blobi blob.TypeOf (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) 
-                                                                           stream.Position (stream.Length-stream.Position)
-                                                                           stream.Length ))
+            Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobIO, ( fun _ -> sprintf "send Set, Blob of blob %d type %A to program %s, pos %d, count %d length %d" 
+                                                                                       blobi blob.TypeOf (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) 
+                                                                                       stream.Position (stream.Length-stream.Position)
+                                                                                       stream.Length ))
             queue.ToSend( ControllerCommand( ControllerVerb.Set, ControllerNoun.Blob), stream )
             stream.DecRef()
     /// Send blob to peer i, used by client
@@ -1865,6 +1885,7 @@ and
         match blob.TypeOf with 
         | BlobKind.ClusterWithInJobInfo -> 
             // Hash not known during job creation time. 
+            msSend.WriteGuid( x.JobID )
             msSend.WriteString( x.Name ) 
             msSend.WriteInt64( x.Version.Ticks ) 
             msSend.WriteVInt32( blobi )
@@ -1961,8 +1982,9 @@ and
         x.AddDependencies()
         Logger.Do( LogLevel.MildVerbose, ( fun _ -> x.ShowAllDObjectsInfo() ))
         let mutable bSuccess = x.PrecodeDSets()
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> let t1 = (PerfADateTime.UtcNowTicks())
-                                                      sprintf "Job %s, Procoded DSet in %.2f ms"
+        Logger.LogF( x.JobID, 
+                     LogLevel.MildVerbose, ( fun _ -> let t1 = (PerfADateTime.UtcNowTicks())
+                                                      sprintf "Job %s, Precoded DSet in %.2f ms"
                                                                x.Name
                                                                (float (t1 - x.JobStartTicks) / float TimeSpan.TicksPerMillisecond) ))
         if bSuccess then 
@@ -1992,7 +2014,9 @@ and
                         x.PopulateLoadedAssems()
                         x.GenerateSignature( null )
                     /// Create a job to launch a container. 
-                    let y = Job.ContainerJobCollection.GetOrAdd( x.AssemblyHash, fun _ -> Job( IsContainer = true) )
+                    let y = Job.ContainerJobCollection.GetOrAdd( x.AssemblyHash, fun _ -> let containerJob = ContainerJob( )
+                                                                                          containerJob
+                                                               )
                     y.PrepareRemoteExecutionRoster( curJob, x )
                     bSuccess <- y.ReadyStatus
         bSuccess      
@@ -2018,6 +2042,7 @@ and
         // Reform job signature 
         x.Assemblies <- srcJob.Assemblies
         x.LaunchMode <- srcJob.LaunchMode
+        x.JobID <- Guid.NewGuid()
         x.Name <- "ContainerJob"
         x.Version <- (PerfADateTime.UtcNow())
         x.TypeOf <- srcJob.TypeOf
@@ -2329,14 +2354,26 @@ and
         jobMetadataStream <- new MemStream( 4096 ) 
         x.Pack( jobMetadataStream ) 
         for cluster in x.Clusters do 
-            cluster.RegisterCallback( x.Name, x.Version.Ticks, 
+            cluster.RegisterCallback( x.JobID, x.Name, x.Version.Ticks, 
                 [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata ); 
                    ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Job ); 
                    ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Blob ) |], 
                 { new NetworkCommandCallback with 
-                    member this.Callback( cmd, peeri, ms, name, verNumber, cl ) = 
-                        x.JobCallback( cmd, peeri, ms, name, verNumber, cl )
+                    member this.Callback( cmd, peeri, ms, jobID, name, verNumber, cl ) = 
+                        x.JobCallback( cmd, peeri, ms, jobID, name, verNumber, cl )
                 } )
+    member val private nExecutorForDisposer = ref 0 with get 
+    /// Free all resource related to the Job
+    member x.FreeJobResource() = 
+        if Interlocked.Increment( x.nExecutorForDisposer )= 1 then 
+            x.UnallocateAllBlobs()
+            if Utils.IsNotNull jobMetadataStream then 
+                jobMetadataStream.Dispose()
+                jobMetadataStream <- null 
+            for cluster in x.Clusters do 
+                cluster.UnRegisterCallback( x.JobID, [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata ); 
+                                                           ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Job ); 
+                                                           ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Blob ) |] )
     /// For those source metadata that needs to be read, set their version to minimum value to trigger receiving latest version 
     member x.PrepareToReceiveSourceMetadata() = 
         for dset in x.SrcDSet do 
@@ -2393,104 +2430,114 @@ and
                                                                    else
                                                                        peerInfo := "failed"
                                                                    peerStatus := !peerStatus + " " + info + ":" + !peerInfo
-                                                               Logger.Log( LogLevel.MediumVerbose, ( sprintf "%s, %s" curStatus (!peerStatus) ))
+                                                               Logger.LogF( x.JobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "%s, %s" curStatus (!peerStatus) ))
                                                ))
 
     member x.TrySyncMetaDataHost() = 
         let jobStage = JobStage.None
-        let mutable bIOActivity = false
+        let bIOActivity = ref false
         let clock_start = clock.ElapsedTicks
-        let mutable maxWait = clock_start + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit
-        // Send out job metadata & availability information. 
-        // Move Availability stream out, to make sure that sourceDSet is received from every peer. 
-        let availStream = new MemStream( 1024 )
-        availStream.WriteString( x.Name )
-        availStream.WriteInt64( x.Version.Ticks )
-        availThis.Pack( availStream )
+        let maxWait = ref (clock_start + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit)
 
-        while not bAllSynced && clock.ElapsedTicks < maxWait && not bFailureToGetSrcMetadata do 
-            bIOActivity <- false
-            // Process feedback
-
-            let mutable outstandingSendingQueue = 0
-            for peeri=0 to x.OutgoingQueues.Count-1 do 
-                let queue = x.OutgoingQueues.[peeri]
-                if Utils.IsNotNull queue && not queue.Shutdown then 
-                    outstandingSendingQueue <- outstandingSendingQueue + int queue.UnProcessedCmdInBytes
-            for peeri=0 to x.OutgoingQueues.Count-1 do 
-                let queue = x.OutgoingQueues.[peeri]
-                if Utils.IsNotNull queue && queue.CanSend then 
-                    if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.JobMetaDataSent)=PerQueueJobStatus.None then 
-                        // Set, Job
-                        queue.ToSend( ControllerCommand( ControllerVerb.Set, ControllerNoun.Job ), jobMetadataStream )
-                        Logger.LogF(DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Job: %s:%s Send Set, Job to peer %d " x.Name x.VersionString peeri))
-                        x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.JobMetaDataSent
-                        bIOActivity <- true
-                    if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.AvailabilitySent)=PerQueueJobStatus.None then 
-                        // Availability, Blob
-                        Logger.LogF(DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Job: %s:%s Send Availability, Blob to peer %d " x.Name x.VersionString peeri))
-                        queue.ToSend( ControllerCommand( ControllerVerb.Availability, ControllerNoun.Blob ), availStream )
-                        x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AvailabilitySent
-                        bIOActivity <- true
-                    if x.BlobSync=BlobSyncMethod.Unicast && // bAllSrcAvailable && 
-                        (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.SentAllMetadata)=PerQueueJobStatus.None 
-                        //&& outstandingSendingQueue < x.SendingQueueLimit 
-                        then 
-                        // Calculate outstanding queue length 
-                        // Sent all metadata 
-                        let peerAvail = x.AvailPeer.[peeri]
-                        let mutable bAllSent = peerAvail.AllAvailable
-                        if not bAllSent then 
-                            bAllSent <- true
-                            for blobi=0 to x.NumBlobs-1 do
-                                if x.AvailThis.AvailVector.[blobi]=byte BlobStatus.AllAvailable then  
-                                    let peerBlobAvail = peerAvail.AvailVector.[blobi]
-                                    if peerBlobAvail = byte BlobStatus.NotAvailable || 
-                                        peerBlobAvail = byte BlobStatus.Initial then 
-                                        // Not sent other wise, the status will change to PartialAvailable 
-//                                        if queue.SendQueueLength<5 && int queue.UnProcessedCmdInBytes<=x.SendingQueueLimit / x.OutgoingQueues.Count && 
-//                                            outstandingSendingQueue<x.SendingQueueLimit then 
-                                        if (queue.CanSend) then
-                                            // Send blob to peeri to start the job
-                                            let stream = x.SendBlobPeeri peeri queue blobi 
-                                            outstandingSendingQueue <- outstandingSendingQueue + (int stream.Length)
-                                            /// Assume blob is delivered. 
-                                            peerAvail.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
-                                            Logger.LogF(DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Send Blob %d (%s) to peer %d, mark the blob as available %A" blobi (x.Blobs.[blobi].Name ) peeri peerAvail) )
-                                            bIOActivity <- true
-                                            stream.DecRef()
-                                        else
-                                            // Exceeding limit, need to wait. 
-                                            bAllSent <- false
-                                    elif peerBlobAvail = byte BlobStatus.NoInformation then 
-                                        // Wait for first availability before try to send anything. 
-                                        bAllSent <- false
-                                    else 
-                                        ()
-                                else
-                                    bAllSent <- false 
-                                    Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Host: Blob %d of %d is still not available" blobi x.NumBlobs ) )
-                            peerAvail.CheckAllAvailable() // Selectively mark all available flag 
-                            if peerAvail.AllAvailable then 
-                                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "peer %d of %s, All metadata send and received.... vector %A" 
-                                                                                   peeri (LocalDNS.GetShowInfo( x.OutgoingQueues.Item(peeri).RemoteEndPoint ))
-                                                                                   x.AvailPeer.[peeri]
-                                                                                    ) )
-                                x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.SentAllMetadata
-                                                                                                    // assume that Metadata is received, 
-                                                                                                   ||| PerQueueJobStatus.AllMetadataSynced
-
-            // Check if job related information is available. 
-            x.UpdateClusterJobInfo() 
-            // Check if Src DSet information is received. 
-            x.UpdateSourceAvailability()
-            if bIOActivity then 
-                // Reset clock for any io activity
-                maxWait <- clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
+        using ( x.TryExecuteSingleJobActionFunc()) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                failwith "Fail to secure job Action object, job already cancelled?"
             else
-                Threading.Thread.Sleep(5)
-        //jobMetadataStream.Release()
-        //availStream.Release()
+                try 
+                    while not bAllSynced && clock.ElapsedTicks < (!maxWait) && not bFailureToGetSrcMetadata && not jobAction.IsCancelledAndThrow do 
+                        bIOActivity := false
+                        // Process feedback
+
+                        let mutable outstandingSendingQueue = 0
+                        for peeri=0 to x.OutgoingQueues.Count-1 do 
+                            let queue = x.OutgoingQueues.[peeri]
+                            if Utils.IsNotNull queue && not queue.Shutdown then 
+                                outstandingSendingQueue <- outstandingSendingQueue + int queue.UnProcessedCmdInBytes
+                        for peeri=0 to x.OutgoingQueues.Count-1 do 
+                            let queue = x.OutgoingQueues.[peeri]
+                            if Utils.IsNotNull queue && queue.CanSend && not jobAction.IsCancelledAndThrow then 
+                                if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.JobMetaDataSent)=PerQueueJobStatus.None then 
+                                    // Set, Job
+                                    queue.ToSend( ControllerCommand( ControllerVerb.Set, ControllerNoun.Job ), jobMetadataStream )
+                                    Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Job: %s:%s Send Set, Job to peer %d " x.Name x.VersionString peeri))
+                                    x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.JobMetaDataSent
+                                    bIOActivity := true
+                                if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.AvailabilitySent)=PerQueueJobStatus.None then 
+                                    // Availability, Blob
+                                    Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Job: %s:%s Send Availability, Blob to peer %d " x.Name x.VersionString peeri))
+                                    // Send out job metadata & availability information. 
+                                    // Move Availability stream out, to make sure that sourceDSet is received from every peer. 
+                                    using( new MemStream( 1024 ) ) ( fun availStream -> 
+                                        availStream.WriteGuid( x.JobID )
+                                        availStream.WriteString( x.Name )
+                                        availStream.WriteInt64( x.Version.Ticks )
+                                        x.AvailThis.Pack( availStream )
+                                        queue.ToSend( ControllerCommand( ControllerVerb.Availability, ControllerNoun.Blob ), availStream ) 
+                                    )
+                                    x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AvailabilitySent
+                                    bIOActivity := true
+                                if x.BlobSync=BlobSyncMethod.Unicast && // bAllSrcAvailable && 
+                                    (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.SentAllMetadata)=PerQueueJobStatus.None then  
+                                    // outstandingSendingQueue < x.SendingQueueLimit then 
+                                    // Calculate outstanding queue length 
+                                    // Sent all metadata 
+                                    let peerAvail = x.AvailPeer.[peeri]
+                                    let mutable bAllSent = peerAvail.AllAvailable
+                                    if not bAllSent then 
+                                        bAllSent <- true
+                                        for blobi=0 to x.NumBlobs-1 do
+                                            if x.AvailThis.AvailVector.[blobi]=byte BlobStatus.AllAvailable then  
+                                                let peerBlobAvail = peerAvail.AvailVector.[blobi]
+                                                if peerBlobAvail = byte BlobStatus.NotAvailable || 
+                                                    peerBlobAvail = byte BlobStatus.Initial then 
+                                                    // Not sent other wise, the status will change to PartialAvailable 
+                                                    //if queue.SendQueueLength<5 && int queue.UnProcessedCmdInBytes<=x.SendingQueueLimit / x.OutgoingQueues.Count && 
+                                                    //    outstandingSendingQueue<x.SendingQueueLimit then 
+                                                    if queue.CanSend then 
+                                                        // Send blob to peeri to start the job
+                                                        let stream = x.SendBlobPeeri peeri queue blobi 
+                                                        outstandingSendingQueue <- outstandingSendingQueue + (int stream.Length)
+                                                        /// Assume blob is delivered. 
+                                                        peerAvail.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
+                                                        Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Send Blob %d (%s) to peer %d, mark the blob as available %A" blobi (x.Blobs.[blobi].Name ) peeri peerAvail) )
+                                                        bIOActivity := true
+                                                        stream.DecRef()
+                                                    else
+                                                        // Exceeding limit, need to wait. 
+                                                        bAllSent <- false
+                                                elif peerBlobAvail = byte BlobStatus.NoInformation then 
+                                                    // Wait for first availability before try to send anything. 
+                                                    bAllSent <- false
+                                                else 
+                                                    ()
+                                            else
+                                                bAllSent <- false 
+                                                Logger.LogF( x.JobID, LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Host: Blob %d of %d is still not available" blobi x.NumBlobs ) )
+                                        peerAvail.CheckAllAvailable() // Selectively mark all available flag 
+                                        if peerAvail.AllAvailable then 
+                                            Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "peer %d of %s, All metadata send and received.... vector %A" 
+                                                                                                           peeri (LocalDNS.GetShowInfo( x.OutgoingQueues.Item(peeri).RemoteEndPoint ))
+                                                                                                           x.AvailPeer.[peeri]
+                                                                                                            ) )
+                                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.SentAllMetadata
+                                                                                                                // assume that Metadata is received, 
+                                                                                                               ||| PerQueueJobStatus.AllMetadataSynced
+
+                        // Check if job related information is available. 
+                        x.UpdateClusterJobInfo() 
+                        // Check if Src DSet information is received. 
+                        x.UpdateSourceAvailability()
+                        if !bIOActivity then 
+                            // Reset clock for any io activity
+                            maxWait := clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
+                        elif not jobAction.IsCancelledAndThrow then 
+                            Threading.Thread.Sleep(5)
+                with
+                | :? AggregateException as ex -> 
+                    reraise()
+                | ex -> 
+                    jobAction.EncounterExceptionAtCallback( ex, "___TrySyncMetaDataHost___" )
+        )
         ()
     member x.TryStartJob() = 
         if bAllSynced then 
@@ -2498,10 +2545,7 @@ and
             let clock_start = clock.ElapsedTicks
             let mutable maxWait = clock_start + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit
             jobStage <- JobStage.Ready
-            // Call start, job on each client. 
-            let jobStream = new MemStream( 1024 )
-            jobStream.WriteString( x.Name )
-            jobStream.WriteInt64( x.Version.Ticks )
+
             // mask on confirm job received. 
             let mutable bAllPeerConfirmed = false
             let mutable numConfirmedStart = 0
@@ -2520,8 +2564,14 @@ and
                                 if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.AllMetadataSynced)<>PerQueueJobStatus.None 
                                     && (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.FailedToStart)=PerQueueJobStatus.None then 
                                     // Start, Job
-                                    Logger.LogF( DeploymentSettings.TraceLevelStartJob, ( fun _ -> sprintf "Start, Job send to peer %d" peeri ))
-                                    queue.ToSend( ControllerCommand( ControllerVerb.Start, ControllerNoun.Job ), jobStream )
+                                    Logger.LogF( x.JobID, DeploymentSettings.TraceLevelStartJob, ( fun _ -> sprintf "Start, Job send to peer %d" peeri ))
+                                    // Call start, job on each client. 
+                                    using ( new MemStream( 1024 ) ) ( fun jobStream -> 
+                                        jobStream.WriteGuid( x.JobID )
+                                        jobStream.WriteString( x.Name )
+                                        jobStream.WriteInt64( x.Version.Ticks )
+                                        queue.ToSend( ControllerCommand( ControllerVerb.Start, ControllerNoun.Job ), jobStream )
+                                    )
                                     x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.StartJob
                                     bIOActivity <- true
                         if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.ConfirmStart)<>PerQueueJobStatus.None || 
@@ -2539,8 +2589,7 @@ and
                     maxWait <- clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
                 else
                     Threading.Thread.Sleep(5)
-            //jobStream.Release()
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s of task %s is ready to execute" x.Name x.VersionString x.SignatureName ))
+            Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s of task %s is ready to execute" x.Name x.VersionString x.SignatureName ))
             // bAllSynced is always true, so should be bAllPeerConfirmed
             bAllSynced && bAllPeerConfirmed && numConfirmedStart>0
         else
@@ -2548,133 +2597,143 @@ and
     member x.Error( queue:NetworkCommandQueue, msg ) = 
         Logger.Log( LogLevel.Error, msg )
         if Utils.IsNotNull queue && queue.CanSend then 
-            let msError = new MemStream( 1024 )
+            use msError = new MemStream( 1024 )
             msError.WriteString( msg )
             queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message), msError )
-            msError.DecRef()
             queue.Close()
-    member x.JobCallback( cmd, inClusterPeeri, ms, name, verNumber, cluster ) = 
-        let queue = cluster.Queue(inClusterPeeri)
-        try
-            ms.Info <- ms.Info + ":Job:" + x.Name
-            let peeri = x.OutgoingQueuesToPeerNumber.Item(queue)
-            match (cmd.Verb, cmd.Noun) with 
-            | ControllerVerb.Unknown, _ -> 
-                ()
-            | ControllerVerb.Availability, ControllerNoun.Blob ->
-                // Decode availability information. 
-                let availInfo = availPeer.[peeri]
-                availInfo.Unpack( ms )
-                availInfo.CheckAllAvailable()
-                if availInfo.AllAvailable then 
-                    Logger.LogF( DeploymentSettings.TraceLevelBlobRcvd,  ( fun _ -> sprintf "Availability, Blob (all available ) for job %s:%s node %d peer %d peer %A this %A" 
-                                                                                                x.Name x.VersionString inClusterPeeri peeri
-                                                                                                availInfo x.AvailThis ))
-                    x.CheckSync()
-                    x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AllMetadataSynced
-                else
-                    Logger.LogF( DeploymentSettings.TraceLevelBlobRcvd, ( fun _ -> sprintf "Availability, Blob for job %s:%s node %d peer %d peer %A this %A" 
-                                                                                    x.Name x.VersionString inClusterPeeri peeri
-                                                                                    availInfo x.AvailThis ))
+    member x.JobCallback( cmd, inClusterPeeri, ms, jobID, name, verNumber, cluster ) = 
+        using ( x.TryExecuteSingleJobActionFunc()) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "[May be OK] Job.JobCallback, Received command %A, payload of %dB, but job has already been closed/cancelled. Message will be discarded. " 
+                                                                                cmd ms.Length ) )
+            else
 
-            | ControllerVerb.Acknowledge, ControllerNoun.Job ->
-                // Acknowledge 
-                ()
-            | ControllerVerb.InfoNode, ControllerNoun.Job ->
-                // retrieve node related information
-                let nodeInfo = NodeWithInJobInfo.Unpack( ms )  
-                let ep = queue.RemoteEndPoint :?> Net.IPEndPoint
-                if ep.AddressFamily = Net.Sockets.AddressFamily.InterNetwork then 
-                    nodeInfo.AddExternalAddress( ep.Address.GetAddressBytes() )  
-                let node = cluster.ClusterInfo.ListOfClients.[peeri]
-                LocalDNS.AddEntry( node.MachineName, nodeInfo.IPAddresses )   
-                NodeConnectionFactory.Current.StoreNodeInfo( node.MachineName, node.MachinePort,  x.LaunchIDName, x.LaunchIDVersion, nodeInfo ) 
-                x.NodeInfo.Item( queue.RemoteEndPointSignature ) <- nodeInfo
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Rcvd node info from peer %d:%s : %s" inClusterPeeri queue.EPInfo (nodeInfo.ToString()) ))
-                ()
-            | ControllerVerb.NonExist, ControllerNoun.Job ->
-                // Fail to find job
-                let node = cluster.ClusterInfo.ListOfClients.[peeri]
-                NodeConnectionFactory.Current.StoreNodeInfo( node.MachineName, node.MachinePort, x.LaunchIDName, x.LaunchIDVersion, null ) 
-                x.NodeInfo.Item( queue.RemoteEndPointSignature ) <- null
-                x.OutgoingQueueStatuses.[inClusterPeeri] <- x.OutgoingQueueStatuses.[inClusterPeeri] ||| PerQueueJobStatus.FailedToStart
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Fail to start task %s on peer %d:%s" x.SignatureName inClusterPeeri (LocalDNS.GetShowInfo( queue.RemoteEndPoint)) ))
-            | ControllerVerb.Write, ControllerNoun.Blob ->                
-                let blobi = ms.ReadVInt32()
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd Write, Blob %d from peer %d:%s" blobi inClusterPeeri queue.EPInfo ))
-                if blobi<0 || blobi >= x.NumBlobs then 
-                    let msg = sprintf "Error: Job %s:%s Write, Blob with idx %d that is outside of range of valid blob index (0-%d)" x.Name x.VersionString blobi x.NumBlobs
-                    x.Error( queue, msg )
-                else
-                    let blob = x.Blobs.[blobi]
-                    blob.Stream <- ms
-                    blob.Stream.AddRef()
-                    x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
-                    try 
-                        let bSuccess = x.DecodeFromBlob( blobi, peeri )
-                        if bSuccess then 
-                            x.UpdateBlobInfo( blobi ) 
-                            let msFeedback = new MemStream( 1024 )
-                            msFeedback.WriteString( x.Name ) 
-                            msFeedback.WriteInt64( x.Version.Ticks ) 
-                            msFeedback.WriteVInt32( blobi ) 
-                            msFeedback.WriteBoolean( bSuccess )
-                            queue.ToSend( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Blob ), msFeedback )
-                            msFeedback.DecRef()
+                let queue = cluster.Queue(inClusterPeeri)
+                try
+                    ms.Info <- ms.Info + ":Job:" + x.Name
+                    let peeri = x.OutgoingQueuesToPeerNumber.Item(queue)
+                    match (cmd.Verb, cmd.Noun) with 
+                    | ControllerVerb.Unknown, _ -> 
+                        ()
+                    | ControllerVerb.Availability, ControllerNoun.Blob ->
+                        // Decode availability information. 
+                        let availInfo = availPeer.[peeri]
+                        availInfo.Unpack( ms )
+                        availInfo.CheckAllAvailable()
+                        if availInfo.AllAvailable then 
+                            Logger.LogF( jobID, DeploymentSettings.TraceLevelBlobRcvd,  ( fun _ -> sprintf "Availability, Blob (all available ) for job %s:%s node %d peer %d peer %A this %A" 
+                                                                                                        x.Name x.VersionString inClusterPeeri peeri
+                                                                                                        availInfo x.AvailThis ))
+                            x.CheckSync()
+                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AllMetadataSynced
                         else
-                            let msg = sprintf "Error: Failed to decode blob %d, please check if the right DSet name is used, and if the DSet is associated with this cluster." blobi
-                            x.Error( queue, msg )
-                    with 
-                    | e -> 
-                        let msg = sprintf "JobCallback:Error in DecodeBlob %A" e
-                        x.Error( queue, msg )
-            | ControllerVerb.Acknowledge, ControllerNoun.Blob ->
-                let blobi = ms.ReadVInt32()
-                if blobi<0 || blobi >= x.NumBlobs then 
-                    let msg = sprintf "Error: Acknowledge, Blob with idx %d that is outside of range of valid serial number %d:%d" blobi x.BlobStartSerial x.NumBlobs
-                    x.Error( queue, msg )
-                else
-                    Logger.LogF( DeploymentSettings.TraceLevelBlobAvailability, ( fun _ -> sprintf "Acknowledge, Blob for job %s:%s node %d peer %d blob %d" 
-                                                                                            (x.Blobs.[blobi].Name) x.VersionString inClusterPeeri peeri
-                                                                                            blobi ))
-                    let peerAvail = x.AvailPeer.[peeri]
-                    peerAvail.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
-                    let bAvailBefore = peerAvail.AllAvailable
-                    peerAvail.CheckAllAvailable()
-                    if not bAvailBefore && peerAvail.AllAvailable then 
-                        x.CheckSync()
-                        x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AllMetadataSynced
-            | ControllerVerb.Echo, ControllerNoun.Job ->
-                // Confirm Start, Job command received
-                ()
-            | ControllerVerb.ConfirmStart, ControllerNoun.Job ->
-                let bSuccess = ms.ReadBoolean()
-                Logger.LogF( DeploymentSettings.TraceLevelStartJob, ( fun _ -> sprintf "ConfirmStart, Job for job %s:%s node %d peer %d received, status is %A" 
-                                                                                         x.Name x.VersionString inClusterPeeri peeri
-                                                                                         bSuccess ))
+                            Logger.LogF( jobID, DeploymentSettings.TraceLevelBlobRcvd, ( fun _ -> sprintf "Availability, Blob for job %s:%s node %d peer %d peer %A this %A" 
+                                                                                                        x.Name x.VersionString inClusterPeeri peeri
+                                                                                                        availInfo x.AvailThis ))
 
-                if bSuccess then 
-                    x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.ConfirmStart
-                    // Job started    
-                else
-                    // Some failure
-                    x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.Failed
-                    ()
-            | _ ->
-                let msg = sprintf "JobCallback: Unknown cmd %A" cmd 
-                x.Error( queue, msg )
-        with 
-        | e ->
-            let msg = sprintf "Exception in JobCallback, cmd %A, %s:%d, %A" cmd name verNumber e
-            x.Error( queue, msg )
-        true
+                    | ControllerVerb.Acknowledge, ControllerNoun.Job ->
+                        // Acknowledge 
+                        ()
+                    | ControllerVerb.InfoNode, ControllerNoun.Job ->
+                        // retrieve node related information
+                        let nodeInfo = NodeWithInJobInfo.Unpack( ms )  
+                        let ep = queue.RemoteEndPoint :?> Net.IPEndPoint
+                        if ep.AddressFamily = Net.Sockets.AddressFamily.InterNetwork then 
+                            nodeInfo.AddExternalAddress( ep.Address.GetAddressBytes() )  
+                        let node = cluster.ClusterInfo.ListOfClients.[peeri]
+                        LocalDNS.AddEntry( node.MachineName, nodeInfo.IPAddresses )   
+                        NodeConnectionFactory.Current.StoreNodeInfo( node.MachineName, node.MachinePort,  x.LaunchIDName, x.LaunchIDVersion, nodeInfo ) 
+                        x.NodeInfo.Item( queue.RemoteEndPointSignature ) <- nodeInfo
+                        Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Rcvd node info from peer %d:%s : %s" inClusterPeeri queue.EPInfo (nodeInfo.ToString()) ))
+                        ()
+                    | ControllerVerb.NonExist, ControllerNoun.Job ->
+                        // Fail to find job
+                        let node = cluster.ClusterInfo.ListOfClients.[peeri]
+                        NodeConnectionFactory.Current.StoreNodeInfo( node.MachineName, node.MachinePort, x.LaunchIDName, x.LaunchIDVersion, null ) 
+                        x.NodeInfo.Item( queue.RemoteEndPointSignature ) <- null
+                        x.OutgoingQueueStatuses.[inClusterPeeri] <- x.OutgoingQueueStatuses.[inClusterPeeri] ||| PerQueueJobStatus.FailedToStart
+                        Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Fail to start task %s on peer %d:%s" x.SignatureName inClusterPeeri (LocalDNS.GetShowInfo( queue.RemoteEndPoint)) ))
+                    | ControllerVerb.Write, ControllerNoun.Blob ->                
+                        let blobi = ms.ReadVInt32()
+                        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd Write, Blob %d from peer %d:%s" blobi inClusterPeeri queue.EPInfo ))
+                        if blobi<0 || blobi >= x.NumBlobs then 
+                            let msg = sprintf "Error: Job %s:%s Write, Blob with idx %d that is outside of range of valid blob index (0-%d)" x.Name x.VersionString blobi x.NumBlobs
+                            x.Error( queue, msg )
+                        else
+                            let blob = x.Blobs.[blobi]
+                            blob.Stream <- ms
+                            blob.Stream.AddRef()
+                            x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
+                            try 
+                                let bSuccess = x.DecodeFromBlob( blobi, peeri )
+                                if bSuccess then 
+                                    x.UpdateBlobInfo( blobi ) 
+                                    use msFeedback = new MemStream( 1024 )
+                                    msFeedback.WriteGuid( jobID )
+                                    msFeedback.WriteString( x.Name ) 
+                                    msFeedback.WriteInt64( x.Version.Ticks ) 
+                                    msFeedback.WriteVInt32( blobi ) 
+                                    msFeedback.WriteBoolean( bSuccess )
+                                    queue.ToSend( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Blob ), msFeedback )
+                                else
+                                    let msg = sprintf "Error: Failed to decode blob %d, please check if the right DSet name is used, and if the DSet is associated with this cluster." blobi
+                                    x.Error( queue, msg )
+                            with 
+                            | e -> 
+                                let msg = sprintf "JobCallback:Error in DecodeBlob %A" e
+                                x.Error( queue, msg )
+                    | ControllerVerb.Acknowledge, ControllerNoun.Blob ->
+                        let blobi = ms.ReadVInt32()
+                        if blobi<0 || blobi >= x.NumBlobs then 
+                            let msg = sprintf "Error: Acknowledge, Blob with idx %d that is outside of range of valid serial number %d:%d" blobi x.BlobStartSerial x.NumBlobs
+                            x.Error( queue, msg )
+                        else
+                            Logger.LogF( jobID, DeploymentSettings.TraceLevelBlobAvailability, ( fun _ -> sprintf "Acknowledge, Blob for job %s:%s node %d peer %d blob %d" 
+                                                                                                                (x.Blobs.[blobi].Name) x.VersionString inClusterPeeri peeri
+                                                                                                                blobi ))
+                            let peerAvail = x.AvailPeer.[peeri]
+                            peerAvail.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
+                            let bAvailBefore = peerAvail.AllAvailable
+                            peerAvail.CheckAllAvailable()
+                            if not bAvailBefore && peerAvail.AllAvailable then 
+                                x.CheckSync()
+                                x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AllMetadataSynced
+                    | ControllerVerb.Echo, ControllerNoun.Job ->
+                        // Confirm Start, Job command received
+                        ()
+                    | ControllerVerb.ConfirmStart, ControllerNoun.Job ->
+                        let bSuccess = ms.ReadBoolean()
+                        Logger.LogF( jobID, DeploymentSettings.TraceLevelStartJob, ( fun _ -> sprintf "ConfirmStart, Job for job %s:%s node %d peer %d received, status is %A" 
+                                                                                                 x.Name x.VersionString inClusterPeeri peeri
+                                                                                                 bSuccess ))
+
+                        if bSuccess then 
+                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.ConfirmStart
+                            // Job started    
+                        else
+                            // Some failure
+                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.Failed
+                            ()
+                    | ControllerVerb.Exception, ControllerNoun.Job -> 
+                        let ex = ms.ReadException()
+                        jobAction.ReceiveExceptionAtCallback( ex, sprintf  "___ Job.JobCallback (received from %s) ___" (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) )
+                    | _ ->
+                        let msg = sprintf "JobCallback: Unknown cmd %A" cmd 
+                        jobAction.ThrowExceptionAtCallback( msg )
+                with 
+                | ex ->
+                    let msg = sprintf "Exception in JobCallback, cmd %A, %s:%d, %A" cmd name verNumber ex
+                    jobAction.EncounterExceptionAtCallback( ex, "___ Job.JobCallback (throw) ___" )
+            true
+        )
+
     /// Exchange with peer on metadata content, get all metadata ready. 
     member x.ReadyMetaData() = 
         let bSuccess = x.PrepareMetaData()
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> let t1 = (PerfADateTime.UtcNowTicks())
-                                                      sprintf "Job %s, PrepareMetaData in %.2f ms"
-                                                               x.Name
-                                                               (float (t1 - x.JobStartTicks) / float TimeSpan.TicksPerMillisecond) ))
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ ->    let t1 = (PerfADateTime.UtcNowTicks())
+                                                                  sprintf "Job %s, PrepareMetaData in %.2f ms"
+                                                                           x.Name
+                                                                           (float (t1 - x.JobStartTicks) / float TimeSpan.TicksPerMillisecond) ))
         if bSuccess then 
             x.BeginSendMetaData()
             x.PrepareToReceiveSourceMetadata()
@@ -2688,7 +2747,8 @@ and
     member x.Ready() = 
         if not bReady then 
             bReady <- x.ReadyMetaData()
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> let t1 = (PerfADateTime.UtcNowTicks())
+            Logger.LogF( x.JobID, 
+                         LogLevel.MildVerbose, ( fun _ -> let t1 = (PerfADateTime.UtcNowTicks())
                                                           sprintf "Job %s, ready in %.2f ms"
                                                                    x.Name
                                                                    (float (t1 - x.JobStartTicks) / float TimeSpan.TicksPerMillisecond) ))
@@ -2773,76 +2833,11 @@ and
                                     x.AvailThis.AllAvailable
     /// Send Current Job Metadata to each peer. 
 
-    /// Retrieve the Metadata of all source DSets for execution planning
-//    member x.RetrieveAllSourceMetaData() = 
-//        curDSet.Cluster.ConnectAll()
-//        curDSet.Cluster.RegisterCallback( curDSet.Name, 0L, [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata);
-//                                                             ControllerCommand( ControllerVerb.NonExist, ControllerNoun.DSet); |],
-//                { new NetworkCommandCallback with 
-//                    member this.Callback( cmd, peeri, ms, name, verNumber ) = 
-//                        x.JobCallback( cmd, peeri, ms, name, verNumber )
-//                } )
-//        bDSetMetaRead <- Array.create curDSet.Cluster.NumNodes false
-//        bPeerFailed <- Array.create curDSet.Cluster.NumNodes false
-//        numPeerRespond <- 0
-//        numDSetMetadataRead <- 0
-//        let bSentGetDSet = Array.create curDSet.Cluster.NumNodes false
-//        let mutable bMetaDataRetrieved = false
-//        let mutable bIOactivity = false
-//        let clock_start = curDSet.Clock.ElapsedTicks
-//        let mutable maxWait = clock_start + curDSet.ClockFrequency * int64 curDSet.TimeoutLimit
-//        let msSend = new MemStream( 1024 )
-//        msSend.WriteString( curDSet.Name )
-//        msSend.WriteInt64( curDSet.Version.Ticks )
-//        msSend.WriteInt64( curDSet.Cluster.Version.Ticks )
-//        
-//        // Reset curDSet version so that we can read in the latest DSet version. 
-//        curDSet.Version <- DateTime.MinValue   
-//        
-//        // Calculated required number of response for metadata
-//        let numRequiredPeerRespond = curDSet.RequiredNodes( curDSet.MinNodeResponded )
-//        let numRequiredVlidResponse = curDSet.RequiredNodes( curDSet.MinValidResponded )
-//        while not bMetaDataRetrieved && curDSet.Clock.ElapsedTicks<maxWait do
-//            bIOactivity <- false
-//            // Try send out Get, DSet request. 
-//            for peeri=0 to curDSet.Cluster.NumNodes-1 do
-//                if not bSentGetDSet.[peeri] then 
-//                    let queue = curDSet.Cluster.QueueForWrite( peeri )
-//                    if Utils.IsNotNull queue && queue.CanSend then 
-//                        queue.ToSend( ControllerCommand( ControllerVerb.Get, ControllerNoun.DSet ), msSend )
-//                        bSentGetDSet.[peeri] <- true
-//            if numPeerRespond>=numRequiredPeerRespond && numDSetMetadataRead>=numRequiredVlidResponse then 
-//                bMetaDataRetrieved <- true    
-//            else if numPeerRespond>=curDSet.Cluster.NumNodes then 
-//                // All peer responded, timeout
-//                maxWait <- clock_start
-//            else if numDSetMetadataRead + ( curDSet.Cluster.NumNodes - numPeerRespond ) < numRequiredVlidResponse then 
-//                // Enough failed response gathered, we won't be able to succeed. 
-//                maxWait <- clock_start
-//
-//            if not bIOactivity then 
-//                Threading.Thread.Sleep( 5 )
-//            else
-//                Threading.Thread.Sleep( 0 )
-//        // by setting bDSetMetaRead, we stop update metadata, all further peer response with different DSet version will be considered as a failed peer. 
-//        bDSetMetaRead <- null
-//        bLastPeerFailedPattern <- Array.copy bPeerFailed 
-//        if bMetaDataRetrieved then 
-//            // Retrieve some metadata. 
-//            bPartitionReadSent <- Array.create curDSet.NumPartitions false
-//            numErrorPartition <- Array.create curDSet.NumPartitions Int32.MaxValue
-//            peersFailedForPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
-//            peersNonExistPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
-//            peersTriedForPartition <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
-//            partitionReadFromPeers <- Array.init curDSet.NumPartitions ( fun _ -> List<int>() )
-//            bFailingPartitionReported <- Array.create curDSet.NumPartitions false
-//
-//        bMetaDataRetrieved
-//
 
 
     override x.ToString() = 
         seq {
+            yield "JobID: %s" + x.JobID.ToString("D")
             for cluster in x.Clusters do 
                 yield "Cluster " + cluster.ToString()
             for dsetSrc in x.SrcDSet do
@@ -2860,3 +2855,26 @@ and
                 yield " " + file.ToString()
         } |> String.concat Environment.NewLine
 
+and /// Create a job for remote execution roster
+    internal ContainerJob() as thisInstance = 
+        inherit Job() 
+        let jobLifecycleRef = ref ( JobLifeCycleCollectionApp.BeginJob() )
+        do 
+            thisInstance.IsContainer <- true 
+            let jobLifecycle = Volatile.Read( jobLifecycleRef )
+            jobLifecycle.OnDisposeFS( thisInstance.EndContainerJob )
+            thisInstance.TryExecuteSingleJobActionFunc <- thisInstance.TryExecuteSingleJobAction
+        /// Grab a single job action object, when secured, the cancellation of the underlying jobLifeCycle object will be delayed 
+        /// until this action completes. 
+        member internal x.TryExecuteSingleJobAction() = 
+            let writeObj = Volatile.Read( jobLifecycleRef )
+            SingleJobActionApp.TryEnterAndThrow( writeObj )
+        /// End container job
+        member x.EndContainerJob() = 
+            x.FreeJobResource()
+            let objLifeCyle = Volatile.Read( jobLifecycleRef )
+            /// Free resource associated with the jobLifecyle object 
+            Volatile.Write( jobLifecycleRef, null )
+            if Utils.IsNotNull objLifeCyle then 
+                JobLifeCycleCollectionApp.UnregisterJob( objLifeCyle )  
+                ( objLifeCyle :> IDisposable ).Dispose()

@@ -31,6 +31,7 @@ namespace Prajna.Core
 
 open System
 open System.IO
+open System.Diagnostics
 open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Threading
@@ -89,23 +90,29 @@ and internal DStreamForwardDependencyType =
     /// Multicast a blob to all destinations in the Mapping
     | MulticastToNetwork of DependentDStream
 and internal DStreamFactory() = 
-    inherit HashCacheFactory<DStream>()
-    static let collectionByName = ConcurrentDictionary<_,_>(StringTComparer<int64>(StringComparer.Ordinal)) 
-    // Retrieve a DStream
-    static member ResolveDStream( hash ) = 
-        DStreamFactory.Resolve( hash ) 
+    /// A collection of DStream that serves as the network interface for intercommunication between Jobs. 
+    /// The entry is indexed by jobID, while each entry holds a timestamp (in ticks of int64), of the recent input from that job. 
+    /// That way, we can detect inactive jobs and cancel them later. 
+    static let collectionByJob = ConcurrentDictionary<Guid,(int64 ref)*ConcurrentDictionary<_,_>>() 
     // Cache a DStream, if there is already a DStream existing in the factory with the same name and version information, then use it. 
-    static member CacheDStream( hash, newDStream ) = 
-        let retDStream = DStreamFactory.CacheUseOld( hash, newDStream )
-        collectionByName.Item( (retDStream.Name, retDStream.Version.Ticks) ) <- retDStream
+    static member CacheDStream( jobID, newDStream: DStream ) = 
+        let refTicks, jobCollection = collectionByJob.GetOrAdd( jobID, fun _ -> (ref DateTime.UtcNow.Ticks), ConcurrentDictionary<_,_>(StringTComparer<int64>(StringComparer.Ordinal)) ) 
+        refTicks := DateTime.UtcNow.Ticks
+        let retDStream = jobCollection.GetOrAdd((newDStream.Name, newDStream.Version.Ticks), newDStream ) 
         retDStream
-    static member RemoveDStream( dstream:DStream ) = 
-        DStreamFactory.Remove( dstream.Hash )
-        collectionByName.TryRemove( (dstream.Name, dstream.Version.Ticks ) ) |> ignore
+    static member RemoveDStream( jobID ) = 
+        collectionByJob.TryRemove( jobID ) |> ignore
     static member ResolveDStreamByName tuple = 
-        let bExist, dstream = collectionByName.TryGetValue( tuple )
+        let jobID, name, ver = tuple
+        let bExist, t = collectionByJob.TryGetValue( jobID )
         if bExist then 
-            dstream
+            let refTicks, jobCollection = t
+            refTicks := DateTime.UtcNow.Ticks
+            let bExist, dstream = jobCollection.TryGetValue( (name, ver ))
+            if bExist then 
+                dstream
+            else
+                null
         else
             null
 /// DStream is a distributed byte[] stream, a central entity in DSet. 
@@ -323,7 +330,7 @@ and [<AllowNullLiteral>]
     member private x.PostCloseAllStreamsImpl( jbInfo ) = 
         x.PostCloseAllStreamsBaseImpl( jbInfo )
         x.CloseAllStreamsThis()
-        x.FreeNetwork( )
+        x.FreeNetwork( jbInfo )
     member internal x.GetStoreStreamArray() = 
         if (Utils.IsNull !x.StoreStreamArray) then 
             x.GetStorageProvider() |> ignore
@@ -483,10 +490,10 @@ and [<AllowNullLiteral>]
         else
             let curmapping = x.GetCurrentMapping()
             curmapping.[parti] = x.CurPeerIndex
-    member internal x.FreeNetwork ( ) =
+    member internal x.FreeNetwork ( jbInfo ) =
         if x.bNetworkInitialized then 
             x.SyncCloseSentCollection.Clear()
-            x.Cluster.UnRegisterCallback( x.Name, x.Version.Ticks, [| ControllerCommand( ControllerVerb.Unknown, ControllerNoun.DStream ) |] )
+            x.Cluster.UnRegisterCallback( jbInfo.JobID, [| ControllerCommand( ControllerVerb.Unknown, ControllerNoun.DStream ) |] )
             x.bSentPeer <- null
             x.bRcvdPeer <- null
             x.bRcvdPeerCloseCalled <- null
@@ -503,9 +510,9 @@ and [<AllowNullLiteral>]
         x.WaitForAllPeerClose <- true
         x.AllPeerCloseRcvdEvent.Reset() |> ignore
 
-    member private x.ResetAllImpl() = 
-        x.FreeBaseResource()
-        x.FreeNetwork()
+    member private x.ResetAllImpl( jbInfo ) = 
+        x.FreeBaseResource( jbInfo )
+        x.FreeNetwork( jbInfo )
         x.CountFunc.Reset()
         if x.WaitForAllPeerClose then 
             x.AllPeerCloseRcvdEvent.Reset() |> ignore
@@ -520,10 +527,11 @@ and [<AllowNullLiteral>]
             let bExecuteInitialization = x.BaseNetworkReady(jbInfo)
             // This function may be repeated called during a concurrent execution
             if bExecuteInitialization then 
-                x.Cluster.RegisterCallback( x.Name, x.Version.Ticks, [| ControllerCommand( ControllerVerb.Unknown, ControllerNoun.DStream ) |],
+                Debug.Assert( jbInfo.JobID <> Guid.Empty )
+                x.Cluster.RegisterCallback( jbInfo.JobID, x.Name, x.Version.Ticks, [| ControllerCommand( ControllerVerb.Unknown, ControllerNoun.DStream ) |],
                     { new NetworkCommandCallback with 
-                        member this.Callback( cmd, peeri, ms, name, verNumber, cl ) = 
-                            x.DStreamCallback( cmd, peeri, ms, name, verNumber )
+                        member this.Callback( cmd, peeri, ms, jobID, name, verNumber, cl ) = 
+                            x.DStreamCallback( cmd, peeri, ms, jobID, name, verNumber )
                     } )
                 
     member internal x.CloseNetwork() = 
@@ -532,71 +540,76 @@ and [<AllowNullLiteral>]
     /// Return: 
     ///     false: blocking, need to resend the command at a later time
     ///     true: command processed. 
-    member internal x.ProcessJobCommand( queuePeer:NetworkCommandQueue, cmd:ControllerCommand, ms:StreamBase<byte> ) = 
-        let peeri = x.Cluster.SearchForEndPoint( queuePeer )
-        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ProcessJobCommand, Map %A to peer %d" queuePeer.RemoteEndPoint peeri ))
-        try
+    member internal x.ProcessJobCommand( jobAction:SingleJobActionContainer, queuePeer:NetworkCommandQueue, cmd:ControllerCommand, ms:StreamBase<byte>, jobID: Guid ) = 
+            let peeri = x.Cluster.SearchForEndPoint( queuePeer )
+            Logger.LogF( jobID, LogLevel.WildVerbose, ( fun _ -> sprintf "ProcessJobCommand, Map %A to peer %d" queuePeer.RemoteEndPoint peeri ))
             // Outgoing queue for the reply 
             match ( cmd.Verb, cmd.Noun ) with 
             | ( ControllerVerb.Acknowledge, ControllerNoun.DStream ) ->
                 true
             | ( ControllerVerb.SyncWrite, ControllerNoun.DStream ) ->
                 let meta = BlobMetadata.Unpack( ms )
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd %A command %A from peer %d with %dB" (meta.ToString()) cmd peeri (ms.Length-ms.Position) ))
+                Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Rcvd %s command %A from peer %d with %dB" (meta.ToString()) cmd peeri (ms.Length-ms.Position) ))
                 let bRet = x.SyncReceiveFromPeer meta ms peeri 
 //                let ev = new ManualResetEvent(false)
 //                ev.Reset() |> ignore
 //                ev.WaitOne() |> ignore
                 if bRet && (DateTime.UtcNow - queuePeer.LastSendTicks).TotalMilliseconds > 5000. then 
 //                if bRet then 
-                    let msEcho = new MemStream( 128 )
+                    use msEcho = new MemStream( 128 )
+                    msEcho.WriteGuid( jobID )
                     msEcho.WriteString( x.Name )
                     msEcho.WriteInt64( x.Version.Ticks )
                     queuePeer.ToSendNonBlock( ControllerCommand( ControllerVerb.Echo, ControllerNoun.DStream ), msEcho )
-                    msEcho.DecRef()
                 bRet 
             | ( ControllerVerb.SyncClosePartition, ControllerNoun.DStream ) ->
                 let meta = BlobMetadata.Unpack( ms )
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd %A command %A from peer %d" (meta.ToString()) cmd peeri ))
+                Logger.LogF( jobID, LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd %A command %A from peer %d" (meta.ToString()) cmd peeri ))
                 let bRet = x.SyncReceiveFromPeer meta null peeri
                 if bRet then 
-                    let msEcho = new MemStream( 128 )
+                    use msEcho = new MemStream( 128 )
+                    msEcho.WriteGuid( jobID )
                     msEcho.WriteString( x.Name )
                     msEcho.WriteInt64( x.Version.Ticks )
                     queuePeer.ToSendNonBlock( ControllerCommand( ControllerVerb.ConfirmClosePartition, ControllerNoun.DStream ), msEcho )
-                    msEcho.DecRef()
                 bRet 
             | ( ControllerVerb.SyncClose, ControllerNoun.DStream ) ->
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd command %A from peer %d" cmd peeri ))
-                x.SyncCloseFromPeer queuePeer peeri |> ignore
+                Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Rcvd command %A from peer %d" cmd peeri ))
+                x.SyncCloseFromPeer queuePeer peeri jobID |> ignore
                 true
 
             | _ ->
-                Logger.Log( LogLevel.Info, ( sprintf "DStream.Callback(%s:%s), Unexpected command %A, peer %d" x.Name x.VersionString cmd peeri )    )
+                let msg = sprintf "DStream.Callback(%s:%s), Unexpected command %A, peer %d" x.Name x.VersionString cmd peeri
+                jobAction.ThrowExceptionAtContainer( msg )
                 true
-        with 
-        | e -> 
-            Logger.Log( LogLevel.Info, ( sprintf "Error in processing DStream.ProcessJobCommand(%s:%s) cmd %A, peer %d, with exception %A" x.Name x.VersionString cmd peeri e )    )
-            true
-    member internal x.DStreamCallback( cmd, peeri, ms, name, verNumber ) =
-        try
-            // Outgoing queue for the reply 
-            let q = x.Cluster.Queue( peeri )
-            match ( cmd.Verb, cmd.Noun ) with 
-            | ( ControllerVerb.Echo, ControllerNoun.DStream ) ->
-                ()
-            | ( ControllerVerb.ConfirmClosePartition, ControllerNoun.DStream ) ->
-                ()
-            | ( ControllerVerb.ConfirmClose, ControllerNoun.DStream ) ->
-                x.bSentPeerCloseConfirmed.[peeri] <- true
-                Logger.Log( LogLevel.MildVerbose, ( sprintf "DStream %s:%s, ConfirmClose received from peer %d" x.Name x.VersionString peeri )    )
-                x.CheckAllPeerClosed()
-            | _ ->
-                Logger.Log( LogLevel.Info, ( sprintf "DStream.Callback(%s:%s), Unexpected command %A, peer %d" x.Name x.VersionString cmd peeri )    )
-        with 
-        | e -> 
-            Logger.Log( LogLevel.Info, ( sprintf "Error in processing DStream.Callback(%s:%s) cmd %A, peer %d, with exception %A" x.Name x.VersionString cmd peeri e )    )
-        true
+
+    /// Parse echoing from DStream from a container to other container
+    member x.DStreamCallback( cmd, peeri, ms, jobID, name, verNumber ) =
+        using ( SingleJobActionContainer.TryFind(jobID)) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "[May be Ok, Job cancelled?] DStream.DStreamCallback, received command %A of payload %dB, but can't find job lifecycle object" 
+                                                                                    cmd ms.Length )    )
+                true
+            else
+                try
+                    // Outgoing queue for the reply 
+                    let q = x.Cluster.Queue( peeri )
+                    match ( cmd.Verb, cmd.Noun ) with 
+                    | ( ControllerVerb.Echo, ControllerNoun.DStream ) ->
+                        ()
+                    | ( ControllerVerb.ConfirmClosePartition, ControllerNoun.DStream ) ->
+                        ()
+                    | ( ControllerVerb.ConfirmClose, ControllerNoun.DStream ) ->
+                        x.bSentPeerCloseConfirmed.[peeri] <- true
+                        Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "DStream %s:%s, ConfirmClose received from peer %d" x.Name x.VersionString peeri )    )
+                        x.CheckAllPeerClosed()
+                    | _ ->
+                        Logger.LogF( jobID, LogLevel.Info, ( fun _ -> sprintf "DStream.Callback(%s:%s), Unexpected command %A, peer %d" x.Name x.VersionString cmd peeri )    )
+                with 
+                | e -> 
+                        Logger.LogF( jobID, LogLevel.Info, ( fun _ -> sprintf "Error in processing DStream.Callback(%s:%s) cmd %A, peer %d, with exception %A" x.Name x.VersionString cmd peeri e )    )
+                true
+        )
     // Parent Mapping
     member private x.GetParentMappingImpl() = 
         match x.Dependency with 
@@ -622,34 +635,34 @@ and [<AllowNullLiteral>]
                 x.BaseSyncPreCloseAllStreams (jbInfo) 
             else
                 // Need to wait 
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "SyncPreCloseAllStreams %A %s ReSet CanCloseDownStreamEvent" x.ParamType x.Name))
+                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "SyncPreCloseAllStreams %A %s ReSet CanCloseDownStreamEvent" x.ParamType x.Name))
                 x.CanCloseDownstreamEvent.Reset() |> ignore
     member private x.WaitForCloseAllStreamsViaHandleImpl ( waithandles, jbInfo, start ) =
         let contSendCloseDStream() = 
             match x.DependencyDownstream with
             | SinkStream -> 
-                x.SyncSendCloseDStreamToAll()
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "%A %s:%s SinkStream, WaitForCloseAllStreamsViaHandle Send SyncClose, DStream to all peers " 
-                                                               x.ParamType x.Name x.VersionString )     )
+                x.SyncSendCloseDStreamToAll(jbInfo)
+                Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "%A %s:%s SinkStream, WaitForCloseAllStreamsViaHandle Send SyncClose, DStream to all peers " 
+                                                                                        x.ParamType x.Name x.VersionString )     )
             | SendToNetwork child 
             | MulticastToNetwork child -> 
                 match x.ExecutionDirection with 
                 | TraverseDirection.TraverseDownstream -> 
-                    x.SyncSendCloseDStreamToAll()
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "%A %s:%s SinkStream, WaitForCloseAllStreamsViaHandle Send SyncClose, DStream to all peers " 
-                                                                   x.ParamType x.Name x.VersionString )     )
+                    x.SyncSendCloseDStreamToAll(jbInfo)
+                    Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "%A %s:%s SinkStream, WaitForCloseAllStreamsViaHandle Send SyncClose, DStream to all peers " 
+                                                                                            x.ParamType x.Name x.VersionString )     )
                 | _ -> 
                     ()
             | _ ->
                 ()
 
         let contReportClose() = 
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "%A %s:%s SinkStream, WaitForCloseAllStreamsViaHandle network done" 
-                                                           x.ParamType x.Name x.VersionString ))
+            Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "%A %s:%s SinkStream, WaitForCloseAllStreamsViaHandle network done" 
+                                                                                    x.ParamType x.Name x.VersionString ))
             let finalMetadata = BlobMetadata( Int32.MinValue, Int64.MaxValue, 0 )
             jbInfo.ReportClosePartition( jbInfo, x:> DistributedObject , finalMetadata, 0L )
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "%A %s:%s SinkStream, WaitForCloseAllStreamsViaHandle send close report, can close downstream" 
-                                                           x.ParamType x.Name x.VersionString ))
+            Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "%A %s:%s SinkStream, WaitForCloseAllStreamsViaHandle send close report, can close downstream" 
+                                                                                    x.ParamType x.Name x.VersionString ))
         let showInfo() = 
             sprintf "Waiting for SyncClose, DStream from & to peers for DStream %s:%s %s " x.Name x.VersionString (x.DependencyDownstreamInfo()) 
         match x.DependencyDownstream with 
@@ -673,23 +686,23 @@ and [<AllowNullLiteral>]
             waithandles.EnqueueWaitHandle showInfo x.AllPeerClosedEvent (fun _ -> ()) x.CanCloseDownstreamEvent
 
     
-    member internal x.SyncSendCloseDStreamTask peeri = 
+    member internal x.SyncSendCloseDStreamTask peeri (jbInfo: JobInformation) = 
         let lockValue = x.SyncCloseSentCollection.AddOrUpdate( peeri, (fun k -> 1), (fun k v -> v + 1) )
         if lockValue=1 then 
             let peerQueue = x.CurClusterInfo.QueueForWriteBetweenContainer(peeri)
             if Utils.IsNotNull peerQueue && (not peerQueue.Shutdown) then 
-                let msClose = new MemStream( 128 )
+                use msClose = new MemStream( 128 )
+                msClose.WriteGuid( jbInfo.JobID )
                 msClose.WriteString( x.Name ) 
                 msClose.WriteInt64( x.Version.Ticks )
                 peerQueue.ToSend( ControllerCommand( ControllerVerb.SyncClose, ControllerNoun.DStream), msClose )
-                Logger.Log( LogLevel.MildVerbose, ( sprintf "DStream %s:%s, SyncClose, DStream send to peer %d" x.Name x.VersionString peeri )    )
-                msClose.DecRef()
+                Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "DStream %s:%s, SyncClose, DStream send to peer %d" x.Name x.VersionString peeri )    )
             else
                 let msg = sprintf "DStream.SyncClose, DStream %s:%s, attempt to send SyncClose, DStream to peer %d, but the peer queue has already been shutdown" 
                             x.Name x.VersionString peeri 
-                Logger.Log( LogLevel.Warning, msg )
+                Logger.Log( jbInfo.JobID, LogLevel.Warning, msg )
 
-    member internal x.SyncSendCloseDStreamToAll() = 
+    member internal x.SyncSendCloseDStreamToAll(jbInfo: JobInformation) = 
         match x.DependencyDownstream with 
         | SendToNetwork child 
         | MulticastToNetwork child -> 
@@ -697,16 +710,16 @@ and [<AllowNullLiteral>]
             childStream.NetworkReady( childStream.DefaultJobInfo )
             for peeri = 0 to childStream.Cluster.NumNodes - 1 do 
                 if peeri<>childStream.CurPeerIndex then 
-                    childStream.SyncSendCloseDStreamTask peeri
+                    childStream.SyncSendCloseDStreamTask peeri jbInfo 
             if childStream.CurPeerIndex >=0 then 
-                childStream.SyncCloseFromPeer null childStream.CurPeerIndex
+                childStream.SyncCloseFromPeer null childStream.CurPeerIndex jbInfo.JobID 
         | SinkStream -> 
             x.NetworkReady( x.DefaultJobInfo )
             for peeri = 0 to x.Cluster.NumNodes - 1 do 
                 if peeri<>x.CurPeerIndex then 
-                    x.SyncSendCloseDStreamTask peeri
+                    x.SyncSendCloseDStreamTask peeri jbInfo
             if x.CurPeerIndex >=0 then 
-                x.SyncCloseFromPeer null x.CurPeerIndex
+                x.SyncCloseFromPeer null x.CurPeerIndex jbInfo.JobID
         | _ -> 
             ()
             
@@ -736,8 +749,9 @@ and [<AllowNullLiteral>]
         
 //        | _ ->
 //            x.BaseIterateExecuteDownstream jbInfo parti meta o
-    member internal x.AsyncPackageToSend (meta:BlobMetadata) (streamObject:Object) = 
+    member internal x.AsyncPackageToSend (meta:BlobMetadata) (streamObject:Object) jobID = 
         let metaStream = new MemStream( 128 ) 
+        metaStream.WriteGuid( jobID )
         metaStream.WriteString( x.Name )
         metaStream.WriteInt64( x.Version.Ticks ) 
         meta.Pack( metaStream ) 
@@ -751,12 +765,13 @@ and [<AllowNullLiteral>]
                 Logger.Fail( sprintf "DStream.AsyncPackageToSend, object pushed is of unknonw type %A, %A" (streamObject.GetType()) streamObject )
         else
             ControllerCommand( ControllerVerb.ClosePartition, ControllerNoun.DStream), metaStream 
-    member internal x.SyncPackageToSend (meta:BlobMetadata) (streamObject:Object) = 
+    member internal x.SyncPackageToSend (meta:BlobMetadata) (streamObject:Object) jobID = 
         if Utils.IsNotNull streamObject then 
             match streamObject with 
             | :? StreamBase<byte> as ms -> 
                 let metaStream = ms.GetNew()
                 metaStream.Info <- sprintf "SyncPackageToSend"
+                metaStream.WriteGuid( jobID )
                 metaStream.WriteString( x.Name )
                 metaStream.WriteInt64( x.Version.Ticks ) 
                 meta.Pack( metaStream ) 
@@ -768,6 +783,7 @@ and [<AllowNullLiteral>]
                 Logger.Fail( sprintf "DStream.SyncPackageToSend, object pushed is of unknonw type %A, %A" (streamObject.GetType()) streamObject )
         else
             let metaStream = new MemStream( 128 ) 
+            metaStream.WriteGuid( jobID )
             metaStream.WriteString( x.Name )
             metaStream.WriteInt64( x.Version.Ticks ) 
             meta.Pack( metaStream ) 
@@ -780,7 +796,7 @@ and [<AllowNullLiteral>]
             meta, ms
      /// Flush all write, and then confirmed to the source 
     /// Lock is installed so even if closeFromPeer is called multiple times, it is only flushed once. 
-    member internal x.SyncCloseFromPeer queuePeer peeri = 
+    member internal x.SyncCloseFromPeer queuePeer peeri jobID = 
         if not x.bRcvdPeerCloseCalled.[peeri] then 
             if not x.WaitForAllPeerClose then 
                 // Flush partitions associated with peer when a peer clsoe received. 
@@ -809,20 +825,20 @@ and [<AllowNullLiteral>]
                         let msg = sprintf "DStream.CloseFromPeer %s:%s has WaitForAllPeerClose flag, it should have a AllPeerCloseRcvdEvent to be flagged on" x.Name x.VersionString
                         Logger.Log( LogLevel.Error, msg )
                         let jbInfo = x.DefaultJobInfo
-                        let msError = new MemStream( 1024 )
+                        use msError = new MemStream( 1024 )
                         msError.WriteString( msg )
                         jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
-                        msError.DecRef()
                 
             x.CheckAllPeerClosed()
             if Utils.IsNotNull queuePeer then 
                 // queuePeer<>null, this is called from same peer 
-                let msConfirmClose = new MemStream( 128 )
+                use msConfirmClose = new MemStream( 128 )
+                msConfirmClose.WriteGuid( jobID )
                 msConfirmClose.WriteString( x.Name ) 
                 msConfirmClose.WriteInt64( x.Version.Ticks ) 
                 queuePeer.ToSend( ControllerCommand( ControllerVerb.ConfirmClose, ControllerNoun.DStream ), msConfirmClose )
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "DStream %s:%s Send ConfirmClose, DStream to peer %d" x.Name x.VersionString peeri ))
-                msConfirmClose.DecRef()
+
         else
              Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "DStream %s:%s Rcvd SyncClose, DStream from peer %d, but status variable indicated SyncClose has been received from the peer, no action is done" x.Name x.VersionString peeri ))
     member internal x.CanFlush() = 
@@ -886,7 +902,7 @@ and [<AllowNullLiteral>]
     /// SyncSendPeer needs to be threadsafe, and we assume that synchronization is done via peerQueue.ToSend
     /// HZ Li: make SyncSendPeer to be threadsafe to ensure flow control works correctly
     /// if there is no flow control, receiver's receive TCP buffer may be full and sender need to retransmit packages and reset the connection eventally. 
-    member internal x.SyncSendPeer jbInfo parti (meta:BlobMetadata) (streamObject:Object) peeri = 
+    member internal x.SyncSendPeer (jbInfo:JobInformation) parti (meta:BlobMetadata) (streamObject:Object) peeri = 
             let peerQueue = x.CurClusterInfo.QueueForWriteBetweenContainer(peeri)
             if Utils.IsNotNull peerQueue && (not peerQueue.Shutdown) then 
                 x.bSentPeer.[peeri] <- true
@@ -894,7 +910,7 @@ and [<AllowNullLiteral>]
                 let bSend = ref false
                 let mutable bForceSend = false
 
-                let cmd, ms = x.SyncPackageToSend meta streamObject
+                let cmd, ms = x.SyncPackageToSend meta streamObject (jbInfo.JobID)
 
                 while not (!bSend) && peerQueue.CanSend do 
 //                    if Interlocked.CompareExchange (peerQueue.flowcontrol_lock,1,0) = 0 then
@@ -912,28 +928,28 @@ and [<AllowNullLiteral>]
                             peerQueue.ToSend( cmd, ms )
                             if (Utils.IsNotNull ms) then
                                 ms.DecRef()
-                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Send %A command %A to peer %d with %dB" (meta.ToString()) cmd peeri ms.Length ))
+                            Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> let len = if Utils.IsNull ms then 0L else ms.Length
+                                                                                        sprintf "DStream.SyncSendPeer, Send %A command %A to peer %d with %dB" (meta.ToString()) cmd peeri len ))
                             bSend := true
                         else
                             // Wait for sending window to open 
-                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Block on Send %A to peer %d Socket %s status %A, queuelimit %dB, unprocessed %dB, sendqueue Length: %d" 
-                                                                               (meta.ToString()) peeri 
-                                                                               (LocalDNS.GetShowInfo(peerQueue.RemoteEndPoint)) peerQueue.ConnectionStatus (x.SendingQueueLimit) peerQueue.UnProcessedCmdInBytes
-                                                                               peerQueue.SendCommandQueueLength
-                                                                               ))
+                            Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "DStream.SyncSendPeer, Block on Send %A to peer %d Socket %s status %A, queuelimit %dB, unprocessed %dB, sendqueue Length: %d" 
+                                                                                                   (meta.ToString()) peeri 
+                                                                                                   (LocalDNS.GetShowInfo(peerQueue.RemoteEndPoint)) peerQueue.ConnectionStatus (x.SendingQueueLimit) peerQueue.UnProcessedCmdInBytes
+                                                                                                   peerQueue.SendCommandQueueLength
+                                                                                                   ))
                             let blockedTime = ( (PerfADateTime.UtcNow()).Subtract(!peerQueue.flowcontrol_lastack) ).TotalMilliseconds
                             if blockedTime >= 1000. && peerQueue.CanSend &&  peerQueue.RcvdCommandSerial <> !peerQueue.flowcontrol_lastRcvdCommandSerial then
-                                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Send cmd to peer %s has been blocked for %f ms, send an unknown cmd to prevent deadlock, lastRcvdCommandSerial: %d, peerQueue.RcvdCommandSerial: %d" (LocalDNS.GetShowInfo(peerQueue.RemoteEndPoint)) blockedTime !peerQueue.flowcontrol_lastRcvdCommandSerial peerQueue.RcvdCommandSerial))
-                                let msSend = new MemoryStreamB()
+                                Logger.LogF( jbInfo.JobID, LogLevel.Warning, ( fun _ -> sprintf "Send cmd to peer %s has been blocked for %f ms, send an unknown cmd to prevent deadlock, lastRcvdCommandSerial: %d, peerQueue.RcvdCommandSerial: %d" (LocalDNS.GetShowInfo(peerQueue.RemoteEndPoint)) blockedTime !peerQueue.flowcontrol_lastRcvdCommandSerial peerQueue.RcvdCommandSerial))
+                                use msSend = new MemoryStreamB()
                                 msSend.Info <- "Nothing"
                                 peerQueue.ToSend( new ControllerCommand(ControllerVerb.Unknown,ControllerNoun.Unknown), msSend )
-                                msSend.DecRef()
                                 //bForceSend <- true
                                 peerQueue.flowcontrol_lastack := (PerfADateTime.UtcNow())
                                 peerQueue.flowcontrol_lastRcvdCommandSerial := peerQueue.RcvdCommandSerial
                         peerQueue.flowcontrol_lock := 0
             else
-                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Send %A to peer %d will be discarded as no valid outgoing peer is present ........ " (meta.ToString()) peeri ))
+                Logger.LogF( jbInfo.JobID, LogLevel.Warning, ( fun _ -> sprintf "Send %A to peer %d will be discarded as no valid outgoing peer is present ........ " (meta.ToString()) peeri ))
                 // Is this the first time that the peer shuts down? 
                 // Count # of active connections. 
                 if x.bConnected.[peeri] then 
@@ -1064,7 +1080,7 @@ and [<AllowNullLiteral>]
 //            | SinkStream -> 
 //                true
     /// Process feedback of the outgoing command. 
-    member internal x.ProcessCallback( cmd:ControllerCommand, peeri:int, ms:StreamBase<byte> ) =
+    member internal x.ProcessCallback( cmd:ControllerCommand, peeri:int, ms:StreamBase<byte>, jobID:Guid ) =
         try
             let queue = x.Cluster.Queue( peeri )
             match ( cmd.Verb, cmd.Noun ) with 

@@ -192,8 +192,8 @@ type DeploymentSettings() =
     static member val internal ClusterProcessingAcknoledgementInterval = 100 with get
     /// Second after CloseAfterFlush 
     static member val internal SecondsAfterCloseAfterFlush = 3L with get
-    /// Remapping interval (in 1/n sec ), that the host will seek to find a new peer to assign a partition. 
-    static member val RemappingInterval = 1L with get
+    /// Remapping interval (in  sec ), that the host will seek to find a new peer to assign a partition. 
+    static member val RemappingIntervalInMillisecond = 1000 with get
     /// Inactive time for monitoring of main thread. 
     static member val internal ClientInactiveTimeSpan = 10. with get
     /// Inactive time for monitoring of main thread. 
@@ -428,6 +428,8 @@ type DeploymentSettings() =
 
     /// The wait time for unload an appdomain that is hosting a daemon or container.
     static member val internal AppDomainUnloadWaitTime = TimeSpan.FromSeconds(1.0) with get
+    /// If a job is idle for this much time, it is considered to have problems, and may be cancelled. 
+    static member val MaxWaitToEndJobInMilliseconds = 30000 with get, set 
 
 
 (*---------------------------------------------------------------------------

@@ -649,14 +649,14 @@ and [<AllowNullLiteral; Serializable>]
             // Register every stream
             if bRegisterStream then               
                 if ( bRegister ) then 
-                    stream.Cluster.RegisterCallback( stream.Name, stream.Version.Ticks, 
+                    stream.Cluster.RegisterCallback( x.JobID, stream.Name, stream.Version.Ticks, 
                         [| ControllerCommand(ControllerVerb.Unknown, ControllerNoun.DStream) |],
                         { new NetworkCommandCallback with 
-                            member this.Callback( cmd, peeri, ms, name, verNumber, cl ) = 
-                                stream.ProcessCallback( cmd, peeri, ms )
+                            member this.Callback( cmd, peeri, ms, jobID, name, verNumber, cl ) = 
+                                stream.ProcessCallback( cmd, peeri, ms, jobID )
                         } )
                 else
-                    stream.Cluster.UnRegisterCallback( stream.Name, stream.Version.Ticks, 
+                    stream.Cluster.UnRegisterCallback( x.JobID, 
                         [| ControllerCommand(ControllerVerb.Unknown, ControllerNoun.DStream) |] )
         | _ -> 
             let msg = sprintf "RegisterOne failed, don't know how to do with type %A object %A" (cur.GetType()) cur
@@ -804,9 +804,9 @@ and [<AllowNullLiteral; Serializable>]
     member val private WaitForCloseAllStreamsHandleCollection = null with get, set
     member x.PostCloseAllStreams jbInfo (cur:DistributedObject ) = 
         cur.PostCloseAllStreams(jbInfo) 
-        cur.ResetAll() 
+        cur.ResetAll( jbInfo ) 
     member x.ResetAll jbInfo (cur:DistributedObject )= 
-        cur.ResetAll() 
+        cur.ResetAll( jbInfo ) 
     member x.PreBeginAsync jbInfo direction (cur:DistributedObject )= 
         cur.PreBegin( jbInfo, direction ) 
         match direction, cur with 
@@ -831,10 +831,15 @@ and [<AllowNullLiteral; Serializable>]
                 dset.ThreadPool <- new ThreadPoolWithWaitHandles<int>( threadPoolName, NumParallelExecution = dset.NumParallelExecution  )
                 dset.InitializeCache( true ) 
                 Logger.LogF( LogLevel.MediumVerbose, (fun _ -> sprintf "Eqneueing %d partitions for exectution" dset.NumPartitions))
-                for parti=0 to dset.NumPartitions - 1 do 
-                    dset.InitializeCachePartition( parti )
-                    dset.ThreadPool.EnqueueRepeatableFunction ( dset.NewThreadToExecuteDownstream jbInfo parti ) (jbInfo.CancellationToken.Token) parti ( fun pi -> sprintf "ExecuteDownStream Job WildMixFrom DSet %s:%s partition %d" dset.Name dset.VersionString pi )
-                dset.ThreadPool.TryExecute()
+                using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+                    if Utils.IsNull jobAction then 
+                        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "PreBeginSync, Job %A has already been cancelled ... " jbInfo.JobID )
+                    else
+                        for parti=0 to dset.NumPartitions - 1 do 
+                            dset.InitializeCachePartition( parti )
+                            dset.ThreadPool.EnqueueRepeatableFunction ( dset.NewThreadToExecuteDownstream jbInfo parti ) (jobAction.CTS) parti ( fun pi -> sprintf "ExecuteDownStream Job WildMixFrom DSet %s:%s partition %d" dset.Name dset.VersionString pi )
+                        dset.ThreadPool.TryExecute()
+                )
             | _ -> 
                 ()
         | _ ->
@@ -842,29 +847,29 @@ and [<AllowNullLiteral; Serializable>]
             ()
     member val JobInfoCollections = ConcurrentDictionary<string,JobInformation>() with get
     member val AsyncExecutionEngine = ConcurrentDictionary<string,AsyncExecutionEngine>() with get
-    member val SyncExecutionEngine  = ConcurrentDictionary<string,ThreadPoolWithWaitHandles<int>>() with get        
-
+    member val SyncExecutionEngine  = ConcurrentDictionary<string,ThreadPoolWithWaitHandles<int>>() with get
+        
     member x.BeginAllSync jbInfo ( dset: DSet ) = 
         x.TraverseAllObjects TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset (x.ResetAll jbInfo)
         x.TraverseAllObjectsWDirection TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset (x.PreBeginSync jbInfo)
 
     member x.CloseAllSync jbInfo ( dset: DSet ) = 
         let t1 = (PerfDateTime.UtcNow())       
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "start PreClose %A %s:%s ........" dset.ParamType dset.Name dset.VersionString ) )
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "start PreClose %A %s:%s ........" dset.ParamType dset.Name dset.VersionString ) )
         if Utils.IsNull x.WaitForCloseAllStreamsHandleCollection then 
             let collectionName = sprintf "WaitHandle for job %s:%s dset %s:%s" x.Name x.VersionString dset.Name dset.VersionString 
             x.WaitForCloseAllStreamsHandleCollection <- new WaitHandleCollection(collectionName, DeploymentSettings.NumObjectsPerJob) 
         x.TraverseAllObjects TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset (x.SyncPreCloseAllStreams jbInfo)
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "1st stage, PreClose %A %s:%s ........" dset.ParamType dset.Name dset.VersionString ) )
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "1st stage, PreClose %A %s:%s ........" dset.ParamType dset.Name dset.VersionString ) )
         // Use handle
         x.TraverseAllObjects TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset ( x.WaitForCloseAllStreamsViaHandle jbInfo t1 )
         let t2 = (PerfDateTime.UtcNow())
         let elapseMS = t2.Subtract(t1).TotalMilliseconds
         let timeoutInMS = Math.Max( DeploymentSettings.TimeOutJobFlushMilliseconds - int elapseMS, 1 )
         let bAllDone = x.WaitForCloseAllStreamsHandleCollection.WaitAll timeoutInMS DeploymentSettings.OneWaitForAllJobsDone DeploymentSettings.MonitorForLiveJobs DeploymentSettings.TraceLevelMonitorForLiveJobs
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "2nd stage, WaitForClose %A %s:%s ........ all done is %A" dset.ParamType dset.Name dset.VersionString bAllDone ) )
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "2nd stage, WaitForClose %A %s:%s ........ all done is %A" dset.ParamType dset.Name dset.VersionString bAllDone ) )
         x.TraverseAllObjects TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset ( x.PostCloseAllStreams jbInfo )  
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "3rd stage, PostClose %A %s:%s ........" dset.ParamType dset.Name dset.VersionString ) )
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "3rd stage, PostClose %A %s:%s ........" dset.ParamType dset.Name dset.VersionString ) )
         x.JobInitializer <- null
         x.JobInfoCollections.Clear() |> ignore
         x.SyncExecutionEngine.Clear() |> ignore
@@ -887,9 +892,10 @@ and [<AllowNullLiteral; Serializable>]
     // member val private bWarningOnReportClose = false with get, set
     member x.TaskReportClosePartition( jbInfo:JobInformation, dobj, meta:BlobMetadata, pos ) = 
         let dsetReport = x.FindDObject TraverseUpstream dobj x.IsDstDSet
-        let msInfo = new MemStream( 128 ) 
+        use msInfo = new MemStream( 128 ) 
         if Utils.IsNotNull dsetReport then 
             if meta.Parti>=0 then 
+                msInfo.WriteGuid( jbInfo.JobID )     
                 msInfo.WriteString( dsetReport.Name ) 
                 msInfo.WriteInt64( dsetReport.Version.Ticks ) 
                 msInfo.WriteVInt32( 1 ) 
@@ -899,6 +905,7 @@ and [<AllowNullLiteral; Serializable>]
                 jbInfo.ToSendHost( ControllerCommand(ControllerVerb.ReportPartition, ControllerNoun.DSet), msInfo )
                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ReportPartition, DSet for %s:%s %A length %d" dsetReport.Name dsetReport.VersionString (meta.ToString()) pos ))
             else
+                msInfo.WriteGuid( jbInfo.JobID )
                 msInfo.WriteString( dsetReport.Name ) 
                 msInfo.WriteInt64( dsetReport.Version.Ticks ) 
                 jbInfo.ToSendHost( ControllerCommand(ControllerVerb.ReportClose, ControllerNoun.DSet), msInfo )
@@ -906,21 +913,20 @@ and [<AllowNullLiteral; Serializable>]
             // No flow control for reporting
             ()
         else
-//            if not x.bWarningOnReportClose then 
-//                x.bWarningOnReportClose <- true
                 let msg = sprintf "Attempt to Report, DSet by %A %s:%s, on %A at position %d, however, no upstream SaveTo DSet object can be found..." 
                                 dobj.ParamType dobj.Name dobj.VersionString (meta.ToString()) pos
-                Logger.Log( LogLevel.Warning, msg )
-                msInfo.WriteString( msg ) 
-                jbInfo.ToSendHost( ControllerCommand(ControllerVerb.Warning, ControllerNoun.Message), msInfo )
+                // We expect the system to pick up the exception and send it to App
+                raise( System.Exception( msg ) )
+                // Logger.Log( LogLevel.Warning, msg )
+                // msInfo.WriteString( msg ) 
+                // jbInfo.ToSendHost( ControllerCommand(ControllerVerb.Warning, ControllerNoun.Message), msInfo )
 
 
     member x.WaitForCloseAllStreamsViaHandle jbInfo (t1:DateTime ) (cur:DistributedObject )= 
         cur.WaitForCloseAllStreamsViaHandle( x.WaitForCloseAllStreamsHandleCollection, jbInfo, t1 )
 
-    member x.ConstructJobInfo( dset:DSet, queue:NetworkCommandQueue, endPoint:Net.IPEndPoint ) = 
-        let jbInfo = new JobInformation( JobName = x.Name + x.VersionString,
-                                        DSetName = dset.Name + dset.VersionString,
+    member x.ConstructJobInfo( jobID: Guid, dset:DSet, queue:NetworkCommandQueue, endPoint:Net.IPEndPoint, bIsMainProject ) = 
+        let jbInfo = new JobInformation( jobID, bIsMainProject, dset.Name, dset.Version.Ticks, 
                                         ClustersInfo = x.ClustersInfo, 
                                         ReportClosePartition = x.TaskReportClosePartition, 
                                         HostQueue = queue, 
@@ -936,77 +942,92 @@ and [<AllowNullLiteral; Serializable>]
             x.JobStartTime <- (PerfDateTime.UtcNow())
     member x.IsJobInitializer( dset: DSet ) = 
         Object.ReferenceEquals( x.JobInitializer, dset )
-    member x.GetJobInfo( dset:DSet, queue, endPoint ) = 
+    member x.GetJobInfo( dset:DSet, queue, endPoint, bIsMainProject ) = 
         let dsetFullName = dset.Name + dset.VersionString
-        x.JobInfoCollections.GetOrAdd( dsetFullName, fun _ -> x.ConstructJobInfo(dset, queue, endPoint) )
+        let jbInfo = x.JobInfoCollections.GetOrAdd( dsetFullName, fun _ -> x.ConstructJobInfo( x.JobID, dset, queue, endPoint, bIsMainProject) )
+        // Allow TryGetDerivedJobInformationFunc to use cached object
+        jbInfo.TryGetDerivedJobInformationFunc <- ( fun dobj -> let fullname = dobj.Name + dobj.VersionString 
+                                                                x.JobInfoCollections.GetOrAdd( fullname, fun _ -> jbInfo.TryGetDerivedJobInformationImpl( dobj ) )
+                                                                )
+        jbInfo
         
     static member ClosePartition (jbInfo:JobInformation) (dset:DSet) (meta:BlobMetadata) = 
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Reaching end of part %d with %d mistakes" meta.Partition meta.NumElems ))
+        using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, fun _ -> sprintf "[ClosePartition, Job %A cancelled] DSet %s" jbInfo.JobID dset.Name )   
+            else
+                if not jobAction.IsCancelled then 
+                    Logger.LogF( jbInfo.JobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "Reaching end of part %d with %d mistakes" meta.Partition meta.NumElems ))
                 if not jbInfo.HostShutDown then 
-                    let msWire = new MemStream( 1024 )
-                    msWire.WriteString( dset.Name ) 
-                    msWire.WriteInt64( dset.Version.Ticks )
-                    msWire.WriteVInt32( meta.Partition )
-                    // # of error in this partition. 
-                    msWire.WriteVInt32( meta.NumElems )
-                    jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition ), msWire )
-        
+                        using( new MemStream( 1024 ) ) ( fun msWire -> 
+                            msWire.WriteGuid( jbInfo.JobID )
+                            msWire.WriteString( dset.Name ) 
+                            msWire.WriteInt64( dset.Version.Ticks )
+                            msWire.WriteVInt32( meta.Partition )
+                            // # of error in this partition. 
+                            msWire.WriteVInt32( meta.NumElems )
+                            jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition ), msWire )
+                        )
+        )
+
+    /// OnJobFinish govern freeing of the resource of the Task object. 
+    /// It has been registered when the Task is first established, and will garantee to execute when job is done or cancelled
+    member x.OnJobFinish() = 
+        for i=0 to x.NumBlobs-1 do
+            if (Utils.IsNotNull x.Blobs.[i]) then
+                if (Utils.IsNotNull x.Blobs.[i].Hash) then
+                    BlobFactory.remove x.Blobs.[i].Hash
+                if (Utils.IsNotNull x.Blobs.[i].Stream) then
+                    x.Blobs.[i].Stream.DecRef()
+        if (Utils.IsNotNull x.MetadataStream) then
+            x.MetadataStream.DecRef()
+        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
+        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
+        BufferListStream<byte>.DumpStreamsInUse()
+
 /// Read, Job (DSet) 
     member x.DSetReadAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
         let readFunc (jbInfo:JobInformation) ( meta, ms:StreamBase<byte> ) = 
-            if Utils.IsNotNull ms then 
-                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
-                //let msWire = new MemStream( int ms.Length + 1024 )
-                let msWire = ms.GetNew()
-                msWire.Info <- "msWire DSetReadAsSeparateApp"
-                msWire.WriteString( dset.Name )
-                msWire.WriteInt64( dset.Version.Ticks )
-                msWire.WriteVInt32( meta.Partition )
-                msWire.WriteInt64( meta.Serial )
-                msWire.WriteVInt32( meta.NumElems )
-                //msWire.Write( ms.GetBuffer(), int ms.Position, int ms.Length - int ms.Position )
-                msWire.AppendNoCopy(ms, ms.Position, ms.Length-ms.Position)
-                ms.DecRef()
-                let cmd = ControllerCommand( ControllerVerb.Write, ControllerNoun.DSet )
-                let bSendout = ref false
-//                        while Utils.IsNotNull queue && not queue.Shutdown && not !bSendout do
-//                            if queue.CanSend && queue.SendQueueLength<5 && queue.UnProcessedCmdInBytes < dset.SendingQueueLimit then 
-//                                queue.ToForward( endPoint, cmd, msWire )
-//                                bSendout := true  
-                while not jbInfo.HostShutDown && not !bSendout do
-                    if jbInfo.bAvailableToSend( dset.SendingQueueLimit ) then 
-                        jbInfo.ToSendHost( cmd, msWire ) 
-                        msWire.DecRef()
-                        bSendout := true
+            using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "[DSetReadAsSeparateApp, Job cancelled?] Fails to secure job action when writing DSet %s, %s" 
+                                                                                        dset.Name 
+                                                                                        (MetaFunction.MetaString(meta)) ))
+                else 
+                    if Utils.IsNotNull ms then 
+                        Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, ( fun _ -> sprintf "DSetReadAsSeparateApp, to writeout %s" (MetaFunction.MetaString(meta)) ))
+                        using( new MemStream( int ms.Length + 1024 ) ) ( fun msWire -> 
+                            msWire.WriteGuid( jbInfo.JobID )
+                            msWire.WriteString( dset.Name )
+                            msWire.WriteInt64( dset.Version.Ticks )
+                            msWire.WriteVInt32( meta.Partition )
+                            msWire.WriteInt64( meta.Serial )
+                            msWire.WriteVInt32( meta.NumElems )
+                            //msWire.Write( ms.GetBuffer(), int ms.Position, int ms.Length - int ms.Position )
+                            msWire.AppendNoCopy( ms, ms.Position, ms.Length-ms.Position)
+                            ms.DecRef()
+                            let cmd = ControllerCommand( ControllerVerb.Write, ControllerNoun.DSet )
+                            let bSendout = ref false
+                            while not jbInfo.HostShutDown && not !bSendout do
+                                if jbInfo.bAvailableToSend( dset.SendingQueueLimit ) then 
+                                    jbInfo.ToSendHost( cmd, msWire ) 
+                                    bSendout := true
+                                else
+                                    // Flow control kick in
+                                    ThreadPoolWaitHandles.safeWaitOne( jobAction.WaitHandle, 5 ) |> ignore                               
+                        )                                             
+                        if jbInfo.HostShutDown then 
+                            // Attempt to cancel jobs 
+                            jobAction.ThrowExceptionAtContainer( "___ DSetReadAsSeparateApp, Host has been closed ____")
                     else
-                        // Flow control kick in
-                        Threading.Thread.Sleep(5)
-                if jbInfo.HostShutDown then 
-                    // Attempt to cancel jobs 
-                    x.CancellationToken.Cancel() 
-            else
-                // Do nothing, we will wait for all jobs to complete in Async.RunSynchronously
-                Task.ClosePartition jbInfo dset meta
-//        let asyncJobs jbInfo parti = 
-//            dset.AsyncEncode jbInfo parti ( readFunc jbInfo)
+                        // Do nothing, we will wait for all jobs to complete in Async.RunSynchronously
+                        Task.ClosePartition jbInfo dset meta
+            )
 
-        let syncJobs jbInfo parti ()= 
-            dset.SyncEncode jbInfo parti ( readFunc jbInfo)
+        let syncJobs jbInfo parti ()=  
+            dset.SyncEncode jbInfo parti ( readFunc jbInfo) 
 
-        let finalJob (jbInfo:JobInformation) =
-            for i=0 to x.NumBlobs-1 do
-                if (Utils.IsNotNull x.Blobs.[i]) then
-                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
-                        BlobFactory.remove x.Blobs.[i].Hash
-                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
-                        x.Blobs.[i].Stream.DecRef()
-            if (Utils.IsNotNull x.MetadataStream) then
-                x.MetadataStream.DecRef()
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
-            BufferListStream<byte>.DumpStreamsInUse()
-
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) finalJob
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) (fun _ ->())
             
 /// ReadToNetwork, Job (DSet) 
     member x.DSetReadToNetworkAsSeparateAppSync( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
@@ -1014,73 +1035,72 @@ and [<AllowNullLiteral; Serializable>]
         let dStreamToSendSyncClose = ref null
         let bSendNullImmediately = ref false
         let beginJob (jbInfo:JobInformation) =
-            match dset.DependencyDownstream with 
-            | MixTo oneChild -> 
-                dsetToSendDown := oneChild.TargetDSet
-                match (!dsetToSendDown).DependencyDownstream with 
-                | WildMixTo (child, childS) -> 
-                    dStreamToSendSyncClose := childS.TargetStream
-                | _ -> 
-                    ()
-            | WildMixTo (child, childS) -> 
-                dsetToSendDown := dset
-                dStreamToSendSyncClose := childS.TargetStream
-                bSendNullImmediately := true
-            | _ -> 
-                ()
-            if Utils.IsNull !dsetToSendDown || Utils.IsNull !dStreamToSendSyncClose then 
-                let msg = sprintf "Job %s:%s, DSet %s:%s DSetReadToNetworkAsSeparateApp expects WildMixTo/MixTo downstream dependency, but get %A"
-                                    x.Name x.VersionString dset.Name dset.VersionString dset.DependencyDownstream 
-                Logger.Log( LogLevel.Error, msg )
-                jbInfo.ErrorMsg msg
-                jbInfo.CancellationToken.Cancel()
-            else
-                jbInfo.FoldState.Clear()
+            using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "[DSetReadToNetworkAsSeparateAppSync, Job %A cancelled?] Fails to secure job action when try to begin job on DSet %s." 
+                                                                                            jbInfo.JobID dset.Name 
+                                                                                            ))
+                else
+                    match dset.DependencyDownstream with 
+                    | MixTo oneChild -> 
+                        dsetToSendDown := oneChild.TargetDSet
+                        match (!dsetToSendDown).DependencyDownstream with 
+                        | WildMixTo (child, childS) -> 
+                            dStreamToSendSyncClose := childS.TargetStream
+                        | _ -> 
+                            ()
+                    | WildMixTo (child, childS) -> 
+                        dsetToSendDown := dset
+                        dStreamToSendSyncClose := childS.TargetStream
+                        bSendNullImmediately := true
+                    | _ -> 
+                        ()
+                    if Utils.IsNull !dsetToSendDown || Utils.IsNull !dStreamToSendSyncClose then 
+                        let msg = sprintf "Job %s:%s, DSet %s:%s DSetReadToNetworkAsSeparateApp expects WildMixTo/MixTo downstream dependency, but get %A"
+                                            x.Name x.VersionString dset.Name dset.VersionString dset.DependencyDownstream 
+                        jobAction.ErrorAtContainer( msg )
+                    else
+                        jbInfo.FoldState.Clear()
+            )
         let readToNetworkFunci (jbInfo:JobInformation) parti ()= 
-            let wrappedFunc jbInfo parti (param:BlobMetadata*Object) =
+            let wrappedFunc (jbInfo:JobInformation) parti (param:BlobMetadata*Object) =
                 let meta, elemObject = param
                 let bNullObject = Utils.IsNull elemObject
                 if not bNullObject || (!bSendNullImmediately) then 
-                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ReadToNetwork Job %s:%s, DSet %s:%s %s" 
-                                                                       x.Name x.VersionString dset.Name dset.VersionString (meta.ToString()) ))
+                    Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "ReadToNetwork Job %s:%s, DSet %s:%s %s" 
+                                                                                           x.Name x.VersionString dset.Name dset.VersionString (meta.ToString()) ))
                     (!dsetToSendDown).SyncExecuteDownstream jbInfo (meta.Partition) meta elemObject
                 if bNullObject then 
                     jbInfo.FoldState.Item( meta.Partition ) <- meta.Serial
             let t1 = PerfADateTime.UtcNow()
-            Logger.LogF( LogLevel.MediumVerbose, (fun _ -> sprintf "Start readToNetworkFunci partition %d" parti))
+            Logger.LogF( x.JobID, LogLevel.MediumVerbose, (fun _ -> sprintf "Start readToNetworkFunci partition %d" parti))
             let ret = dset.SyncIterateProtected jbInfo parti (wrappedFunc jbInfo parti )
-            Logger.LogF( LogLevel.MildVerbose, (fun _ -> 
-               let t2 = PerfADateTime.UtcNow()
-               sprintf "%s End readToNetworkFunci partition %d - start %s elapse %f" (VersionToString(t2)) parti (VersionToString(t1)) (PerfADateTime.UtcNow().Subtract(t1).TotalSeconds)
-           ))
+            Logger.LogF( x.JobID, LogLevel.WildVerbose, (fun _ -> 
+                       let t2 = PerfADateTime.UtcNow()
+                       sprintf "%s End readToNetworkFunci partition %d - start %s elapse %f" (VersionToString(t2)) parti (VersionToString(t1)) (PerfADateTime.UtcNow().Subtract(t1).TotalSeconds) ))
             ret
                 
         let finalJob (jbInfo:JobInformation) =
-            if Utils.IsNull !dStreamToSendSyncClose then 
-                let msg = sprintf "Job %s:%s, DSet %s:%s DSetReadToNetworkAsSeparateApp expects WildMixTo/MixTo downstream dependency, but get %A"
-                                    x.Name x.VersionString dset.Name dset.VersionString dset.DependencyDownstream 
-                Logger.Log( LogLevel.Error, msg )
-                jbInfo.ErrorMsg msg
-                jbInfo.CancellationToken.Cancel()
-            else
-                (!dStreamToSendSyncClose).SyncSendCloseDStreamToAll()
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All ReadToNetwork tasks completed for job %s:%s DSet %s:%s, send SyncClose, DStream to all peers !" x.Name x.VersionString dset.Name dset.VersionString))
-            for i=0 to x.NumBlobs-1 do
-                if (Utils.IsNotNull x.Blobs.[i]) then
-                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
-                        BlobFactory.remove x.Blobs.[i].Hash
-                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
-                        x.Blobs.[i].Stream.DecRef()
-            if (Utils.IsNotNull x.MetadataStream) then
-                x.MetadataStream.DecRef()
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
-            BufferListStream<byte>.DumpStreamsInUse()
-
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci beginJob finalJob           
+            using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "[DSetReadToNetworkAsSeparateAppSync, Job %A has already been cancelled when try to finalize on DSet %s." 
+                                                                                            jbInfo.JobID dset.Name 
+                                                                                    ))
+                else
+                    if Utils.IsNull !dStreamToSendSyncClose then 
+                        let msg = sprintf "Job %s:%s, DSet %s:%s DSetReadToNetworkAsSeparateApp expects WildMixTo/MixTo downstream dependency, but get %A"
+                                            x.Name x.VersionString dset.Name dset.VersionString dset.DependencyDownstream 
+                        jobAction.ErrorAtContainer( msg )
+                    else
+                        (!dStreamToSendSyncClose).SyncSendCloseDStreamToAll(jbInfo)
+                        Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "All ReadToNetwork tasks completed for job %s:%s DSet %s:%s, send SyncClose, DStream to all peers !" x.Name x.VersionString dset.Name dset.VersionString))
+            )
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci
+            beginJob finalJob           
+      
 
 /// Fold, Job (DSet) 
-    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object, ms : StreamBase<byte> ) = 
+    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object ) = 
         let syncFoldFunci (jbInfo:JobInformation) parti param = 
             let meta, elemObject = param
             jbInfo.FoldState.Item( parti ) <- foldFunc.FoldFunc (jbInfo.FoldState.GetOrAdd(parti, fun partitioni -> stateFunc() )) param
@@ -1094,29 +1114,16 @@ and [<AllowNullLiteral; Serializable>]
             let foldStates = jbInfo.FoldState |> Seq.map ( fun pair -> pair.Value )
             let finalState = foldStates |> Seq.fold aggregateFunc.AggregateFunc null           
             // GV to send back to the host. 
-            let msWire = new MemStream( 1024 )
+            use msWire = new MemStream( 1024 )
+            msWire.WriteGuid( jbInfo.JobID )
             msWire.WriteString( dset.Name ) 
             msWire.WriteInt64( dset.Version.Ticks ) 
             msWire.WriteVInt32( usePartitionsArray.Length )
             for i = 0 to usePartitionsArray.Length - 1 do
                 msWire.WriteVInt32( usePartitionsArray.[i] )
             let msSend = serializeFunc.SerializeFunc msWire finalState
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All aggregate fold completed for job %s:%s DSet %s:%s, send WriteGV,DSet to client!" x.Name x.VersionString dset.Name dset.VersionString))
+            Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "All aggregate fold completed for job %s:%s DSet %s:%s, send WriteGV,DSet to client!" x.Name x.VersionString dset.Name dset.VersionString))
             jbInfo.ToSendHost( ControllerCommand( ControllerVerb.WriteGV, ControllerNoun.DSet ), msSend )
-            if (Utils.IsNotNull ms) then
-                ms.DecRef()
-            for i=0 to x.NumBlobs-1 do
-                if (Utils.IsNotNull x.Blobs.[i]) then
-                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
-                        BlobFactory.remove x.Blobs.[i].Hash
-                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
-                        x.Blobs.[i].Stream.DecRef()
-            if (Utils.IsNotNull x.MetadataStream) then
-                x.MetadataStream.DecRef()
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
-            BufferListStream<byte>.DumpStreamsInUse()
-
         x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) ) beginJob finalJob
 
 
@@ -1127,99 +1134,133 @@ and [<AllowNullLiteral; Serializable>]
         let constructThreadPool() = 
             new ThreadPoolWithWaitHandles<int>( sprintf "DSet %s:%s" dset.Name dset.VersionString, 
                 NumParallelExecution = if dset.NumParallelExecution<=0 then DeploymentSettings.NumParallelJobs( Environment.ProcessorCount ) else dset.NumParallelExecution )
-        if taskName <> "ReadToNetwork" then 
-            x.SetJobInitializer( dset )
-        let jbInfo = x.GetJobInfo( dset, queueHost, endPoint )
+        let bIsMainProject = 
+            if taskName <> "ReadToNetwork" then 
+                x.SetJobInitializer( dset )
+                true
+            else
+                false
+        let jbInfo = x.GetJobInfo( dset, queueHost, endPoint, bIsMainProject )
         let priorTasks = ref null
         let bExistPriorTasks = ref true
         let jobFinish = new ManualResetEvent(false)
         x.JobFinished.Add(jobFinish :> WaitHandle)
-        try
-            let dsetFullName = dset.Name + dset.VersionString
-            while Utils.IsNull (!priorTasks) do
-                let bFind = x.SyncExecutionEngine.TryGetValue( dsetFullName, priorTasks ) 
-                if not bFind then 
-                    bExistPriorTasks := not (x.SyncExecutionEngine.TryAdd( dsetFullName, constructThreadPool() ) )
-            if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
-                // Only called once for the entire job
-                (!priorTasks).Reset()
-                x.JobReady.Reset() |> ignore
-                x.ResolveDSetParent( dset ) 
-                x.RegisterInJobCallback( dset, true )
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Contruct Job Execution Graph for task %s of DSet %s ............." taskName dset.Name ))
-                Logger.Do( LogLevel.MildVerbose, ( fun _ -> x.ShowAllDObjectsInfo() ))
-                x.BeginAllSync jbInfo dset
-            if not (!bExistPriorTasks) then 
-                if x.IsJobInitializer(dset) then 
-                    beginJob jbInfo
-                else
-                    x.JobReady.WaitOne() |> ignore
-                    beginJob jbInfo
-            if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
-                x.JobReady.Set() |> ignore
-            x.JobReady.WaitOne() |> ignore
-            if Utils.IsNotNull queueHost && not (jbInfo.CancellationToken.IsCancellationRequested) then 
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "To execute task %s for DSet %s:%s with partitions %A!" taskName dset.Name dset.VersionString usePartitions ))
-                if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
-                    dset.ResetForRead( queueHost )   
-                let bAllCancelled = ref false
-                let tasks = !priorTasks
-                for parti in usePartitions do
-                    // tasks.AddTask( x.CancellationToken.Token, parti, syncAction jbInfo parti )
-                    tasks.EnqueueRepeatableFunction (syncAction jbInfo parti) x.CancellationToken.Token parti ( fun pi -> sprintf "%s Task %s:%s, DSet %s:%s, part %d" taskName x.Name x.VersionString dset.Name dset.VersionString pi )
-                try 
-                // JinL: 05/10/2014, need to find a way to wait for all intermediate task.  
+        using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
+            if Utils.IsNull jobAction then 
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "[SyncJobExecutionAsSeparateApp, Job %A cancelled?] Fails to secure job action at beginning on DSet, %s." 
+                                                                        jbInfo.JobID dset.Name 
+                                                                        ))
+            else
+                try
+                    let dsetFullName = dset.Name + dset.VersionString
+                    while Utils.IsNull (!priorTasks) do
+                        let bFind = x.SyncExecutionEngine.TryGetValue( dsetFullName, priorTasks ) 
+                        if not bFind then 
+                            bExistPriorTasks := not (x.SyncExecutionEngine.TryAdd( dsetFullName, constructThreadPool() ) )
+                    if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
+                        // Only called once for the entire job
+                        (!priorTasks).Reset()
+                        x.JobReady.Reset() |> ignore
+                        x.ResolveDSetParent( dset ) 
+                        x.RegisterInJobCallback( dset, true )
+                        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Contruct Job Execution Graph for task %s of DSet %s ............." taskName dset.Name ))
+                        Logger.Do( LogLevel.MildVerbose, ( fun _ -> x.ShowAllDObjectsInfo() ))
+                        x.BeginAllSync jbInfo dset
                     if not (!bExistPriorTasks) then 
-                        let bDone = tasks.WaitForAll( -1 )
-                        endJob jbInfo
-                        // Release the resource of the execution engine
-                        let tp = ref Unchecked.defaultof<ThreadPoolWithWaitHandles<int>>
-                        let ret = x.SyncExecutionEngine.TryRemove( dsetFullName, tp )
-                        if (ret) then
-                            (!tp).CloseAllThreadPool()
-                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "All individual jobs completed for task %s for DSet %s:%s, completion status %A!" taskName dset.Name dset.VersionString bDone))
+                        if x.IsJobInitializer(dset) then 
+                            beginJob jbInfo
+                        else
+                            x.JobReady.WaitOne() |> ignore
+                            beginJob jbInfo
+                    if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
+                        x.JobReady.Set() |> ignore
+                    x.JobReady.WaitOne() |> ignore
+                    if Utils.IsNotNull queueHost && not (jobAction.IsCancelled) then 
+                        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "To execute task %s for DSet %s:%s with partitions %A!" taskName dset.Name dset.VersionString usePartitions ))
+                        if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
+                            dset.ResetForRead( queueHost )   
+                        let bAllCancelled = ref false
+                        let tasks = !priorTasks
+                        let wrappedSyncAction jbInfo parti () = 
+                            try
+                                syncAction jbInfo parti ()
+                            with
+                            | ex -> 
+                                // Try to catch failure for the execution of single partition 
+                                jbInfo.PartitionFailure( ex, "@_____ SyncJobExecutionAsSeparateApp _____", parti )
+                                null, true
+
+                        for parti in usePartitions do
+                            // tasks.AddTask( x.CancellationToken.Token, parti, syncAction jbInfo parti )
+                            tasks.EnqueueRepeatableFunction (wrappedSyncAction jbInfo parti) jobAction.CTS parti ( fun pi -> sprintf "Job %A, %s Task %s:%s, DSet %s:%s, part %d" x.JobID taskName x.Name x.VersionString dset.Name dset.VersionString pi )
+                        try 
+                        // JinL: 05/10/2014, need to find a way to wait for all intermediate task.  
+                            if not (!bExistPriorTasks) then 
+                                let bDone = tasks.WaitForAll( -1 )
+                                endJob jbInfo
+                                // Release the resource of the execution engine
+                                let tp = ref Unchecked.defaultof<ThreadPoolWithWaitHandles<int>>
+                                let ret = x.SyncExecutionEngine.TryRemove( dsetFullName, tp )
+                                if (ret) then
+                                    (!tp).CloseAllThreadPool()
+                                Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "All individual jobs completed for task %s for DSet %s:%s, completion status %A!" taskName dset.Name dset.VersionString bDone))
+                        with 
+                        | ex ->
+                            jobAction.EncounterExceptionAtContainer( ex, "___ SyncJobExecutionAsSeparateApp (loop on WaitForAll) ___" )
+                        // JinL: note some of the write task may not finish at this moment. 
+                        if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
+                            x.CloseAllSync jbInfo dset
+                            Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "%s Task %s:%s, DSet %s:%s is completed in %f ms........." taskName x.Name x.VersionString dset.Name dset.VersionString ((PerfDateTime.UtcNow()).Subtract( x.JobStartTime ).TotalMilliseconds) ))
+                            Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> "=======================================================================================================================================" ))
+                            x.JobReady.Reset() |> ignore
+                        use msWire = new MemStream( 1024 )
+                        msWire.WriteGuid( x.JobID )
+                        msWire.WriteString( dset.Name )
+                        msWire.WriteInt64( dset.Version.Ticks )
+                        jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet ), msWire )
+                        Logger.LogF( x.JobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "Close, DSet sent for %s:%s" dset.Name dset.VersionString ))
                 with 
-                | e ->
-                    Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "SyncJobExecutionAsSeparateApp encounter exception %A (this may due to cancellation of task)" e ))
-                // JinL: note some of the write task may not finish at this moment. 
-                if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
-                    x.CloseAllSync jbInfo dset
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "%s Task %s:%s, DSet %s:%s is completed in %f ms........." taskName x.Name x.VersionString dset.Name dset.VersionString ((PerfDateTime.UtcNow()).Subtract( x.JobStartTime ).TotalMilliseconds) ))
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> "=======================================================================================================================================" ))
-                    x.JobReady.Reset() |> ignore
-                let msWire = new MemStream( 1024 )
-                msWire.WriteString( dset.Name )
-                msWire.WriteInt64( dset.Version.Ticks )
-                jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Close, ControllerNoun.DSet ), msWire )
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Close, DSet sent for %s:%s" dset.Name dset.VersionString ))
-        with 
-        | e -> 
-            let msg = sprintf "Exception at DSetReadAsSeparateApp with msg %A" e 
-            Logger.Log( LogLevel.Error, msg )
-            let msError = new MemStream( 1024 ) 
-            msError.WriteString( msg ) 
-//            queue.ToForward( endPoint, ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )              
-            jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )  
-        try
-            if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
-                x.RegisterInJobCallback( dset, false )
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "SyncJobExecutionAsSeparateApp, all done for executing task %s for DSet %s:%s" taskName dset.Name dset.VersionString ))
-        with 
-        | e -> 
-            let msg = sprintf "Exception when unregister in job call back with msg %A" e 
-            Logger.Log( LogLevel.Error, msg )
-            let msError = new MemStream( 1024 ) 
-            msError.WriteString( msg ) 
-//            queue.ToForward( endPoint, ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )              
-            jbInfo.ToSendHost( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )       
+                | ex -> 
+                    jobAction.EncounterExceptionAtContainer( ex, "___ SyncJobExecutionAsSeparateApp (job loop) ___" )
+                try
+                    if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
+                        x.RegisterInJobCallback( dset, false )
+                    Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "SyncJobExecutionAsSeparateApp, all done for executing task %s for DSet %s:%s" taskName dset.Name dset.VersionString ))
+                with 
+                | ex -> 
+                    jobAction.EncounterExceptionAtContainer( ex, "___ SyncJobExecutionAsSeparateApp (UnRegisterCallback) ___" )
+        )
         jobFinish.Set() |> ignore
         x.JobFinished.Remove( jobFinish :> WaitHandle ) |> ignore 
-    static member ErrorInSeperateApp msg = 
-        Logger.Log( LogLevel.Error, msg    )
-        // ToDO: when Prajna stables, we may remove failwith so that the app may survive better. 
-        failwith msg             
 
-    static member ParseQueueCommand (task : Task ref)
+    /// Unusual error in a container
+    /// The error cannot be localized to a certain job, but can be assoicated with a network queue 
+    static member ErrorInSeparateApp (queue:NetworkCommandQueue, msg ) = 
+        Logger.Log( LogLevel.Error, msg )
+        using (new MemStream(1024) ) ( fun msError -> 
+            msError.WriteString( msg )
+            queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+        )
+
+    /// Throw exception to application
+    static member ExceptionInTask (queue:NetworkCommandQueue, x:Task, msg ) = 
+        Logger.Log( LogLevel.Info, ( sprintf "Exception in job %A, name %s:%s with exception %s" (x.JobID) (x.Name) (x.VersionString) msg ) )
+        let ms = new MemStream()
+        ms.WriteGuid( x.JobID )
+        ms.WriteString( x.Name )
+        ms.WriteInt64( x.Version.Ticks )
+        ms.WriteString( msg )
+        queue.ToSend( ControllerCommand(ControllerVerb.Exception, ControllerNoun.Job ), ms ) 
+
+    static member val LogLevelNullJobAction = LogLevel.MildVerbose with get, set
+    /// Throw general exception, not bound to a particular application
+    /// Note that general exception may or may not be able to propagate back to application as it may miss routing information
+    static member ExceptionInGeneral (queue:NetworkCommandQueue, msg ) = 
+        Logger.Log( LogLevel.Info, ( sprintf "Exception: %s" msg ) )
+        let ms = new MemStream()
+        ms.WriteString( msg )
+        queue.ToSend( ControllerCommand(ControllerVerb.Exception, ControllerNoun.Message ), ms ) 
+    static member ParseQueueCommandAtContainer (task : Task ref)
                                     (queue : NetworkCommandQueue)
                                     (allConnections : ConcurrentDictionary<_,_>) 
                                     (allTasks :  ConcurrentDictionary<_,_>) 
@@ -1247,107 +1288,175 @@ and [<AllowNullLiteral; Serializable>]
                     Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Close, Connection, no active connection remains and all service is terminated, job terminates" ))
             ()
         | ( ControllerVerb.Set, ControllerNoun.Job ) ->
-            // Should be the 1st command to receive when link is established. 
-            let x = new Task()
-            task := x
-            let bRet = x.UnpackToBlob( ms )
-            x.QueueToClient <- queue 
-            allTasks.Item( (x.Name, x.Version.Ticks ) ) <- x
-            x.ClientAvailability( queue.RemoteEndPointSignature, Some x.ReceiveBlobNoFeedback, None ) 
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
-                                                           sprintf "Set, Job %s:%s with %d blobs in %.2fms" 
-                                                                   x.Name x.VersionString
-                                                                   x.NumBlobs 
-                                                                   ( float (t1-x.JobStartTicks) / float TimeSpan.TicksPerMillisecond )
-                                                                   ))
-            if not bRet then 
-                Task.ErrorInSeperateApp "Failed to decoding metadata from Set, Job"
+            try 
+                let jobID, name, verNumber = Job.PeekJob( ms )
+                let jobLifeCyleObj = JobLifeCycleCollectionContainer.BeginJob( jobID, name, verNumber, queue.RemoteEndPointSignature )
+                if Utils.IsNull jobLifeCyleObj then 
+                    Task.ErrorInSeparateApp( queue, sprintf "Failed to create JobLifeCycle Object for Job %A, most probably because another job of the same job ID is running" jobID ) 
+                else
+                    using ( SingleJobActionContainer.TryFind( jobID )) ( fun jobAction -> 
+                        if Utils.IsNull jobAction then 
+                            Task.ErrorInSeparateApp( queue, sprintf "Set, Job: unable to secure a job action object for Job: %A even we have just allocated a jobLifeCyleObj" jobID )
+                        else
+                            try 
+                                // Should be the 1st command to receive when link is established. 
+                                let x = new Task()
+                                task := x
+                                let bRet = x.UnpackToBlob( ms )
+                                if bRet then 
+                                    x.QueueToClient <- queue 
+                                    let y = allTasks.GetOrAdd( jobID, x )
+                                    if Object.ReferenceEquals( x, y ) then 
+                                        // Task entry inserted. Insert a removal entry 
+                                        jobAction.LifeCycleObject.OnDisposeFS( fun _ -> allTasks.TryRemove(jobID) |> ignore )
+                                        jobAction.LifeCycleObject.OnDisposeFS( fun _ -> BlobFactory.unregisterAndRemove(jobID) |> ignore )
+                                        jobAction.LifeCycleObject.OnDisposeFS( x.OnJobFinish )
+                                        x.ClientAvailability( queue.RemoteEndPointSignature, Some x.ReceiveBlobNoFeedback, None ) 
+                                        Logger.LogF( jobID, 
+                                                     LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
+                                                                                       sprintf "Set, Job %s:%s with %d blobs in %.2fms" 
+                                                                                               x.Name x.VersionString
+                                                                                               x.NumBlobs 
+                                                                                               ( float (t1-x.JobStartTicks) / float TimeSpan.TicksPerMillisecond )
+                                                                                               ))
+                                    else
+                                        let msg = sprintf "Set, Job finds an entry of a duplicate Job in the task list with the same Job ID %A, even it has succeeded in securing a job lifecyle object. Two jobs of the same job ID are started at about the same time?" 
+                                                            x.JobID
+                                        jobAction.ThrowExceptionAtContainer( msg )
+                            with
+                            | ex -> 
+                                jobAction.EncounterExceptionAtContainer( ex, "____ Set, Job _____ " )
+                    )
+            with 
+            | ex -> 
+                Task.ErrorInSeparateApp( queue, sprintf "Failed to peek jobID information from Set, Job with exception %A" ex) 
         | ( ControllerVerb.Set, ControllerNoun.Blob ) ->
-            let buf, pos, count = ms.GetBufferPosLength()
-            //let hash = HashByteArrayWithLength( buf, pos, count )
-            let hash = buf.ComputeSHA256(int64 pos, int64 count)
-            let bSuccess = BlobFactory.receiveWriteBlob( hash, ms, queue.RemoteEndPointSignature )
-            if bSuccess then 
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
-                                                                       (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
-                                                                       buf.Length
-                                                                       (BytesToHex(hash))
-                                                                       pos count  ))
-            else
-                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), failed to find corresponding job"
-                                                                       (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
-                                                                       buf.Length
-                                                                       (BytesToHex(hash))
-                                                                       pos count  ))
+            try 
+                let buf, pos, count = ms.GetBufferPosLength()
+                let hash = buf.ComputeSHA256(int64 pos, int64 count)
+                let bSuccess = BlobFactory.receiveWriteBlob( hash, ms, queue.RemoteEndPointSignature )
+                if bSuccess then 
+                    Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
+                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                           buf.Length
+                                                                           (BytesToHex(hash))
+                                                                           pos count  ))
+                else
+                    Logger.LogF( LogLevel.Info, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), but failed to find corresponding job"
+                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                           buf.Length
+                                                                           (BytesToHex(hash))
+                                                                           pos count )
+                    
+            with 
+            | ex -> 
+                Task.ErrorInSeparateApp( queue, sprintf "Failed to parse Set, Blob with exception %A" ex)                                                
         | ( ControllerVerb.Write, ControllerNoun.Blob ) ->
-            let name = ms.ReadString()
-            let verNumber = ms.ReadInt64()
-            let bExist, x = allTasks.TryGetValue( ( name, verNumber ) )
-            if bExist then
-                if name<>x.Name || x.Version.Ticks<>verNumber then 
-                    let msg = sprintf "Error@AppDomain: Write, Blob, with wrong job name & version number: %s:%d " name verNumber
-                    Task.ErrorInSeperateApp msg
-                else                                
-                    let blobi = ms.ReadVInt32()
-                    if blobi<0 || blobi >= x.NumBlobs then 
-                        let msg = sprintf "Error@AppDomain: Job %s:%s Write, Blob with idx %d that is outside of valid range (0-%d)" x.Name x.VersionString blobi  x.NumBlobs
-                        Task.ErrorInSeperateApp msg
-                    else
-                        let blob = x.Blobs.[blobi]
-                        let pos = ms.Position
-                        //let buf = ms.GetBuffer()
-                        Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Write, Blob from job %s:%s, blob %d, pos %d (buf %dB)"
-                                                                               x.Name x.VersionString
-                                                                               blobi pos (ms.Length-ms.Position) ))
-//                        blob.Hash <- HashByteArrayWithLength( buf, int pos, count )
-                        blob.Stream <- ms
-                        blob.Stream.AddRef()
-                        /// Passthrough DSet is to be decoded at LoadAll() function. 
-                        let bSuccessful = x.ClientReceiveBlob( blobi, false )
-                        if not bSuccessful then 
-                            let msg = sprintf "Error@AppDomain: Write, Blob, failed to decode the blob %d, type %A" blobi blob.TypeOf
-                            Task.ErrorInSeperateApp msg
-            else 
-                let msg = sprintf "Error@AppDomain: Can't find job %s:%s in Write, Blob " name (VersionToString(DateTime(verNumber)))
-                Task.ErrorInSeperateApp msg
-
+            let jobID = ms.ReadGuid()
+            using ( SingleJobActionContainer.TryFind( jobID )) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Logger.LogF( LogLevel.Info, fun _ -> sprintf "[may be OK, job cancelled?] Job %A, Rcvd Write, Blob from endpoint %s of %dB payload, but failed to find corresponding job"
+                                                                           jobID
+                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                           ms.Length )
+                else
+                    try 
+                        let name = ms.ReadString()
+                        let verNumber = ms.ReadInt64()
+                        let bExist, x = allTasks.TryGetValue( jobID )
+                        if bExist then
+                            if String.Compare(name,x.Name,StringComparison.Ordinal)<>0 || x.Version.Ticks<>verNumber then 
+                                let msg = sprintf "Error@AppDomain: Job %A, received Write, Blob with wrong job name & version number: %s:%d (instead of %s:%d)" 
+                                                        jobID name verNumber x.Name x.Version.Ticks
+                                jobAction.ThrowExceptionAtContainer( msg )
+                            else                                
+                                let blobi = ms.ReadVInt32()
+                                if blobi<0 || blobi >= x.NumBlobs then 
+                                    let msg = sprintf "Error@AppDomain: Job %A, %s:%s Write, Blob with idx %d that is outside of valid range (0-%d)" jobID x.Name x.VersionString blobi  x.NumBlobs
+                                    jobAction.ThrowExceptionAtContainer( msg )
+                                else
+                                    let blob = x.Blobs.[blobi]
+                                    let pos = ms.Position
+                                    let buf = ms.GetBuffer()
+                                    Logger.LogF( jobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Write, Blob from job %s:%s, blob %d, pos %d (buf %dB)"
+                                                                                            x.Name x.VersionString
+                                                                                            blobi pos (ms.Length-ms.Position) ))
+            //                        blob.Hash <- HashByteArrayWithLength( buf, int pos, count )
+                                    blob.Stream <- ms
+                                    blob.Stream.AddRef()
+                                    /// Passthrough DSet is to be decoded at LoadAll() function. 
+                                    let bSuccessful = x.ClientReceiveBlob( blobi, false )
+                                    if not bSuccessful then 
+                                        let msg = sprintf "Error@AppDomain: Job %A, Write, Blob, failed to decode the blob %d, type %A" jobID blobi blob.TypeOf
+                                        jobAction.ThrowExceptionAtContainer( msg )
+                        else 
+                            let msg = sprintf "Error@Container: Job %A, Can't find job %s:%s in Write, Blob, eventhough the JobLifecyle object is still there." 
+                                                jobID name (VersionToString(DateTime(verNumber)))
+                            jobAction.ThrowExceptionAtContainer( msg )
+                    with 
+                    | ex -> 
+                        jobAction.EncounterExceptionAtContainer( ex, "____ Write, Job _____ ")
+            )
         | ( ControllerVerb.Start, ControllerNoun.Job ) ->
             // Load all Cluster, DSet, Assemblies. 
-            let name = ms.ReadString()
-            let verNumber = ms.ReadInt64()
-            let bExist, x = allTasks.TryGetValue( ( name, verNumber ) )
-            if bExist then 
-//                x.ClientAvailability(queue.RemoteEndPointSignature, None)
-//                if not x.AllAvailable then 
-//                    let msg = ( sprintf "Error@AppDomain: some blob is not available: %A" x.AvailThis.AvailVector )
-//                    failwith msg
-//                else
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
-                                                                   sprintf "Start, Job received %s:%s with %d blobs in %.2fms" 
-                                                                           x.Name x.VersionString
-                                                                           x.NumBlobs 
-                                                                           ( float (t1-x.JobStartTicks) / float TimeSpan.TicksPerMillisecond )
-                                                                           ))
-                    let bSuccess = x.LoadAll()
-                    let msSend = new MemStream( 1024 )
-                    msSend.WriteString( x.Name )
-                    msSend.WriteInt64( x.Version.Ticks ) 
-                    msSend.WriteBoolean( bSuccess )
-                    queue.ToSend( ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Job ), msSend ) 
-                    msSend.DecRef()
-                    if not bSuccess then 
-                        let msg = ( sprintf "Error@AppDomain: some blob of the job cannot be loaded: %A" x.AvailThis.AvailVector )
-                        failwith msg
-                    else
-                        Logger.LogF( LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
-                                                                       sprintf "All blobs of job %s:%s loaded in %.2fms" 
-                                                                                   x.Name x.VersionString 
+            let jobID = ms.ReadGuid()
+            using ( SingleJobActionContainer.TryFind( jobID )) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Logger.LogF( jobID, LogLevel.Info, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Start, Job from endpoint %s of %dB payload, but failed to find corresponding job"
+                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                           ms.Length )
+                else
+                    let name = ms.ReadString()
+                    let verNumber = ms.ReadInt64()
+                    let bExist, x = allTasks.TryGetValue( jobID )
+                    jobAction.LifeCycleObject.OnCancellationFS( fun _ -> allTasks.TryRemove( jobID ) |> ignore )
+                    if bExist then 
+        //                x.ClientAvailability(queue.RemoteEndPointSignature, None)
+        //                if not x.AllAvailable then 
+        //                    let msg = ( sprintf "Error@AppDomain: some blob is not available: %A" x.AvailThis.AvailVector )
+        //                    failwith msg
+        //                else
+                            Logger.LogF( jobID, 
+                                         LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
+                                                                           sprintf "Start, Job received %s:%s with %d blobs in %.2fms" 
+                                                                                   x.Name x.VersionString
+                                                                                   x.NumBlobs 
                                                                                    ( float (t1-x.JobStartTicks) / float TimeSpan.TicksPerMillisecond )
                                                                                    ))
-                        ()
+                            let bSuccess = x.LoadAll()
+                            using( new MemStream( 1024 ) ) ( fun msSend -> 
+                                msSend.WriteGuid( jobID )
+                                msSend.WriteString( x.Name )
+                                msSend.WriteInt64( x.Version.Ticks ) 
+                                msSend.WriteBoolean( bSuccess )
+                                queue.ToSend( ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Job ), msSend ) 
+                            )
+                            if not bSuccess then 
+                                let msg = ( sprintf "Error@AppDomain: Job %A, some blob of the job cannot be loaded: %A" jobID x.AvailThis.AvailVector )
+                                jobAction.ThrowExceptionAtContainer( msg )
+                            else
+                                Logger.LogF( jobID, 
+                                             LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
+                                                                               sprintf "All blobs of job %s:%s loaded in %.2fms" 
+                                                                                           x.Name x.VersionString 
+                                                                                           ( float (t1-x.JobStartTicks) / float TimeSpan.TicksPerMillisecond )
+                                                                                           ))
+                                ()
+                    else
+                        let msg = sprintf "Error@AppDomain: Start, Job (ID:%A) %s:%s can't find the relevant job in allTasks " jobID name (VersionToString(DateTime(verNumber)))
+                        jobAction.ThrowExceptionAtContainer( msg )
+            )
+        | ( ControllerVerb.Cancel, ControllerNoun.Job ) -> 
+            let jobID = ms.ReadGuid()
+            use jobAction = SingleJobActionContainer.TryFind( jobID )
+            if Utils.IsNull jobAction then 
+                    Logger.LogF( jobID, 
+                                 LogLevel.WildVerbose, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Cancel, Job from endpoint %s of %dB payload, but failed to find corresponding job"
+                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                           ms.Length )
             else
-                let msg = sprintf "Error@AppDomain: Start, Job %s:%s can't find the relevant job in allTasks " name (VersionToString(DateTime(verNumber)))
-                Task.ErrorInSeperateApp msg
+                jobAction.CancelJob()
+
         | ( ControllerVerb.Echo2, ControllerNoun.Job ) ->
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Echo2, Job from client"))
         | ( ControllerVerb.UpdateParam, ControllerNoun.Job ) 
@@ -1357,232 +1466,228 @@ and [<AllowNullLiteral; Serializable>]
         | ( ControllerVerb.Start, ControllerNoun.Service ) 
         | ( ControllerVerb.Stop, ControllerNoun.Service ) ->
             /// A Job, with end result being reading content from a DSet
-            let name = ms.ReadString()
-            let verNumber = ms.ReadInt64()
-            let bExist, x = allTasks.TryGetValue( ( name, verNumber ) )
-            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Receive command %A for %s" command name))
-            if bExist then 
-                try
-                    let endPoint = ms.ReadIPEndPoint()
-                    let paramType = enum<_>(ms.ReadVInt32())
-                    match paramType with
-                    | FunctionParamType.DSet ->
-                        let dsetName, dsetVersion = 
-                            match command.Verb with 
-                            | ControllerVerb.UpdateParam -> 
-                                DSet.Peek( ms ) 
-                            | _ -> 
-                                ms.ReadString(), ms.ReadInt64()
-                        match (command.Verb, command.Noun ) with
-                        | ( ControllerVerb.Start, ControllerNoun.Service ) ->
-                            let serviceName = ms.ReadString() 
-                            let service = ms.Deserialize() :?> WorkerRoleEntryPoint
-                            let param = ms.DeserializeObjectWithTypeName() 
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to start service %s ..." serviceName ))
-                            ServiceCollection.Current.BeginStartService( serviceName, service, param, 
-                                                            fun bInitializeSuccess -> let msInfo = new MemStream( 1024 )
-                                                                                      msInfo.WriteString( dsetName )
-                                                                                      msInfo.WriteInt64( dsetVersion ) 
-                                                                                      msInfo.WriteBoolean( bInitializeSuccess )
-                                                                                      queue.ToForward( endPoint, ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Service), msInfo )
-                                                                                      Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "send ConfirmStart, Service with %A to %s ..." bInitializeSuccess (LocalDNS.GetShowInfo(endPoint)) ))
-                                                                                      ()
-                                                                               )
-                            ()
-                        | ( ControllerVerb.Stop, ControllerNoun.Service ) ->
-                            let serviceName = ms.ReadString() 
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to stop service %s ..." serviceName ))
-                            let bSuccessToStop = ServiceCollection.Current.StopService( serviceName )
-                            let msInfo =  new MemStream( 1024 )
-                            msInfo.WriteString( dsetName )
-                            msInfo.WriteInt64( dsetVersion ) 
-                            msInfo.WriteBoolean( bSuccessToStop )
-                            queue.ToForward( endPoint, ControllerCommand( ControllerVerb.ConfirmStop, ControllerNoun.Service), msInfo )
-                        | ( ControllerVerb.UpdateParam, ControllerNoun.Job ) ->
-                            let useDSet = x.ResolveDSetByName( dsetName, dsetVersion ) 
-                            if Utils.IsNull useDSet then
-                                let msg = sprintf "Fail in %A, %A. Can't find DSet %s:%s" (command.Verb) (command.Noun) dsetName (VersionToString(DateTime(dsetVersion)))
-                                failwith msg
-                            else
-                                let dsetOption, errMsg, msSend = DSetPeer.Unpack( ms, true, queue )
-                                match errMsg with 
-                                | ClientBlockingOn.Cluster ->
-                                    // Cluster Information can't be parsed, Wait for cluster information. 
-                                    let msg = sprintf "Update, DSet for %s:%s failed as the associated cluster cannot be found" useDSet.Name useDSet.VersionString
-                                    let msError = new MemStream( 128 )
-                                    msError.WriteString( msg ) 
-                                    queue.ToForward( endPoint, ControllerCommand( ControllerVerb.Error, ControllerNoun.Message), msError )
-                                | ClientBlockingOn.None ->
-                                    match dsetOption with 
-                                    | Some writeDSet -> 
-                                        let isDStream (dobj:DistributedObject) = 
-                                            match dobj with 
-                                            | :? DStream -> 
-                                                true
-                                            | _ -> 
-                                                false
-                                        // Find storage dstream 
-                                        let dstream = x.FindDObject TraverseDownstream useDSet isDStream
-                                        if Utils.IsNotNull dstream then 
-                                            writeDSet.StorageType <- dstream.StorageType
-                                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Update %A %s:%s, assign storage type from %A %s:%s as %A" 
-                                                                                                       writeDSet.ParamType writeDSet.Name writeDSet.VersionString
-                                                                                                       dstream.ParamType dstream.Name dstream.VersionString
-                                                                                                       dstream.StorageType ))
-                                        else
-                                            writeDSet.StorageType <- StorageKind.None
-                                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Update %A %s:%s, can't find destination dstream, use storage type of %A" 
-                                                                                                       writeDSet.ParamType writeDSet.Name writeDSet.VersionString
-                                                                                                       writeDSet.StorageType ))
-
-
-                                        if writeDSet.ReadyStoreStreamArray() then 
-                                            writeDSet.WriteDSetMetadata()
-                                            writeDSet.CloseStorageProvider()
-                                        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Calling dset metadata update for %A receive %A" writeDSet.Name command))
-                                        useDSet.CopyMetaData( writeDSet, DSetMetadataCopyFlag.Update )
-                                    | None -> 
-                                        let msg = sprintf "!!! logic error !!! Update, DSet for %s:%s failed to parse the coded DSet information" useDSet.Name useDSet.VersionString
-                                        let msError = new MemStream( 128 )
-                                        msError.WriteString( msg ) 
-                                        queue.ToForward( endPoint, ControllerCommand( ControllerVerb.Error, ControllerNoun.Message), msError )
-                                | _ ->
-                                    // Error, fail to set DSet
-                                    let msg = sprintf "Update, DSet for %s:%s failed to parse the coded DSet information" useDSet.Name useDSet.VersionString
-                                    let msError = new MemStream( 128 )
-                                    msError.WriteString( msg ) 
-                                    queue.ToForward( endPoint, ControllerCommand( ControllerVerb.Error, ControllerNoun.Message), msError )
-                        | _ -> 
-                            let npart = ms.ReadVInt32()
-                            let usePartitions = Array.zeroCreate<int> npart
-                            for i = 0 to npart - 1 do 
-                                usePartitions.[i] <- ms.ReadVInt32()
-//                                        let useDSet : DSet ref = ref null
-//                                        let fullname = dsetName + VersionToString( DateTime(dsetVersion) )
-//                                        let dsetOpt = DSetPeerFactory.Retrieve( fullname ) 
-//                                        match dsetOpt with 
-//                                        | Some( dset ) -> 
-//                                            useDSet := dset :> DSet
-//                                        | None -> 
-//                                            let dsetOpt = DSetFactory.Retrieve( fullname ) 
-//                                            match dsetOpt with 
-//                                            | Some ( dset ) ->
-//                                                useDSet := dset 
-//                                            | None ->                                           
-//                                                let msg = sprintf "Fail in %A, %A. Can't find DSet %s" (command.Verb) (command.Noun) fullname 
-//                                                failwith msg
-                            let useDSet = x.ResolveDSetByName( dsetName, dsetVersion ) 
-                            if Utils.IsNull useDSet then
-                                let msg = sprintf "Fail in %A, %A. Can't find DSet %s:%s" (command.Verb) (command.Noun) dsetName (VersionToString(DateTime(dsetVersion)))
-                                failwith msg
-                            let ta = ref null
-                            match (command.Verb, command.Noun ) with
-                            | ( ControllerVerb.Read, ControllerNoun.Job ) ->
-                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Read %s" dsetName ) ( fun _ -> x.DSetReadAsSeparateApp( queue, endPoint, useDSet, usePartitions ) )
-                            | ( ControllerVerb.ReadToNetwork, ControllerNoun.Job ) -> 
-                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Read To Network %s" dsetName) ( fun _ -> x.DSetReadToNetworkAsSeparateAppSync( queue, endPoint, useDSet, usePartitions ) )
-                            | ( ControllerVerb.Fold, ControllerNoun.Job ) ->
-                                let bCommonStatePerNode = ms.ReadBoolean()
-                                let foldFunc = ms.Deserialize() :?> FoldFunction // Don't use DeserializeTo, as it may be further derived from FoldFunction
-                                let aggregateFunc = ms.Deserialize() :?> AggregateFunction
-                                let serializeFunc = ms.Deserialize() :?> GVSerialize
-                                //assert(false) // only to trigger debugger
-                                let startpos = ms.Position
-                                let stateTypeName = ms.ReadString() 
-                                let refCount = ref -1  
-                                let state = 
-                                    // Some function may not have a parameter, and that is OK. 
-                                    if ms.Position < ms.Length then 
-                                        ms.CustomizableDeserializeToTypeName( stateTypeName )
-                                    else
-                                        null
-                                let endpos = ms.Position
-                                let buf, pos, length = 
-                                    if bCommonStatePerNode || Utils.IsNull state then 
-                                        null, 0L, 0L
-                                    else
-                                        ms.AddRef()
-                                        ms, startpos, endpos-startpos                                                                      
-                                let replicateMsStreamFunc()  = 
-                                    if bCommonStatePerNode || Utils.IsNull state then 
-                                        null
-                                    else 
-                                        // Start pos will not be the end of stream, garanteed by state not null 
-                                        let ms = new MemoryStreamB()
-                                        ms.Info <- "Replicated stream"
-                                        ms.AppendNoCopy(buf, 0L, pos+length) // this is a write operation, position moves forward
-                                        ms.Seek(pos, SeekOrigin.Begin) |> ignore
-                                        ms
-                                let stateFunc() = 
-                                    if bCommonStatePerNode || Utils.IsNull state then 
-                                        state
-                                    else
-                                        let cnt = Interlocked.Increment( refCount )
-                                        if cnt = 0 then 
-                                            state 
-                                        else
-                                            let msRead = replicateMsStreamFunc()
-                                            // msRead will not be null, as the null condition is checked above
-                                            let stateTypeName = msRead.ReadString() 
-                                            let s = msRead.CustomizableDeserializeToTypeName( stateTypeName )
-                                            msRead.DecRef()
-                                            s
-                                ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc, buf ) )
-                            | _ ->
-                                ()
-
-                    | _ ->
-                        Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Unexpected type %A" paramType))
-                        ()
-                with
-                | e ->
-                    let msg = sprintf "Fail in %A, %A with msg %A" (command.Verb) (command.Noun) e
-                    failwith msg
-            else
-                match (command.Verb, command.Noun ) with
-                | ( ControllerVerb.Stop, ControllerNoun.Service ) ->
-                            // Stop service doesn't need attached job holder.
+            let jobID = ms.ReadGuid()
+            using ( SingleJobActionContainer.TryFind( jobID )) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Logger.LogF( jobID, 
+                                 LogLevel.Info, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Network Command %A from endpoint %s of %dB payload, but failed to find corresponding job"
+                                                                           command
+                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                           ms.Length )
+                else
+                    let name = ms.ReadString()
+                    let verNumber = ms.ReadInt64()
+                    let bExist, x = allTasks.TryGetValue( jobID )
+                    Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Receive command %A for %s" command name))
+                    if bExist then 
+                        try
                             let endPoint = ms.ReadIPEndPoint()
-                            let paramV = ms.ReadVInt32()
-                            let dsetName = ms.ReadString()
-                            let dsetVersion = ms.ReadInt64()
-                            let serviceName = ms.ReadString() 
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to stop service %s ..." serviceName ))
-                            let bSuccessToStop = ServiceCollection.Current.StopService( serviceName )
-                            let msInfo =  new MemStream( 1024 )
-                            msInfo.WriteString( dsetName )
-                            msInfo.WriteInt64( dsetVersion ) 
-                            msInfo.WriteBoolean( bSuccessToStop )
-                            queue.ToForward( endPoint, ControllerCommand( ControllerVerb.ConfirmStop, ControllerNoun.Service), msInfo )
-                | _ -> 
-                    let msg = sprintf "Error@AppDomain: Can't find job %s:%s in %A, %A " name (VersionToString(DateTime(verNumber))) (command.Verb) (command.Noun) 
-                    Task.ErrorInSeperateApp msg
+                            let paramType = enum<_>(ms.ReadVInt32())
+                            match paramType with
+                            | FunctionParamType.DSet ->
+                                let JOBID = ms.ReadGuid()
+                                let dsetName, dsetVersion = 
+                                    match command.Verb with 
+                                    | ControllerVerb.UpdateParam -> 
+                                        DSet.Peek( ms ) 
+                                    | _ -> 
+                                        ms.ReadString(), ms.ReadInt64()
+                                match (command.Verb, command.Noun ) with
+                                | ( ControllerVerb.Start, ControllerNoun.Service ) ->
+                                    let serviceName = ms.ReadString() 
+                                    let service = ms.Deserialize() :?> WorkerRoleEntryPoint
+                                    let param = ms.DeserializeObjectWithTypeName() 
+                                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to start service %s ..." serviceName ))
+                                    ServiceCollection.Current.BeginStartService( serviceName, service, param, 
+                                                                    fun bInitializeSuccess -> let msInfo = new MemStream( 1024 )
+                                                                                              msInfo.WriteGuid( jobID )
+                                                                                              msInfo.WriteString( dsetName )
+                                                                                              msInfo.WriteInt64( dsetVersion ) 
+                                                                                              msInfo.WriteBoolean( bInitializeSuccess )
+                                                                                              queue.ToForward( endPoint, ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Service), msInfo )
+                                                                                              Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "send ConfirmStart, Service with %A to %s ..." bInitializeSuccess (LocalDNS.GetShowInfo(endPoint)) ))
+                                                                                              ()
+                                                                                       )
+                                    ()
+                                | ( ControllerVerb.Stop, ControllerNoun.Service ) ->
+                                    let serviceName = ms.ReadString() 
+                                    Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to stop service %s ..." serviceName ))
+                                    let bSuccessToStop = ServiceCollection.Current.StopService( serviceName )
+                                    use msInfo =  new MemStream( 1024 )
+                                    msInfo.WriteGuid( jobID )
+                                    msInfo.WriteString( dsetName )
+                                    msInfo.WriteInt64( dsetVersion ) 
+                                    msInfo.WriteBoolean( bSuccessToStop )
+                                    queue.ToForward( endPoint, ControllerCommand( ControllerVerb.ConfirmStop, ControllerNoun.Service), msInfo )
+                                | ( ControllerVerb.UpdateParam, ControllerNoun.Job ) ->
+                                    let useDSet = x.ResolveDSetByName( dsetName, dsetVersion ) 
+                                    if Utils.IsNull useDSet then
+                                        let msg = sprintf "Fail in %A, %A. Can't find DSet %s:%s" (command.Verb) (command.Noun) dsetName (VersionToString(DateTime(dsetVersion)))
+                                        jobAction.ThrowExceptionAtContainer( msg )
+                                    else
+                                        let dsetOption, errMsg, msSend = DSetPeer.Unpack( ms, true, queue, jobID )
+                                        match errMsg with 
+                                        | ClientBlockingOn.Cluster ->
+                                            // Cluster Information can't be parsed, Wait for cluster information. 
+                                            let msg = sprintf "Update, DSet for %s:%s failed as the associated cluster cannot be found" useDSet.Name useDSet.VersionString
+                                            jobAction.ThrowExceptionAtContainer( msg )
+                                        | ClientBlockingOn.None ->
+                                            match dsetOption with 
+                                            | Some writeDSet -> 
+                                                let isDStream (dobj:DistributedObject) = 
+                                                    match dobj with 
+                                                    | :? DStream -> 
+                                                        true
+                                                    | _ -> 
+                                                        false
+                                                // Find storage dstream 
+                                                let dstream = x.FindDObject TraverseDownstream useDSet isDStream
+                                                if Utils.IsNotNull dstream then 
+                                                    writeDSet.StorageType <- dstream.StorageType
+                                                    Logger.LogF( jobID, LogLevel.WildVerbose, ( fun _ -> sprintf "Update %A %s:%s, assign storage type from %A %s:%s as %A" 
+                                                                                                               writeDSet.ParamType writeDSet.Name writeDSet.VersionString
+                                                                                                               dstream.ParamType dstream.Name dstream.VersionString
+                                                                                                               dstream.StorageType ))
+                                                else
+                                                    writeDSet.StorageType <- StorageKind.None
+                                                    Logger.LogF( jobID, LogLevel.WildVerbose, ( fun _ -> sprintf "Update %A %s:%s, can't find destination dstream, use storage type of %A" 
+                                                                                                               writeDSet.ParamType writeDSet.Name writeDSet.VersionString
+                                                                                                               writeDSet.StorageType ))
+
+
+                                                if writeDSet.ReadyStoreStreamArray() then 
+                                                    writeDSet.WriteDSetMetadata()
+                                                    writeDSet.CloseStorageProvider()
+                                                Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Calling dset metadata update for %A receive %A" writeDSet.Name command))
+                                                useDSet.CopyMetaData( writeDSet, DSetMetadataCopyFlag.Update )
+                                            | None -> 
+                                                let msg = sprintf "!!! logic error !!! Update, DSet for %s:%s failed to parse the coded DSet information" useDSet.Name useDSet.VersionString
+                                                jobAction.ThrowExceptionAtContainer( msg )
+                                        | _ ->
+                                            // Error, fail to set DSet
+                                            let msg = sprintf "Update, DSet for %s:%s failed to parse the coded DSet information" useDSet.Name useDSet.VersionString
+                                            jobAction.ThrowExceptionAtContainer( msg )
+                                | _ -> 
+                                    let npart = ms.ReadVInt32()
+                                    let usePartitions = Array.zeroCreate<int> npart
+                                    for i = 0 to npart - 1 do 
+                                        usePartitions.[i] <- ms.ReadVInt32()
+                                    let useDSet = x.ResolveDSetByName( dsetName, dsetVersion ) 
+                                    if Utils.IsNull useDSet then
+                                        let msg = sprintf "Fail in %A, %A. Can't find DSet %s:%s" (command.Verb) (command.Noun) dsetName (VersionToString(DateTime(dsetVersion)))
+                                        jobAction.ThrowExceptionAtContainer( msg )
+                                    else
+                                        let ta = ref null
+                                        match (command.Verb, command.Noun ) with
+                                        | ( ControllerVerb.Read, ControllerNoun.Job ) ->
+                                            ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Read %s" dsetName ) ( fun _ -> x.DSetReadAsSeparateApp( queue, endPoint, useDSet, usePartitions ) )
+                                        | ( ControllerVerb.ReadToNetwork, ControllerNoun.Job ) -> 
+                                            ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Read To Network %s" dsetName) ( fun _ -> x.DSetReadToNetworkAsSeparateAppSync( queue, endPoint, useDSet, usePartitions ) )
+                                        | ( ControllerVerb.Fold, ControllerNoun.Job ) ->
+                                            let bCommonStatePerNode = ms.ReadBoolean()
+                                            let foldFunc = ms.Deserialize() :?> FoldFunction // Don't use DeserializeTo, as it may be further derived from FoldFunction
+                                            let aggregateFunc = ms.Deserialize() :?> AggregateFunction
+                                            let serializeFunc = ms.Deserialize() :?> GVSerialize
+                                            let startpos = ms.Position
+                                            let stateTypeName = ms.ReadString() 
+                                            let refCount = ref -1  
+                                            let state = 
+                                                // Some function may not have a parameter, and that is OK. 
+                                                if ms.Position < ms.Length then 
+                                                    ms.CustomizableDeserializeToTypeName( stateTypeName )
+                                                else
+                                                    null
+                                            let endpos = ms.Position
+                                            let buf, pos, length = 
+                                                if bCommonStatePerNode || Utils.IsNull state then 
+                                                    null, 0L, 0L
+                                                else
+                                                    ms.AddRef()
+                                                    ms, startpos, endpos-startpos
+                                            let replicateMsStreamFunc()  = 
+                                                if bCommonStatePerNode || Utils.IsNull state then 
+                                                    null
+                                                else 
+                                                    // Start pos will not be the end of stream, garanteed by state not null 
+                                                    let ms = new MemoryStreamB()
+                                                    ms.Info <- "Replicated stream"
+                                                    ms.AppendNoCopy(buf, 0L, pos+length) // this is a write operation, position moves forward
+                                                    ms.Seek(pos, SeekOrigin.Begin) |> ignore
+                                                    ms
+                                            let stateFunc() = 
+                                                if bCommonStatePerNode || Utils.IsNull state then 
+                                                    state
+                                                else
+                                                    let cnt = Interlocked.Increment( refCount )
+                                                    if cnt = 0 then 
+                                                        state 
+                                                    else
+                                                        let msRead = replicateMsStreamFunc()
+                                                        // msRead will not be null, as the null condition is checked above
+                                                        let stateTypeName = msRead.ReadString() 
+                                                        let s = msRead.CustomizableDeserializeToTypeName( stateTypeName )
+                                                        msRead.DecRef()
+                                                        s
+                                        
+                                            ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc ) )
+                                        | _ ->
+                                            ()
+
+                            | _ ->
+                                Logger.LogF( jobID, LogLevel.Info, (fun _ -> sprintf "Unexpected type %A" paramType))
+                                ()
+                        with
+                        | ex ->
+                            jobAction.EncounterExceptionAtContainer( ex, sprintf "___ ParseQueueCommandAtContainer: Hybrid parse loop, command %A ___" command)
+                    else
+                        match (command.Verb, command.Noun ) with
+                        | ( ControllerVerb.Stop, ControllerNoun.Service ) ->
+                                    // Stop service doesn't need attached job holder.
+                                    let endPoint = ms.ReadIPEndPoint()
+                                    let paramV = ms.ReadVInt32()
+                                    let dsetName = ms.ReadString()
+                                    let dsetVersion = ms.ReadInt64()
+                                    let serviceName = ms.ReadString() 
+                                    Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to stop service %s ..." serviceName ))
+                                    let bSuccessToStop = ServiceCollection.Current.StopService( serviceName )
+                                    let msInfo =  new MemStream( 1024 )
+                                    msInfo.WriteString( dsetName )
+                                    msInfo.WriteInt64( dsetVersion ) 
+                                    msInfo.WriteBoolean( bSuccessToStop )
+                                    queue.ToForward( endPoint, ControllerCommand( ControllerVerb.ConfirmStop, ControllerNoun.Service), msInfo )
+                        | _ -> 
+                            let msg = sprintf "Error@AppDomain: Can't find job %s:%s in %A, %A " name (VersionToString(DateTime(verNumber))) (command.Verb) (command.Noun) 
+                            jobAction.ThrowExceptionAtContainer( msg )
+            )
         | ( ControllerVerb.Close, ControllerNoun.Job ) ->
-                let name = ms.ReadString()
-                let verNumber = ms.ReadInt64()     
-                let ver = DateTime( verNumber )                           
-                if allTasks.ContainsKey( (name, verNumber) ) then 
-                    // !!! Warning !!! The trace will work under Appdomain log when some sleep is done before unload the appdomain. 
-                    // Logger.LogF( LogLevel.MildVerbose,  fun _ -> sprintf "Close, Job received: %s,%s, execute cancellation" name (VersionToString(ver))  )
-                    // The above statement lead to a NULL reference exception, I can't figure out why, as both name and ver are non null. 
-                    let x = ref null
-                    let bRemoved = allTasks.TryRemove( (name, verNumber), x )
-                    if bRemoved && not( Utils.IsNull !x) && Utils.IsNotNull (!x).CancellationToken then 
-                        (!x).CancellationToken.Cancel()
-                    let remainingJobs = allTasks.Count
-                    // The trace below still trigger a Null reference exception, can't figure out why (remainingJobs is a value)..
-                    // Logger.LogF( LogLevel.MildVerbose,  fun _ -> sprintf "Close, Job from loopback interface, remaining jobs ... %d " remainingJobs  )
-                    // Logger.LogF( LogLevel.MildVerbose,  fun _ -> sprintf "Close, Job from loopback interface received ... "  )
-                    if remainingJobs = 0 then 
-                        if allConnections.IsEmpty && ServiceCollection.Current.IsEmpty then 
-                            bTerminateJob := true
+            let jobID = ms.ReadGuid()
+            using ( SingleJobActionContainer.TryFind( jobID )) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Logger.LogF( jobID, LogLevel.Info, fun _ -> sprintf "[may be OK, job cancelled?] Job %A, Rcvd Network Command %A from endpoint %s of %dB payload, but failed to find corresponding job"
+                                                                           jobID
+                                                                           command
+                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                           ms.Length )
+                else
+                    try 
+                        jobAction.CancelJob() 
+                        /// Cancel Job should automatically remove all jobs in tasks. 
+                        let remainingJobs = allTasks.Count
+                        // The trace below still trigger a Null reference exception, can't figure out why (remainingJobs is a value)..
+                        // Logger.LogF( LogLevel.MildVerbose,  fun _ -> sprintf "Close, Job from loopback interface, remaining jobs ... %d " remainingJobs  )
+                        // Logger.LogF( LogLevel.MildVerbose,  fun _ -> sprintf "Close, Job from loopback interface received ... "  )
+                        if remainingJobs = 0 then 
+                            if allConnections.IsEmpty && ServiceCollection.Current.IsEmpty then 
+                                bTerminateJob := true
+                    with 
+                    | ex -> 
+                        jobAction.EncounterExceptionAtCallback( ex, "___ ParseQueueCommandAtContainer: Close, Job ___" )    
+            )
         | ( ControllerVerb.Delete, ControllerNoun.Program ) ->
             Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Delete, Program received, all jobs & service will be terminated ..." ))
-            for pair in allTasks do
-                let ta = pair.Value
-                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "try to cancel job %s:%s ..." ta.Name ta.VersionString ))
-                if Utils.IsNotNull ta && Utils.IsNotNull ta.CancellationToken then 
-                    ta.CancellationToken.Cancel()
+            for jobLifeCycle in JobLifeCycleCollectionContainer.GetAllJobs() do
+                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "try to cancel job %A ..." jobLifeCycle.JobID ))
+                jobLifeCycle.CancelJob()  
                                 
             for serviceName in ServiceCollection.Current.AllServiceNames() do 
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "try to stop service %s ..." serviceName ))
@@ -1598,10 +1703,7 @@ and [<AllowNullLiteral; Serializable>]
             // Unparsed message is fine, it may be picked up by other message parsing pipeline. 
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Unparsed Message@AppDomain: %A, %A" command.Verb command.Noun ))
             ()
-        if (Utils.IsNotNull (!task)) then
-            if (Utils.IsNotNull (!task).MetadataStream) then
-                (!task).MetadataStream.DecRef()
-                (!task).MetadataStream <- null
+
 
     static member val DefaultJobListener = null with get, set
 
@@ -1686,7 +1788,7 @@ and [<AllowNullLiteral; Serializable>]
             CleanUp.Current.CleanUpAll()
         else
             Task.DefaultJobListener <- listener
-            let allTasks = ConcurrentDictionary<_,_>(StringTComparer<int64>(StringComparer.Ordinal))
+            let allTasks = ConcurrentDictionary<Guid,_>()
             let allConnections = ConcurrentDictionary<_,_>()
             let bConnectedBefore = ref false
             let showConnections (connections: ConcurrentDictionary<int64,_>) = 
@@ -1698,7 +1800,7 @@ and [<AllowNullLiteral; Serializable>]
             let task : Task ref = ref null
             let procParseQueueTask = (
                 fun (cmd : NetworkCommand) -> 
-                    Task.ParseQueueCommand task queue allConnections allTasks showConnections bConnectedBefore bTerminateJob cmd.cmd (cmd.ms)
+                    Task.ParseQueueCommandAtContainer task queue allConnections allTasks showConnections bConnectedBefore bTerminateJob cmd.cmd (cmd.ms)
                     ContractStoreAtProgram.Current.ParseContractCommand queue.RemoteEndPointSignature cmd.cmd (cmd.ms)
                     null
             )
@@ -1768,7 +1870,7 @@ and [<AllowNullLiteral; Serializable>]
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "task %s:%s ended" sigName (sigVersion.ToString("X")) ))
                   
     static member CreateReadOneDSetTask( dsetPeer, queue, parts:seq<int> ) = 
-        let task = Task( DSets = [| dsetPeer |], 
+        let task = new Task( DSets = [| dsetPeer |], 
                                 Partitions = List<int>(parts), 
                                 TypeOf = JobTaskKind.StartReadOne, 
                                 State = TaskState.ReadyToExecute, 
@@ -1799,6 +1901,7 @@ and [<AllowNullLiteral; Serializable>]
             let msgError = new MemStream( 1024 )
             msgError.WriteString( msg )
             hostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msgError )
+
     member x.ExecuteOneLightJob() = 
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Executing task %A" x.TypeOf ))
         try 
@@ -1811,8 +1914,9 @@ and [<AllowNullLiteral; Serializable>]
                 let bAllCancelled = ref false
                 let tasks = List<_>()
                 let cts = new CancellationTokenSource()
+                let jbInfo = JobInformation( x.JobID, true, curDSet.Name, curDSet.Version.Ticks )
                 for parti in x.Partitions do
-                    tasks.Add( curDSet.AsyncReadChunk x parti
+                    tasks.Add( curDSet.AsyncReadChunk jbInfo parti
                                 ( fun (meta, ms:MemStream ) ->
                                     if Utils.IsNotNull ms then 
                                         Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Sending %s over the wire for read" (MetaFunction.MetaString(meta)) ))
@@ -1943,14 +2047,7 @@ and [<AllowNullLiteral; Serializable>]
                         | _ -> 
                             match registerFuncOpt with 
                             | Some registerFunc -> 
-                                if (Utils.IsNull blob.Stream) then
-                                    BlobFactory.register(blob.Hash, registerFunc blobi blob, epSignature)
-                                blob.Stream
-//                                let msRegistered = BlobFactory.register( blob.Hash, registerFunc blobi blob, epSignature )
-//                                if (Utils.IsNotNull msRegistered) then
-//                                    blob.Stream
-//                                else
-//                                    null
+                                BlobFactory.register( x.JobID, blob.Hash, registerFunc blobi blob, epSignature )
                             | None -> 
                                 null
                     let bExist = not (Utils.IsNull stream)
@@ -1991,7 +2088,7 @@ and [<AllowNullLiteral; Serializable>]
                                 bAllAvailable <- false
                     | BlobKind.SrcDSetMetaData ->
                         // Source should be available from peer
-                        let dset = DSetPeer.GetDSet( blob.Name, blob.Version, 0L )
+                        let dset = DSetPeer.GetDSet( x.JobID, blob.Name, blob.Version, 0L )
                         if Utils.IsNotNull dset then 
                             blob.Object <- dset
                             x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
@@ -2078,17 +2175,17 @@ and [<AllowNullLiteral; Serializable>]
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Fail to decode Blob %d from peer %s" blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
             let queue = Cluster.Connects.LookforConnectBySignature( epSignature )
             if Utils.IsNotNull queue && queue.CanSend then 
-                let msFeedback = new MemStream( 1024 )
+                use msFeedback = new MemStream( 1024 )
+                msFeedback.WriteGuid( x.JobID ) 
                 msFeedback.WriteString( x.Name ) 
                 msFeedback.WriteInt64( x.Version.Ticks )
                 msFeedback.WriteVInt32( blobi ) 
                 msFeedback.WriteBoolean( bSuccess ) 
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Acknowledge the receipt of Blob %A %d from peer %s, this %A" 
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Acknowledge the receipt of Blob %A %d from peer %s, this %A" 
                                                                            blob.TypeOf blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) 
                                                                            x.AvailThis
                                                                            ))
                 queue.ToSend( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Blob ), msFeedback )
-                msFeedback.DecRef()
         else
             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Receive Blob %A %d from peer %s, but blob has already been allocated" blob.TypeOf blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
         // once allocated, the input stream is no longer useful
@@ -2280,25 +2377,18 @@ and [<AllowNullLiteral; Serializable>]
                             failwith ( sprintf "Task.LoadAll, logic error, doesn't have a DSet type %A" blob.TypeOf )
                 | BlobKind.DStream ->
                     if Utils.IsNull blob.Object then 
-//                        let mutable dstream = DStreamFactory.ResolveDStream( blob.Name, blob.Version ) 
-//                        if Utils.IsNotNull dstream then 
-//                            blob.Object <- dstream
-//                            x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
-//                            x.DStreams.[blob.Index] <- dstream
-//                        else
                             let bDecodeSuccess = x.DecodeFromBlob( blobi, -1 )
                             if not bDecodeSuccess then 
                                 Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "Failed to load DStream %s:%s" blob.Name (StringTools.VersionToString(DateTime(blob.Version))) ) )
                             else
                                 let dstream0 = x.DStreams.[blob.Index] 
                                 dstream0.Blob <- blob // Set Hash
-                                let dstream1 = DStreamFactory.CacheDStream( dstream0.Hash, dstream0 )  
+                                let dstream1 = DStreamFactory.CacheDStream( x.JobID, dstream0 )  
                                 let dstream = x.DStreamReferences.GetOrAdd( dstream1.Hash, dstream1 ) 
 
                                 if not (Object.ReferenceEquals( dstream, dstream0 )) then 
                                     blob.Object <- dstream
                                     x.DStreams.[blob.Index] <- dstream
-//                                dstream <- DStreamFactory.CacheDStream( dstream )
                             bSuccess <- bSuccess && bDecodeSuccess
                 | BlobKind.ClusterWithInJobInfo ->
                     if Utils.IsNull blob.Object then 
@@ -2344,8 +2434,7 @@ and [<AllowNullLiteral; Serializable>]
         bAllLoaded
     /// Unload all Cluster, DSet, GV, this is particularly important for static reference in DStreamFactory
     member x.UnloadAll() = 
-        for pair in x.DStreamReferences do 
-            DStreamFactory.RemoveDStream( pair.Value )
+        DStreamFactory.RemoveDStream( x.JobID )
         x.Blobs <- null
         x.DStreams.Clear()
         x.SrcDSet.Clear()
@@ -2364,6 +2453,7 @@ and [<AllowNullLiteral; Serializable>]
         Some( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
     member x.StartJob() = 
         let msFeedback = new MemStream(1024)
+        msFeedback.WriteGuid( x.JobID )
         msFeedback.WriteString( x.Name )
         msFeedback.WriteInt64( x.Version.Ticks )
         msFeedback.WriteBoolean( true )
@@ -2403,16 +2493,12 @@ and [<AllowNullLiteral; Serializable>]
                 x.UpdateBlobInfo(blobi)
                 true
     /// Process incoming command for the task queue. 
-    /// Some: Command parsed, no need to parse this command by the PrajnaClient
-    /// None: command not parsed, need to further parse the command
-    member x.ParseCommand( queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms:StreamBase<byte>, taskQueue:TaskQueue ) = 
-        let msSend = new MemStream( 1024 )
-        msSend.WriteString( x.Name )
-        msSend.WriteInt64( x.Version.Ticks )
-        ms.Info <- ms.Info + ":Task:" + x.Name
+    /// true: Command parsed. 
+    /// false: Command Not parsed
+    member x.ParseTaskCommandAtDaemon( jobAction: SingleJobActionDaemon, queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms, taskQueue:TaskQueue ) = 
         match (cmd.Verb, cmd.Noun) with 
         | ControllerVerb.Unknown, _ -> 
-            Some( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )  
+            true
         | ControllerVerb.Availability, ControllerNoun.Blob ->
             /// Availability, Blob should be the first command sent by host/peers, as it will initialize proper structure, such as clusters, SrcDSet, etc..
             let peeri = x.GetIncomingQueueNumber( queue )
@@ -2423,57 +2509,55 @@ and [<AllowNullLiteral; Serializable>]
             if membershipList.Count<=0 then 
                 // For host, each peer replies on Peer availability 
                 let msInfo = new MemStream(1024)
+                msInfo.WriteGuid( x.JobID )
                 msInfo.WriteString( x.Name ) 
                 msInfo.WriteInt64( x.Version.Ticks )
                 x.AvailThis.Pack( msInfo ) 
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Availability, Blob for job %s:%s host %A this %A" 
-                                                                       x.Name x.VersionString
-                                                                       availInfo x.AvailThis ))
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Availability, Blob for job %s:%s host %A this %A" 
+                                                                                   x.Name x.VersionString
+                                                                                   availInfo x.AvailThis ))
                 queue.ToSend( ControllerCommand( ControllerVerb.Availability, ControllerNoun.Blob ), msInfo )
                 // Send source DSet, Information. 
                 x.TrySendSrcMetadataToHost(queue, availInfo)
             else
                 // for peer
                 x.TrySyncMetadataClient()
-            
-            Some( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Job ), msSend )
+            true 
         /// Write Blob is being processed here. 
         | ControllerVerb.Write, ControllerNoun.Blob ->
             let blobi = ms.ReadVInt32()
             let pos = ms.Position
             //let buf = ms.GetBuffer()
 //            let hash = HashByteArrayWithLength( buf, int pos, lenblob )
-            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Write, Blob for job %s:%s blob %d " 
-                                                                       (x.Blobs.[blobi].Name) x.VersionString
-                                                                       blobi ))
+            Logger.LogF( jobAction.JobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "Write, Blob for job %s:%s blob %d " 
+                                                                                       (x.Blobs.[blobi].Name) x.VersionString
+                                                                                       blobi ))
             let bCorrectFormatted = blobi>=0 && blobi < x.NumBlobs
             if bCorrectFormatted then 
                 let blob = x.Blobs.[blobi]
                 x.ReceiveBlob blobi blob (ms, queue.RemoteEndPointSignature )
-                Some( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )  
+                true
             else
                 let errorMsg = sprintf "Receive a blob for Job %s:%s idx %d, but is out of the range of (0-%d) " 
                                         x.Name x.VersionString blobi x.NumBlobs
-                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "%s" errorMsg ) )
-                let errorMS = new MemStream( )
-                errorMS.WriteString( errorMsg ) 
-                Some( ControllerCommand( ControllerVerb.Error, ControllerNoun.Blob ), errorMS )  
-
+                jobAction.ThrowExceptionAtContainer( errorMsg )
+                true
         | ControllerVerb.Acknowledge, ControllerNoun.Blob ->
             let blobi = ms.ReadVInt32()
             if blobi<0 || blobi >= x.NumBlobs then 
-                let msg = sprintf "Error: Acknowledge, Blob with serial %d that is outside of range of valid serial number (0-%d)" blobi x.NumBlobs
-                x.ParseError( msg )
+                Logger.LogF( LogLevel.Warning, fun _ ->  sprintf "Job %A, Error: Acknowledge, Blob with serial %d that is outside of range of valid serial number (0-%d)" jobAction.JobID blobi x.NumBlobs )
+                true
             else
                 let peeri = x.GetIncomingQueueNumber( queue )
                 // Decode availability information. 
                 let availInfo = x.IncomingQueuesAvailability.[peeri]
                 availInfo.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
                 availInfo.CheckAllAvailable()
-                Some( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )
+                true 
         | ControllerVerb.Start, ControllerNoun.Job ->
             if not x.ConfirmStart || x.State<>TaskState.InExecution then 
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
+                Logger.LogF( jobAction.JobID, 
+                             LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
                                                                sprintf "Start, Job: launch  a new job %s:%s with mode %A, in %.2fms" 
                                                                        x.Name x.VersionString x.LaunchMode 
                                                                        ( float (t1-x.JobStartTicks) / float TimeSpan.TicksPerMillisecond )
@@ -2494,25 +2578,29 @@ and [<AllowNullLiteral; Serializable>]
                             // Otherwise, just connect the task to task holder, no extra execution needed. 
                             taskQueue.ConnectTaskByTaskHolder( taskHolder, x, queue )
 
-                let msFeedback = new MemStream( 1024 )
+                use msFeedback = new MemStream( 1024 )
+                msFeedback.WriteGuid( jobAction.JobID )
                 msFeedback.WriteString( x.Name )
                 msFeedback.WriteInt64( x.Version.Ticks )
                 msFeedback.WriteBoolean( bSuccess )
-                Some( ControllerCommand( ControllerVerb.Echo, ControllerNoun.Job ), msFeedback )
+                queue.ToSend( ControllerCommand( ControllerVerb.Echo, ControllerNoun.Job ), msFeedback )
+                true
             else
                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Start, Job, try reuse an old new job %s:%s" x.Name x.VersionString))
-                let msFeedback = new MemStream( 1024 )
+                use msFeedback = new MemStream( 1024 )
+                msFeedback.WriteGuid( jobAction.JobID )
                 msFeedback.WriteString( x.Name )
                 msFeedback.WriteInt64( x.Version.Ticks )
                 msFeedback.WriteBoolean( true )
-                Some( ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Job ), msFeedback )
-                
+                queue.ToSend( ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Job ), msFeedback )
+                true
         | ControllerVerb.ConfirmStart, ControllerNoun.Job ->
             // ConfirmStart, Job should only be called from a local callback interface. 
             // It will link the the job back to PrajnaClient
             let bSuccess = ms.ReadBoolean()
             // Job started at the AppDomain/Exe
             let msFeedback = new MemStream( 1024 )
+            msFeedback.WriteGuid( x.JobID )
             msFeedback.WriteString( x.Name )
             msFeedback.WriteInt64( x.Version.Ticks )
             msFeedback.WriteBoolean( bSuccess )
@@ -2520,15 +2608,16 @@ and [<AllowNullLiteral; Serializable>]
                 x.PrimaryHostQueue.ToSend( ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Job ), msFeedback )
             // Confirm start of a job
             x.ConfirmStart <- true
-            Some( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )
+            true
         | ControllerVerb.Close, ControllerNoun.Job ->
             x.TerminateTask() 
             taskQueue.RemoveTask( x ) 
             taskQueue.RemoveSeparateTask( x )
             taskQueue.DelinkQueueAndTask( x ) 
-            Some( ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Unknown ), null )
+            jobAction.CancelJob()
+            true
         | _ ->
-            None    
+            false    
     /// Try send missing srouce metadata (srcDSet) to host
     /// The information is light, so the sending command is executed synchronously. 
     member x.TrySendSrcMetadataToHost(queue, hostAvail) = 
@@ -2596,7 +2685,7 @@ and [<AllowNullLiteral; Serializable>]
     member val EvJobStarted = new ManualResetEvent( false ) with get
     /// Send Start Job Command to the linked program. 
     member x.ToStartJob() = 
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Send (Set, Job), metadata, (Start, Job) to AppDomain/Exe of task %s:%s" x.Name x.VersionString) )
+        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Send (Set, Job), metadata, (Start, Job) to AppDomain/Exe of task %s:%s" x.Name x.VersionString) )
         /// Send job metadata to the loopback interface. 
         let jobMetadataStream = 
             if Utils.IsNotNull x.MetadataStream then x.MetadataStream
@@ -2621,7 +2710,8 @@ and [<AllowNullLiteral; Serializable>]
                     | _ ->
                         // SrcDSet, Cluster, Assembly should already be at the client, and doesn't need to be sent
                         ()
-                let ms = new MemStream( 1024 )
+                use ms = new MemStream( 1024 )
+                ms.WriteGuid( x.JobID )
                 ms.WriteString( x.Name )
                 ms.WriteInt64( x.Version.Ticks )
                 queue.ToSend( ControllerCommand( ControllerVerb.Start, ControllerNoun.Job ), ms )
@@ -2639,7 +2729,7 @@ and internal ContainerAppDomainLauncher() =
         // Need to setup monitoring too  
         DeploymentSettings.ClientPort <- port     
         DeploymentSettings.LogFolder <- logdir
-        RemoteExecutionEnvironment.ContainerName <- name 
+        RemoteExecutionEnvironment.ContainerName <- "AppDomain:" + name 
         let logfname = Path.Combine( logdir, name + "_appdomain_" + VersionToString( DateTime(ticks) ) + ".log" )
         let args = [| @"-log"; logfname; "-verbose"; verbose_level.ToString() |]
         if bUseAllDrive then 
@@ -2729,8 +2819,8 @@ and [<AllowNullLiteral>]
 and internal TaskQueue() = 
     // ToDo: 12/23/2014, to change tasks, lookupTable and executionTable to concurrent data structure
 //    let tasks = ConcurrentBag<Task>()
-    // JinL, 2/20/2014, Task is indexed only by name, the version is used as a signature.
-    let lookupTable = ConcurrentDictionary<_, Task>(StringDateTimeTupleComparer(StringComparer.Ordinal) )
+    // JinL, 9/21/2015: index Task by Guid
+    let lookupTable = ConcurrentDictionary<Guid, Task>()
     //       2/24/2014, executionTable now holds job that are exeucting and being terminated, it is indexed by Job Signature,  
     let executionTable = ConcurrentDictionary<_ , ConcurrentDictionary<_,_>>(StringComparer.Ordinal)
     //      1/6/2016, map remote queue to tasks. 
@@ -2784,7 +2874,8 @@ and internal TaskQueue() =
            let count = ref 0 
            for task in tasks do 
                if Utils.IsNotNull task then 
-                   Logger.LogF( LogLevel.MildVerbose, ( fun _ ->  count := !count + 1
+                   Logger.LogF( task.JobID, 
+                                LogLevel.MildVerbose, ( fun _ ->  count := !count + 1
                                                                   let queue = task.QueueAtClientMonitor
                                                                   sprintf "Active Task %d: %s, state %A queue is %s" 
                                                                       (!count)
@@ -2796,9 +2887,9 @@ and internal TaskQueue() =
 
     /// Find a certain task by name & vernumber
     /// If verNumber = 0L, find the latest task in the system. 
-    member x.FindTask( name, verNumber ) = 
+    member x.FindTask( jobID ) = 
         let valueRef = ref Unchecked.defaultof<_>
-        if lookupTable.TryGetValue( (name, verNumber ), valueRef ) then 
+        if lookupTable.TryGetValue( jobID, valueRef ) then 
             Some( !valueRef ) 
         else
             None
@@ -2811,7 +2902,7 @@ and internal TaskQueue() =
                 x.RemoveTaskWithQueueSignature( priorTask )
             ta
         // If previous version exist, update it to a new version
-        let taskAdd = lookupTable.AddOrUpdate( ( ta.Name, ta.Version ), ta, updateFunc )
+        let taskAdd = lookupTable.AddOrUpdate( ta.JobID, ta, updateFunc )
         if not(Utils.IsNull queue) then 
             x.LinkQueueAndTask( ta, queue )
         if Object.ReferenceEquals( taskAdd, ta ) then 
@@ -2820,14 +2911,10 @@ and internal TaskQueue() =
         else
             // Never executed. 
             taskAdd
-    member x.RemoveTask( ta:Task ) =
-        if (Utils.IsNotNull ta && Utils.IsNotNull ta.MetadataStream) then
-            ta.MetadataStream.DecRef()
-            ta.MetadataStream <- null
-            for b in ta.Blobs do
-                if (Utils.IsNotNull b.Stream) then
-                    b.Stream.DecRef()
-        lookupTable.TryRemove( (ta.Name, ta.Version), ref Unchecked.defaultof<_> ) |> ignore
+    member x.RemoveTaskByJobID( jobID ) = 
+        lookupTable.TryRemove( jobID ) |> ignore
+    member x.RemoveTask( ta:Task ) = 
+        x.RemoveTaskByJobID( ta.JobID )
             
     member x.LinkQueueAndTask( ta:Task, queue: NetworkCommandQueue ) = 
         let remoteSignature = queue.RemoteEndPointSignature
@@ -2839,125 +2926,144 @@ and internal TaskQueue() =
         let dict = queueToTasks.GetOrAdd( remoteSignature, fun _ -> ConcurrentDictionary<_,_>(StringDateTimeTupleComparer(StringComparer.Ordinal)) ) 
         dict.TryRemove( (ta.Name, ta.Version) ) |> ignore
     /// Process incoming command for the task queue. 
-    /// Some: Command parsed, no need to parse this command by the PrajnaClient
-    /// None: command not parsed, need to further parse the command
-    member x.ParseCommand( queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms:StreamBase<byte> ) = 
+    /// Return:
+    ///     True: if command has been parsed. 
+    ///     False: if command has not been parsed. 
+    member x.ParseCommandAtDaemon( queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms:StreamBase<byte> ) = 
         let mutable fullname = null
         let mutable cb = null
         let mutable callbackItem = null
-        ms.Info <- ms.Info + ":ParseCommand:" + queue.EPInfo
         // The command that will be processed by this callback. 
         match (cmd.Verb,cmd.Noun) with 
         // Set, Job (name is not parsed)
         | ControllerVerb.Set, ControllerNoun.Job ->
-            let task = new Task()
-//            task.GetIncomingQueueNumber( queue ) |> ignore
-            let bRet = task.UnpackToBlob( ms )
-            task.ClientAvailability(queue.RemoteEndPointSignature, Some task.ReceiveBlob, Some task.PeekBlobDSet )  
-            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Set, Job job %s:%s, launchMode %A" task.Name task.VersionString task.LaunchMode ))
-            if bRet then 
-                if task.IsContainer then 
-                    let mutable bInExecution = false
-                    let mutable bLaunchFailed = false
-                    let mutable taskHolder : ExecutedTaskHolder = x.GetRelatedTaskHolder( task ) 
-                    let otherTaskHolder : seq<KeyValuePair<int64,ExecutedTaskHolder>> = x.GetTaskHolderOfDifferentVersion( task )
-                    match task.LaunchMode with 
-                    | TaskLaunchMode.LaunchAndFailWhenDifferentVersionExist -> 
-                        if Seq.length otherTaskHolder > 0 then 
-                            bLaunchFailed <- true
-                    | TaskLaunchMode.LaunchAndTerminateDifferentVersion -> 
-                        for pair in otherTaskHolder do 
-                            let diffSignature = pair.Key
-                            let otherTask = pair.Value
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "terminate Task %s:%s that is a different version than the current task of version %s"
-                                                                           task.SignatureName (diffSignature.ToString("X")) (task.SignatureVersion.ToString("X")) ))
-                            otherTask.ForceTerminate()
-                    | TaskLaunchMode.DonotLaunch -> 
-    // Move to ConnectTaskToTaskHolder
-    //                    if Utils.IsNull taskHolder && Seq.length otherTaskHolder > 0 then 
-    //                        taskHolder <- otherTaskHolder |> Seq.map ( fun pair -> pair.Value ) |> Seq.exactlyOne
-    //                        task.TaskHolder <- taskHolder
-                        ()
-                    | _ -> 
-                        ()
-                            
-                    if not ( Utils.IsNull taskHolder ) && 
-                        not ( Utils.IsNull taskHolder.JobLoopbackQueue) && 
-                        taskHolder.JobLoopbackQueue.CanSend then     
-                            // Any job that are in execution? 
-                            bInExecution <- true
-                    if not bInExecution then 
-                        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Set, Job for %s:%s, find related job still executing" task.Name task.VersionString))
-    //                    x.RemoveAllRelatedTask( task )
-                    // Reserve job related resource 
-                    let nodeInfo = 
-                        match task.LaunchMode with 
-                        | TaskLaunchMode.DonotLaunch -> 
-                            let foundTask = x.AddTask( task, queue ) // Useable for future reference.
-                            if not (Object.ReferenceEquals( foundTask, task )) then 
-                                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Set, Job job %s:%s, when get node info, we have found another job with launchMode %A" task.Name task.VersionString foundTask.LaunchMode ))
-                            try
-                                x.JobManagement.Use( foundTask.SignatureName )  
-                            with 
-                            | e -> 
-                                null
-                        | _ -> 
-                            x.JobManagement.Reserve( task.SignatureName, task.JobPort )  
-                    if not (Utils.IsNull nodeInfo) then 
-                        if DeploymentSettings.bDaemonRelayForJobAllowed || nodeInfo.ListeningPort > 0 then 
-                        // Is the task already in the task queue?
-                            let foundTask = x.AddTask( task, queue )
-                            if not (Object.ReferenceEquals( foundTask, task )) then 
-                                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Set, Job %s:%s, but we have found another job with launchMode %A" task.Name task.VersionString foundTask.LaunchMode ))
-                            let msSend = new MemStream( 1024 )
-                            msSend.WriteString( foundTask.Name ) 
-                            msSend.WriteInt64( foundTask.Version.Ticks )
-                            nodeInfo.Pack( msSend )
-                            Some( ControllerCommand( ControllerVerb.InfoNode, ControllerNoun.Job ), msSend )   
-                        else
-                            let msSend = new MemStream( 1024 )
-                            msSend.WriteString( task.Name ) 
-                            msSend.WriteInt64( task.Version.Ticks )
-                            if task.LaunchMode <> TaskLaunchMode.DonotLaunch then 
-                                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Task %s failed to secure a valid port (return port <=0 ) .............." task.SignatureName ))
-                            Some( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )                              
-                    else
-                        let msSend = new MemStream( 1024 )
-                        msSend.WriteString( task.Name ) 
-                        msSend.WriteInt64( task.Version.Ticks )
-                        if task.LaunchMode <> TaskLaunchMode.DonotLaunch then 
-                            Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Task %s failed in port reservation .............." task.SignatureName ))
-                        Some( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )   
+            let jobID, name, verNumber = Job.PeekJob( ms )
+            JobLifeCycleCollectionDaemon.BeginJob( jobID, name, verNumber, queue.RemoteEndPointSignature ) |> ignore 
+            using ( SingleJobActionDaemon.TryFind(jobID)) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Task.ErrorInSeparateApp( queue, sprintf "Failed to create JobLifeCycle Object or find Job Action object for Job %A, most probably because another job of the same job ID is running" jobID ) 
+                    true
                 else
-                    let mutable taskHolder = x.GetRelatedTaskHolder( task ) 
-                    if Utils.IsNull taskHolder && task.LaunchMode = TaskLaunchMode.DonotLaunch then 
-                        let otherTaskHolder = x.GetTaskHolderOfDifferentVersion( task )
-                        if Utils.IsNotNull otherTaskHolder && Seq.length otherTaskHolder > 0 then 
-                            taskHolder <- otherTaskHolder |> Seq.map ( fun pair -> pair.Value ) |> Seq.exactlyOne
-                            task.TaskHolder <- taskHolder
+                    try 
+                        jobAction.LifeCycleObject.OnDisposeFS( fun _ -> x.RemoveTaskByJobID(jobID))
+                        let task = new Task()
+                        let bRet = task.UnpackToBlob( ms )
+                        task.ClientAvailability(queue.RemoteEndPointSignature, Some task.ReceiveBlob, Some task.PeekBlobDSet )  
+                        Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Set, Job job %s:%s, launchMode %A" task.Name task.VersionString task.LaunchMode ))
+                        if bRet then 
+                            if task.IsContainer then 
+                                let mutable bInExecution = false
+                                let mutable bLaunchFailed = false
+                                let mutable taskHolder : ExecutedTaskHolder = x.GetRelatedTaskHolder( task ) 
+                                let otherTaskHolder : seq<KeyValuePair<int64,ExecutedTaskHolder>> = x.GetTaskHolderOfDifferentVersion( task )
+                                match task.LaunchMode with 
+                                | TaskLaunchMode.LaunchAndFailWhenDifferentVersionExist -> 
+                                    if Seq.length otherTaskHolder > 0 then 
+                                        bLaunchFailed <- true
+                                | TaskLaunchMode.LaunchAndTerminateDifferentVersion -> 
+                                    for pair in otherTaskHolder do 
+                                        let diffSignature = pair.Key
+                                        let otherTask = pair.Value
+                                        Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "terminate Task %s:%s that is a different version than the current task of version %s"
+                                                                                                        task.SignatureName (diffSignature.ToString("X")) (task.SignatureVersion.ToString("X")) ))
+                                        otherTask.ForceTerminate()
+                                | TaskLaunchMode.DonotLaunch -> 
+                                    ()
+                                | _ -> 
+                                    ()
+                            
+                                if not ( Utils.IsNull taskHolder ) && 
+                                    not ( Utils.IsNull taskHolder.JobLoopbackQueue) && 
+                                    taskHolder.JobLoopbackQueue.CanSend then     
+                                        // Any job that are in execution? 
+                                        bInExecution <- true
+                                if not bInExecution then 
+                                    Logger.LogF( jobID, LogLevel.WildVerbose, ( fun _ -> sprintf "Set, Job for %s:%s, find related job still executing" task.Name task.VersionString))
+                //                    x.RemoveAllRelatedTask( task )
+                                // Reserve job related resource 
+                                let nodeInfo = 
+                                    match task.LaunchMode with 
+                                    | TaskLaunchMode.DonotLaunch -> 
+                                        let foundTask = x.AddTask( task, queue ) // Useable for future reference.
+                                        if not (Object.ReferenceEquals( foundTask, task )) then 
+                                            Logger.LogF( jobID, LogLevel.Warning, ( fun _ -> sprintf "Set, Job job %s:%s, when get node info, we have found another job with launchMode %A" task.Name task.VersionString foundTask.LaunchMode ))
+                                        try
+                                            x.JobManagement.Use( foundTask.SignatureName )  
+                                        with 
+                                        | e -> 
+                                            null
+                                    | _ -> 
+                                        x.JobManagement.Reserve( task.SignatureName, task.JobPort )  
+                                if not (Utils.IsNull nodeInfo) then 
+                                    if DeploymentSettings.bDaemonRelayForJobAllowed || nodeInfo.ListeningPort > 0 then 
+                                    // Is the task already in the task queue?
+                                        let foundTask = x.AddTask( task, queue )
+                                        if not (Object.ReferenceEquals( foundTask, task )) then 
+                                            Logger.LogF( jobID, LogLevel.Warning, ( fun _ -> sprintf "Set, Job %s:%s, but we have found another job with launchMode %A" task.Name task.VersionString foundTask.LaunchMode ))
+                                        use msSend = new MemStream( 1024 )
+                                        msSend.WriteGuid( jobID )
+                                        msSend.WriteString( foundTask.Name ) 
+                                        msSend.WriteInt64( foundTask.Version.Ticks )
+                                        nodeInfo.Pack( msSend )
+                                        queue.ToSend( ControllerCommand( ControllerVerb.InfoNode, ControllerNoun.Job ), msSend )   
+                                        true
+                                    else
+                                        use msSend = new MemStream( 1024 )
+                                        msSend.WriteGuid( jobID )
+                                        msSend.WriteString( task.Name ) 
+                                        msSend.WriteInt64( task.Version.Ticks )
+                                        if task.LaunchMode <> TaskLaunchMode.DonotLaunch then 
+                                            Logger.LogF( jobID, LogLevel.Warning, ( fun _ -> sprintf "Task %s failed to secure a valid port (return port <=0 ) .............." task.SignatureName ))
+                                        queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )                              
+                                        true
+                                else
+                                    use msSend = new MemStream( 1024 )
+                                    msSend.WriteGuid( jobID )
+                                    msSend.WriteString( task.Name ) 
+                                    msSend.WriteInt64( task.Version.Ticks )
+                                    if task.LaunchMode <> TaskLaunchMode.DonotLaunch then 
+                                        Logger.LogF( jobID, LogLevel.Warning, ( fun _ -> sprintf "Task %s failed in port reservation .............." task.SignatureName ))
+                                    queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )   
+                                    true
+                            else
+                                let mutable taskHolder = x.GetRelatedTaskHolder( task ) 
+                                if Utils.IsNull taskHolder && task.LaunchMode = TaskLaunchMode.DonotLaunch then 
+                                    let otherTaskHolder = x.GetTaskHolderOfDifferentVersion( task )
+                                    if Utils.IsNotNull otherTaskHolder && Seq.length otherTaskHolder > 0 then 
+                                        taskHolder <- otherTaskHolder |> Seq.map ( fun pair -> pair.Value ) |> Seq.exactlyOne
+                                        task.TaskHolder <- taskHolder
 
-                    if Utils.IsNull taskHolder || Utils.IsNull taskHolder.CurNodeInfo then 
-                        /// Running job, can't find the associated container. 
-                        let msSend = new MemStream( 1024 )
-                        msSend.WriteString( task.Name ) 
-                        msSend.WriteInt64( task.Version.Ticks )
-                        Some( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )  
-                    else
-                        let nodeInfo = taskHolder.CurNodeInfo
-                        let foundTask = x.AddTask( task, queue )
-                        foundTask.TaskHolder <- taskHolder
-                        let msSend = new MemStream( 1024 )
-                        msSend.WriteString( task.Name ) 
-                        msSend.WriteInt64( task.Version.Ticks )
-                        nodeInfo.Pack( msSend )
-                        Some( ControllerCommand( ControllerVerb.InfoNode, ControllerNoun.Job ), msSend )   
-            else
-                let msg = sprintf "Failed to parse Set, Job command %A" (ms.GetBuffer())
-                Some( Task.Error( msg ) )
+                                if Utils.IsNull taskHolder || Utils.IsNull taskHolder.CurNodeInfo then 
+                                    /// Running job, can't find the associated container. 
+                                    use msSend = new MemStream( 1024 )
+                                    msSend.WriteGuid( jobID )
+                                    msSend.WriteString( task.Name ) 
+                                    msSend.WriteInt64( task.Version.Ticks )
+                                    queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )  
+                                    true
+                                else
+                                    let nodeInfo = taskHolder.CurNodeInfo
+                                    let foundTask = x.AddTask( task, queue )
+                                    foundTask.TaskHolder <- taskHolder
+                                    use msSend = new MemStream( 1024 )
+                                    msSend.WriteGuid( jobID )
+                                    msSend.WriteString( task.Name ) 
+                                    msSend.WriteInt64( task.Version.Ticks )
+                                    nodeInfo.Pack( msSend )
+                                    queue.ToSend( ControllerCommand( ControllerVerb.InfoNode, ControllerNoun.Job ), msSend )
+                                    true
+                        else
+                            let msg = sprintf "Failed to parse Set, Job command with payload of %dB" (ms.Length)
+                            jobAction.ThrowExceptionAtContainer( msg )
+                            true
+                    with
+                    | ex -> 
+                        jobAction.EncounterExceptionAtContainer( ex, "___ ParseCommandAtDaemon, (Set, Job) ___ ")
+                        true
+            )
         | ControllerVerb.Set, ControllerNoun.Blob -> 
             // Blob not attached to job
             let buf, pos, count = ms.GetBufferPosLength()
-            //let hash = HashByteArrayWithLength( buf, pos, count )
             let hash = buf.ComputeSHA256(int64 pos, int64 count)
             let bSuccess = BlobFactory.receiveWriteBlob( hash, ms, queue.RemoteEndPointSignature )
             if bSuccess then 
@@ -2966,58 +3072,105 @@ and internal TaskQueue() =
                                                                        buf.Length
                                                                        (BytesToHex(hash))
                                                                        pos count  ))
-                Some( ControllerCommand(ControllerVerb.Unknown, ControllerNoun.Unknown), null )
+                true
             else
                 let errMsg = sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), failed to find corresponding job"
                                                                         (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                                                                         buf.Length
                                                                         (BytesToHex(hash))
                                                                         pos count
-                Some( Task.Error( errMsg ) )
+                // Set, Blob error can't be localiazed to a job                                                                
+                Task.ErrorInSeparateApp( queue, errMsg )
+                true
         | ControllerVerb.Start, ControllerNoun.Job ->
             // Figure
-            let name = ms.ReadString()
-            let verNumber = ms.ReadInt64()
-            let taskOpt = x.FindTask( name, DateTime(verNumber) )
-            match taskOpt with 
-            | Some( task ) ->
-                if task.Version.Ticks = verNumber then 
-                    task.ParseCommand( queue, cmd, ms, x )
+            let jobID = ms.ReadGuid() 
+            using ( SingleJobActionDaemon.TryFind(jobID)) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Task.ErrorInSeparateApp( queue, sprintf "(Start, Job) Failed to find Job Action object for Job %A, error has happened before? " jobID ) 
+                    true
                 else
-                    let msg = sprintf "Miss matched task version number %s:%s vs %s in queue" name (verNumber.ToString("X")) task.VersionString
-                    Some( Task.Error( msg ) )
-            // Job command 
-            | None -> 
-                let msSend = new MemStream( 1024 )
-                msSend.WriteString( name ) 
-                msSend.WriteInt64( verNumber )
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s failed to start, as we can't find Set, Job entry  .............." name (VersionToString(DateTime(verNumber))) ))
-                Some( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )   
+                    try
+                        let name = ms.ReadString()
+                        let verNumber = ms.ReadInt64()
+                        let taskOpt = x.FindTask( jobID )
+                        match taskOpt with 
+                        | Some( task ) ->
+                            if task.Version.Ticks = verNumber && String.Compare( task.Name, name, StringComparison.Ordinal)=0 then 
+                                task.ParseTaskCommandAtDaemon( jobAction, queue, cmd, ms, x )
+                            else
+                                let msg = sprintf "Job %A, Miss matched task name & version number %s:%s vs %s:%s in queue" jobID name (verNumber.ToString("X")) task.Name task.VersionString
+                                jobAction.ThrowExceptionAtContainer( msg )
+                                true 
+                        // Job command 
+                        | None -> 
+                            use msSend = new MemStream( 1024 )
+                            msSend.WriteGuid( jobID )
+                            msSend.WriteString( name ) 
+                            msSend.WriteInt64( verNumber )
+                            Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s failed to start, as we can't find Set, Job entry  .............." name (VersionToString(DateTime(verNumber))) ))
+                            queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )   
+                            true
+                    with 
+                    | ex -> 
+                        jobAction.EncounterExceptionAtContainer( ex, "___ ParseCommandAtDaemon( Start, Job) ___")
+                        true
+            )
+        // Forward exception message to a proper application
+        | ControllerVerb.Exception, ControllerNoun.Job -> 
+            // Figure
+            let pos = ms.Position
+            let jobID = ms.ReadGuid() 
+            using ( SingleJobActionDaemon.TryFind(jobID)) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Task.ErrorInSeparateApp( queue, sprintf "(Exception, Job) Failed to find Job Action object for Job %A, unable to forward the exception message." jobID ) 
+                    true
+                else
+                    ms.Seek( pos, SeekOrigin.Begin ) |> ignore 
+                    jobAction.ToSend( cmd, ms )
+                    true
+            )
         // Other than set, all other command are processed by each individual task
         | _, ControllerNoun.Job 
         | _, ControllerNoun.Blob ->
-            let name = ms.ReadString()
-            let verNumber = ms.ReadInt64()
-            let taskOpt = x.FindTask( name, DateTime(verNumber) )
-            match taskOpt with 
-            | Some( task ) ->
-                if task.Version.Ticks = verNumber then 
-                    task.ParseCommand( queue, cmd, ms, x )
+            let jobID  = ms.ReadGuid()
+            using ( SingleJobActionDaemon.TryFind(jobID)) ( fun jobAction -> 
+                if Utils.IsNull jobAction then 
+                    Task.ErrorInSeparateApp( queue, sprintf "(%A) Failed to find Job Action object for Job %A, error has happened before? " cmd jobID ) 
+                    true
                 else
-                    let msg = sprintf "Miss matched task version number %s:%s vs %s in queue" name (verNumber.ToString("X")) task.VersionString
-                    Some( Task.Error( msg ) )
-            // Job command 
-            | None -> 
-                let msSend = new MemStream( 1024 )
-                msSend.WriteString( name ) 
-                msSend.WriteInt64( verNumber )
-                Some( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )  
-//
+                    try
+                        let name = ms.ReadString()
+                        let verNumber = ms.ReadInt64()
+                        let taskOpt = x.FindTask( jobID )
+                        match taskOpt with 
+                        | Some( task ) ->
+                            if task.Version.Ticks = verNumber && String.Compare( task.Name, name, StringComparison.Ordinal)=0 then 
+                                task.ParseTaskCommandAtDaemon( jobAction, queue, cmd, ms, x )
+                            else
+                                let msg = sprintf "Job %A, Miss matched task name & version number %s:%s vs %s:%s in queue" jobID name (verNumber.ToString("X")) task.Name task.VersionString
+                                jobAction.ThrowExceptionAtContainer( msg )
+                                true 
+                        // Job command 
+                        | None -> 
+                            use msSend = new MemStream( 1024 )
+                            msSend.WriteGuid( jobID )
+                            msSend.WriteString( name ) 
+                            msSend.WriteInt64( verNumber )
+                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Job %A failed to perform action %A, as we can't find Set, Job entry  .............." jobID cmd ))
+                            queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )  
+                            true 
+                    with
+                    | ex -> 
+                        jobAction.EncounterExceptionAtContainer( ex, sprintf "___ ParseCommandAtDaemon( %A ) ___" cmd )
+                        true
+            )
 // Don't use error. 
 //                let msg = sprintf "Failed to find Task %s:%s in queue" name (VersionToString(DateTime(verNumber)) )
 //                Some( Task.Error( msg ) )
         | _ ->
-            None
+            false
+
 
         
     /// Add a task with feedback Queue
@@ -3602,7 +3755,7 @@ type internal ContainerLauncher() =
     //    DeploymentSettings.ClientPort <- port
         let memory_size = parse.ParseInt64( "-mem", (DeploymentSettings.MaxMemoryLimitInMB) )
         DeploymentSettings.MaxMemoryLimitInMB <- memory_size
-        RemoteExecutionEnvironment.ContainerName <- name 
+        RemoteExecutionEnvironment.ContainerName <- "Exe:" + name 
     // Need to first write a line to log, otherwise, MakeFileAccessible will fails. 
     // Logger.Log( LogLevel.Info,  sprintf "Logging in New AppDomain...................... %s, %d MB " DeploymentSettings.PlatformFlag (DeploymentSettings.MaximumWorkingSet>>>20)  )
         Logger.Log( LogLevel.Info, ( sprintf "%s executing in new Executable Environment ...................... %s, %d MB " 

@@ -182,7 +182,7 @@ type JobListener() =
         match (command.Verb, command.Noun ) with
             | ControllerVerb.Unknown, _ -> 
                 ()
-            | ControllerVerb.ContainerInfo, ControllerNoun.Job -> 
+            | ControllerVerb.ContainerInfo, ControllerNoun.ClusterInfo -> 
                 // Get the container information from the peer
                 let pos = ms.Position
                 let name = ms.ReadString()
@@ -225,53 +225,67 @@ type JobListener() =
                                 x.m_MonitorBlocking.Item( eip ) <- curTime
 
             | _, ControllerNoun.DStream -> 
+                // Our current logic create all job object at all peers before launching the job, 
+                // so that we can safely assume that the existence of the jobAction object indicate whether we need to process
+                // the command (or can ignore it.)
                 let pos = ms.Position
-                let name = ms.ReadString()
-                let verNumber = ms.ReadInt64()
-                let dstream = DStreamFactory.ResolveDStreamByName( name, verNumber )
-                let mutable bCommandBlocked = (Utils.IsNull dstream || not dstream.bNetworkInitialized || (Utils.IsNotNull dstream.DefaultJobInfo && not( dstream.DefaultJobInfo.JobReady.WaitOne(0))) )
-                let reasonBlocked = ref "Unknown"
-                if not bCommandBlocked then 
-                    bCommandBlocked <- not (dstream.ProcessJobCommand( queuePeer, command, ms ))
-                    if bCommandBlocked then 
-                        reasonBlocked := sprintf "Unable to process DStream command command %A" command   
+                let jobID = ms.ReadGuid()
+                using ( SingleJobActionContainer.TryFind(jobID) ) ( fun jobAction -> 
+                    if Utils.IsNull jobAction then 
+                        Logger.LogF( jobID, LogLevel.Info, ( fun _ -> sprintf "[May be OK, Job cancelled] JobListener.ProcessPeerJobCommand, received command %A of payload %dB, but can't find job lifecycle object" 
+                                                                                command ms.Length )    )
                     else
-                        // command processed. 
-                        x.m_MonitorBlocking.TryRemove( eip ) |> ignore  
-                else
-                    if Utils.IsNull dstream then 
-                        reasonBlocked := sprintf "Unable to resolve DStream %s" name
-                    else if not dstream.bNetworkInitialized then
-                        reasonBlocked := sprintf "DStream %s has not initialized network" name
-                    else
-                        reasonBlocked := sprintf "DStream %s does not have ready job" name
-                if bCommandBlocked then 
-                    // This may be caused if the peer launched the job earlier, and the current job hasn't been properly populated. 
-                    let t2 = (PerfDateTime.UtcNow())
-                    let elapse = t2.Subtract(t1).TotalSeconds
-                    if elapse > DeploymentSettings.TimeOutJobStartTimeSkewAmongPeers then 
-                        /// Wait a long time and the job still doesn't start
-                        let msg1 = sprintf "Rcvd from %A msg of %A (%dB) for DStream %s:%s, wait for %f seconds, but " (queuePeer.RemoteEndPoint) command ( ms.Length - ms.Position ) name (VersionToString(DateTime(verNumber))) elapse
-                        let msg2 = !reasonBlocked
-                        Logger.Log( LogLevel.Error, (msg1+msg2))
-                        let msError = new MemStream( 1024 )
-                        msError.WriteString( msg1 + msg2 ) 
-                        queuePeer.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
-                    elif queuePeer.Shutdown then 
-                        let cmdLen = ms.Length
-                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Queue already shutdown but received Block command %A (%dB) on %s:%s from peer %A (%s), reason: %s, command will be discarded. " command cmdLen name (VersionToString(DateTime(verNumber))) eip (LocalDNS.GetHostByAddress(eip.Address.GetAddressBytes(), false)) !reasonBlocked ))
-                    else
-                        // Put the command back on queue, and wait for it to be ready 
-                        // But discard if the queuePeer is gone. 
-                        ms.Seek( pos, SeekOrigin.Begin ) |> ignore
-                        queuePeer.PendingCommand <- (rcvd, t1)
-                        if t1 = curTime then                                         
-                            // A new command is blocked. 
-                            if not (x.m_MonitorBlocking.ContainsKey( eip )) || 
-                                curTime.Subtract( x.m_MonitorBlocking.Item( eip ) ).TotalSeconds >= DeploymentSettings.MonitorPeerBlockingTime then 
-                                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Block command %A on %s:%s from peer %A (%s), unable to process immediately, reason: %s" command name (VersionToString(DateTime(verNumber))) eip (LocalDNS.GetHostByAddress(eip.Address.GetAddressBytes(), false)) !reasonBlocked ))
-                                Logger.LogStackTrace( LogLevel.MildVerbose )
-                                x.m_MonitorBlocking.Item( eip ) <- curTime
+                        try
+                            let name = ms.ReadString()
+                            let verNumber = ms.ReadInt64()
+                            let dstream = DStreamFactory.ResolveDStreamByName( jobID, name, verNumber )
+                            let mutable bCommandBlocked = (Utils.IsNull dstream || not dstream.bNetworkInitialized || (Utils.IsNotNull dstream.DefaultJobInfo && not( dstream.DefaultJobInfo.JobReady.WaitOne(0))) )
+                            let reasonBlocked = ref "Unknown"
+                            if not bCommandBlocked then 
+                                bCommandBlocked <- not (dstream.ProcessJobCommand( jobAction, queuePeer, command, ms, jobID ))
+                                if bCommandBlocked then 
+                                    reasonBlocked := sprintf "Unable to process DStream command command %A" command   
+                                else
+                                    // command processed. 
+                                    x.m_MonitorBlocking.TryRemove( eip ) |> ignore  
+                            else
+                                if Utils.IsNull dstream then 
+                                    reasonBlocked := sprintf "Unable to resolve DStream %s" name
+                                else if not dstream.bNetworkInitialized then
+                                    reasonBlocked := sprintf "DStream %s has not initialized network" name
+                                else
+                                    reasonBlocked := sprintf "DStream %s does not have ready job" name
+                            if bCommandBlocked then 
+                                // This may be caused if the peer launched the job earlier, and the current job hasn't been properly populated. 
+                                let t2 = (PerfDateTime.UtcNow())
+                                let elapse = t2.Subtract(t1).TotalSeconds
+                                if elapse > DeploymentSettings.TimeOutJobStartTimeSkewAmongPeers then 
+                                    /// Wait a long time and the job still doesn't start
+                                    let msg1 = sprintf "Rcvd from %A msg of %A (%dB) for DStream %s:%s, wait for %f seconds, but " (queuePeer.RemoteEndPoint) command ( ms.Length - ms.Position ) name (VersionToString(DateTime(verNumber))) elapse
+                                    let msg2 = !reasonBlocked
+                                    Logger.Log( LogLevel.Error, (msg1+msg2))
+                                    let msError = new MemStream( 1024 )
+                                    msError.WriteString( msg1 + msg2 ) 
+                                    queuePeer.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+                                elif queuePeer.Shutdown then 
+                                    let cmdLen = ms.Length
+                                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Queue already shutdown but received Block command %A (%dB) on %s:%s from peer %A (%s), reason: %s, command will be discarded. " command cmdLen name (VersionToString(DateTime(verNumber))) eip (LocalDNS.GetHostByAddress(eip.Address.GetAddressBytes(), false)) !reasonBlocked ))
+                                else
+                                    // Put the command back on queue, and wait for it to be ready 
+                                    // But discard if the queuePeer is gone. 
+                                    ms.Seek( pos, SeekOrigin.Begin ) |> ignore
+                                    queuePeer.PendingCommand <- (rcvd, t1)
+                                    if t1 = curTime then                                         
+                                        // A new command is blocked. 
+                                        if not (x.m_MonitorBlocking.ContainsKey( eip )) || 
+                                            curTime.Subtract( x.m_MonitorBlocking.Item( eip ) ).TotalSeconds >= DeploymentSettings.MonitorPeerBlockingTime then 
+                                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Block command %A on %s:%s from peer %A (%s), unable to process immediately, reason: %s" command name (VersionToString(DateTime(verNumber))) eip (LocalDNS.GetHostByAddress(eip.Address.GetAddressBytes(), false)) !reasonBlocked ))
+                                            Logger.LogStackTrace( LogLevel.MildVerbose )
+                                            x.m_MonitorBlocking.Item( eip ) <- curTime
+                        with 
+                        | ex -> 
+                            jobAction.EncounterExceptionAtContainer( ex, sprintf "___ JobListener.ProcessPeerJobCommand, command %A ___"  command)
+                )
             | _, ControllerNoun.Message -> 
                 let msg = ms.ReadString()
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Rcvd from %A msg of %A .... %s" eip command.Verb msg ))

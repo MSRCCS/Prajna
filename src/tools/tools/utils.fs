@@ -31,6 +31,17 @@ namespace Prajna.Tools
 
 open System
 open System.Runtime.CompilerServices
+open System.Collections.Generic
+
+/// <summary>
+/// Construct a comparer that uses Object.ReferenceEquals to compare object. 
+/// </summary>
+type ReferenceComparer<'T>()=
+    interface IEqualityComparer<'T> with
+        override this.Equals (x, y) = 
+            ( Object.ReferenceEquals( x, y )  )
+        override this.GetHashCode (x) = 
+            RuntimeHelpers.GetHashCode( x )
 
 /// Utilities
 module Utils =
@@ -50,6 +61,8 @@ module Utils =
                                                 else 
                                                     Runtime.CompilerServices.RuntimeHelpers.GetHashCode(v)
                                             h &&& Int32.MaxValue
+
+
 
 /// Runtime related information
 module Runtime =

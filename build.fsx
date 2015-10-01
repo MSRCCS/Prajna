@@ -416,12 +416,17 @@ let runTests (target:string) =
 #endif
     finally
         // Kill nunit-agent.exe if it is alive (it can sometimes happen when the test timeouts)
-        let procs = Diagnostics.Process.GetProcessesByName("nunit-agent")
-        if not (procs |> Array.isEmpty) then
+        let mutable cnt = 0;
+        let mutable procs = Diagnostics.Process.GetProcessesByName("nunit-agent") |> Array.filter (fun p -> not p.HasExited)
+        while (not (procs |> Array.isEmpty)) && cnt < 6 do
             Threading.Thread.Sleep(TimeSpan.FromSeconds(10.))
-            let procs = Diagnostics.Process.GetProcessesByName("nunit-agent")
-            procs |> Array.iter (fun p -> printfn "Kill process %s (%i)" p.ProcessName p.Id
-                                          p.Kill())
+            procs <- Diagnostics.Process.GetProcessesByName("nunit-agent") 
+            procs |> Array.iter (fun p -> if not p.HasExited then
+                                              printfn "Kill process %s (%i)" p.ProcessName p.Id
+                                              try p.Kill() with | _ -> ()) // tolerate failure
+            cnt <- cnt + 1;
+            procs <- Diagnostics.Process.GetProcessesByName("nunit-agent") |> Array.filter (fun p -> not p.HasExited)
+        if (not (procs |> Array.isEmpty)) then trace "fail to kill nunit-agent"
 
 Target "RunTests" (fun _ -> runTests "Debugx64")
 Target "RunReleaseTests" (fun _ -> runTests "Releasex64")

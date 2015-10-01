@@ -614,8 +614,7 @@ and [<AllowNullLiteral; Serializable>]
                     dep.Target <- dset
                     dep.Target :?> DSet
                 else
-                    // May be OK 
-                    dep.Target <- null 
+                    dep.Target <- null
                     Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Caution, Fail to resolve DSet %A, hash %s" dep.ParamType (BytesToHex(dep.Hash)) ))
                     null
         else
@@ -1333,19 +1332,19 @@ and [<AllowNullLiteral; Serializable>]
         | ( ControllerVerb.Set, ControllerNoun.Blob ) ->
             try 
                 let buf, pos, count = ms.GetBufferPosLength()
-                let hash = buf.ComputeSHA256(int64 pos, int64 count)
-                let bSuccess = BlobFactory.receiveWriteBlob( hash, ms, queue.RemoteEndPointSignature )
+                let fastHash = buf.ComputeChecksum(int64 pos, int64 count)
+                let bSuccess,cryptoHash = BlobFactory.receiveWriteBlob( fastHash, lazy buf.ComputeSHA256(int64 pos, int64 count), ms, queue.RemoteEndPointSignature )
                 if bSuccess then 
                     Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
                                                                            (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                                                                            buf.Length
-                                                                           (BytesToHex(hash))
+                                                                           (BytesToHex(if cryptoHash.IsSome then cryptoHash.Value else fastHash))
                                                                            pos count  ))
                 else
                     Logger.LogF( LogLevel.Info, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), but failed to find corresponding job"
                                                                            (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                                                                            buf.Length
-                                                                           (BytesToHex(hash))
+                                                                           (BytesToHex(fastHash))
                                                                            pos count )
                     
             with 
@@ -3064,20 +3063,21 @@ and internal TaskQueue() =
         | ControllerVerb.Set, ControllerNoun.Blob -> 
             // Blob not attached to job
             let buf, pos, count = ms.GetBufferPosLength()
-            let hash = buf.ComputeSHA256(int64 pos, int64 count)
-            let bSuccess = BlobFactory.receiveWriteBlob( hash, ms, queue.RemoteEndPointSignature )
+            let fastHash = buf.ComputeChecksum(int64 pos, int64 count)
+            let bSuccess, cryptoHash = BlobFactory.receiveWriteBlob( fastHash, lazy buf.ComputeSHA256(int64 pos, int64 count), ms, queue.RemoteEndPointSignature )
             if bSuccess then 
                 Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
                                                                        (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                                                                        buf.Length
-                                                                       (BytesToHex(hash))
+                                                                       (BytesToHex(if cryptoHash.IsSome then cryptoHash.Value else fastHash))
                                                                        pos count  ))
                 true
             else
-                let errMsg = sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), failed to find corresponding job"
+                let errMsg = sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (and %s) (%d, %dB), failed to find corresponding job"
                                                                         (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                                                                         buf.Length
-                                                                        (BytesToHex(hash))
+                                                                        (BytesToHex(fastHash))
+                                                                        (BytesToHex(cryptoHash.Value))
                                                                         pos count
                 // Set, Blob error can't be localiazed to a job                                                                
                 Task.ErrorInSeparateApp( queue, errMsg )

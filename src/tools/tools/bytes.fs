@@ -61,7 +61,7 @@ type BytesCompare =
                 for v in x do 
                     hash <- ( hash * 31 ) ^^^ ( int v)
                 hash
-                
+
 /// <summary>
 /// A set of helper routine for byte[] operations
 /// </summary>
@@ -103,23 +103,22 @@ module  BytesTools =
 
     /// Compute Hash of the bytearray
     let HashByteArray( data: byte[] ) = 
-        let sha256managed = new SHA256Managed()
-        let result = sha256managed.ComputeHash( data )
+        let hasher = Hash.CreateChecksum()
+        let result = hasher.ComputeHash( data )
         result
 
     /// <summary>
     /// Calculate a hash that matches the file hash in PrajnaRemote execution roster. The calculdated hash include 
     /// length of byte[] plus the content of the byte[].
     /// </summary>
-    let inline HashLengthPlusByteArray( data: byte[] ) = 
-        let sha256managed = new SHA256Managed()
+    let HashLengthPlusByteArray( hasher: HashAlgorithm, data: byte[] ) = 
         let len = if Utils.IsNull data then 0 else data.Length
         let lenarr = BitConverter.GetBytes( len ) 
-        sha256managed.TransformBlock( lenarr, 0, lenarr.Length, lenarr, 0 ) |> ignore
+        hasher.TransformBlock( lenarr, 0, lenarr.Length, lenarr, 0 ) |> ignore
         if len > 0 then 
-            sha256managed.TransformBlock( data, 0, len, data, 0 ) |> ignore
-        sha256managed.TransformFinalBlock( [||], 0, 0 ) |> ignore
-        sha256managed.Hash
+            hasher.TransformBlock( data, 0, len, data, 0 ) |> ignore
+        hasher.TransformFinalBlock( [||], 0, 0 ) |> ignore
+        hasher.Hash
 
     /// Compute Hash of the bytearray, and use first 16B of hash to form a GUID
     let inline HashByteArrayToGuid( data: byte[] ) = 
@@ -128,8 +127,8 @@ module  BytesTools =
         System.Guid( result )
 
     let internal HashByteArrayWithLength( data: byte[], offset, count ) = 
-        let sha256managed = new SHA256Managed()
-        let result = sha256managed.ComputeHash( data, offset, count )
+        let hasher = Hash.CreateChecksum()
+        let result = hasher.ComputeHash( data, offset, count )
         result
 
     let inline internal HashByteArrayToGuidWithLength( data: byte[], offset, count ) = 

@@ -255,7 +255,7 @@ type NaiveBayes() =
  
 //        let stream = new MemoryStream()
         let stream = new MemStream()
-        let serializer = new BinarySerializer() :> System.Runtime.Serialization.IFormatter
+        let serializer = GenericSerialization.GetFormatter GenericSerialization.PrajnaFormatterGuid
         sw.Restart()
 //        stream.SerializeFrom seqCounts
         serializer.Serialize(stream, seqCounts)

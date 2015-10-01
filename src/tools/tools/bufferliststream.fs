@@ -560,8 +560,12 @@ type [<AllowNullLiteral>] [<AbstractClass>] StreamBase<'T> =
         x.ComputeHash(sha512, offset, len)
 
     member x.ComputeSHA256(offset : int64, len : int64) =
-        use sha256managed = new Security.Cryptography.SHA256Managed()
-        x.ComputeHash(sha256managed, offset, len)
+        use sha256 = new Security.Cryptography.SHA256Managed() 
+        x.ComputeHash(sha256, offset, len)
+
+    member x.ComputeChecksum(offset : int64, len : int64) =
+        use hasher = Hash.CreateChecksum()
+        x.ComputeHash(hasher, offset, len)
 
     member internal x.WriteUInt128( data: UInt128 ) = 
         x.WriteUInt64( data.Low )

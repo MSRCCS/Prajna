@@ -69,6 +69,7 @@
     <Compile Include="AssemblyProperties.fs" />
     <Compile Include="mem.fs" />
     <Compile Include="serialize.fs" />
+    <Compile Include="hash.fs" />
     <None Include="paket.references" />
   </ItemGroup>
   <ItemGroup>

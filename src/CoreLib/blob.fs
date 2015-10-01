@@ -125,8 +125,14 @@ type internal BlobFactory() =
                         (!refMS).DecRef()
                     x.Collection.TryRemove( id ) |> ignore 
     /// Cache Information, used the existing object in Factory if it is there already
-    member x.ReceiveWriteBlob( id, ms: StreamBase<byte>, epSignature ) = 
-        let bExist, tuple = x.Collection.TryGetValue( id )
+    member x.ReceiveWriteBlob( fastHash, cryptoHash: Lazy<byte[]>, ms: StreamBase<byte>, epSignature ) = 
+        let (bExist, tuple),cryptoHashOption = 
+            match x.Collection.TryGetValue( fastHash ) with
+            | true, tuple -> (true, tuple), None
+            | _ -> 
+                match x.Collection.TryGetValue( cryptoHash.Value ) with
+                   | true, tuple -> (true, tuple),Some cryptoHash.Value
+                   | notFound -> notFound, None
         if bExist then 
             let refMS, refTicks, epTrigger, epDic = tuple 
             let oldMS = !refMS
@@ -141,10 +147,10 @@ type internal BlobFactory() =
                 if bExist then 
                     triggerFunc( ms, epSignature )
             // JinL: 9/8/2015, discuss with Sanjeev, try to control queue from growing. 
-            x.Collection.TryRemove( id ) |> ignore 
-            true
+            x.Collection.TryRemove( fastHash ) |> ignore 
+            true, cryptoHashOption
         else
-            false
+            false, cryptoHashOption
 
     /// Evict object that hasn't been visited within the specified seconds
     member x.Evict( elapseSeconds ) = 
@@ -256,10 +262,17 @@ and [<AllowNullLiteral>]
                 x.Stream <- new MemStream( )
         x.Stream
     /// Turn stream to blob
+    member x.GetHashForBlobType ( ms:StreamBase<byte>, pos, count ) =
+        match x.TypeOf with
+        | BlobKind.AssemblyManagedDLL | BlobKind.AssemblyUnmanagedDir | BlobKind.JobDependencyFile ->
+            ms.ComputeSHA256(int64 pos, int64 count)
+        | _ -> 
+            ms.ComputeChecksum(int64 pos, int64 count)
+
     member x.StreamToBlob( ms:StreamBase<byte> ) = 
         if Utils.IsNull x.Hash then 
-            let buf, pos, count = ms.GetBufferPosLength()
-            x.Hash <- buf.ComputeSHA256(int64 pos, int64 count)
+            let buf,pos,count = ms.GetBufferPosLength()
+            x.Hash <- x.GetHashForBlobType( buf, pos, count )
 //            x.Hash <- BytesTools.HashByteArrayWithLength( buf, pos, count )
 //        if ms.Length<int64 Int32.MaxValue then
 //            x.Buffer <- Array.zeroCreate<byte> (int ms.Length)

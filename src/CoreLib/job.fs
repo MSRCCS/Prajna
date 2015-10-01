@@ -1158,17 +1158,17 @@ and
             // Recalculate Hash
             let mutable signatureName = ""
             let mutable hash = 0L 
-            use sha256 = new System.Security.Cryptography.SHA256Managed()
+            use hasher = Hash.CreateChecksum() 
             if not (Utils.IsNull depHash) then 
-                sha256.TransformBlock( depHash, 0, depHash.Length, depHash, 0 ) |> ignore             
+                hasher.TransformBlock( depHash, 0, depHash.Length, depHash, 0 ) |> ignore             
             for assemi=0 to x.Assemblies.Count-1 do
                 let assem = x.Assemblies.[assemi]
                 if not (Utils.IsNull assem.Hash) then 
-                    sha256.TransformBlock( assem.Hash, 0, assem.Hash.Length, assem.Hash, 0 ) |> ignore 
+                    hasher.TransformBlock( assem.Hash, 0, assem.Hash.Length, assem.Hash, 0 ) |> ignore 
                 signatureName <- signatureName + assem.Name
-            sha256.TransformFinalBlock( [||], 0, 0 ) |> ignore 
-            x.AssemblyHash <- sha256.Hash
-            JobDependencies.AssemblyHash <- sha256.Hash
+            hasher.TransformFinalBlock( [||], 0, 0 ) |> ignore 
+            x.AssemblyHash <- hasher.Hash
+            JobDependencies.AssemblyHash <- hasher.Hash
             let mutable hash = BitConverter.ToInt64( x.AssemblyHash, 0 ) 
             JobDependencies.LaunchIDVersion <- hash
             x.LaunchIDVersion <- hash // All Jobs with the same job name share the same signature version, disregard the associated DLLs 
@@ -1902,7 +1902,7 @@ and
             msSend.Append(buf, int64 pos, int64 count)
             Logger.Do( DeploymentSettings.TraceLevelBlobValidateHash, ( fun _ -> 
                 //let vHash = HashByteArrayWithLength( buf, pos, count ) 
-                let vHash = buf.ComputeSHA256(int64 pos, int64 count)
+                let vHash = blob.GetHashForBlobType ( buf, pos, count )
                 let cmp = BytesCompare() :> IEqualityComparer<_>
                 if not(cmp.Equals( vHash, blob.Hash )) then 
                     Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "Set Blob %d type %A, name %s length %d (hash %d, %s) does not match blobhash %s" 

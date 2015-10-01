@@ -176,7 +176,9 @@ let calculateFileHash( fileLst:ConcurrentDictionary<FileInfo, byte[]>) =
         try
             let byt = ReadBytesFromFile pair.Key.FullName
             count <- count + int64 byt.Length
-            let res32 = HashLengthPlusByteArray( byt )
+            let res32 = 
+                use hasher = new System.Security.Cryptography.SHA256Managed()
+                HashLengthPlusByteArray( hasher, byt )
             fileLst.Item( pair.Key ) <- res32
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "File %s Hash = %s" pair.Key.FullName (BytesToHex(res32)) ))
         with 
@@ -212,7 +214,9 @@ let remoteCopyOps (hashPath:string) (remotePath:string) (copyContent:(string*int
                 FileTools.WriteBytesToFileConcurrent filename byt
                 File.SetLastWriteTimeUtc( filename, DateTime( ticks ) ) 
                 if not (StringTools.IsNullOrEmpty( hashPath )) then 
-                    let res32 = HashLengthPlusByteArray( byt ) 
+                    let res32 = 
+                        use hasher = new System.Security.Cryptography.SHA256Managed()
+                        HashLengthPlusByteArray( hasher, byt ) 
                     let res32String = BytesToHex(res32) + ".hlnk"
                     let linkedFilename = Path.Combine( hashPath, res32String ) 
                     InteropWithKernel32.CreateHardLink( linkedFilename, filename, IntPtr.Zero ) |> ignore

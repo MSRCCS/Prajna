@@ -307,7 +307,7 @@ and [<AllowNullLiteral>]
         curStream.DecodeUpStreamDependency( readStream ) 
         let endpos = readStream.Position
         // Recover hash
-        curStream.Hash <- readStream.ComputeSHA256(startpos, endpos-startpos)
+        curStream.Hash <- readStream.ComputeChecksum(startpos, endpos-startpos)
         //curStream.Hash <- HashByteArrayWithLength( buf, int startpos, int (endpos-startpos) )
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Decode DStream %s:%s, Hash = %s" curStream.Name curStream.VersionString (BytesToHex(curStream.Hash)) ))
         curStream.DecodeDownStreamDepedency( readStream ) 

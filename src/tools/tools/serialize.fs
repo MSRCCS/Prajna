@@ -711,7 +711,7 @@ type internal ReferenceComparer() =
         member x.GetHashCode(obj: obj): int = 
             System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj)
 
-type BinarySerializer() =
+type internal BinarySerializer() =
 
     interface IFormatter with
         

@@ -206,7 +206,7 @@ and [<Serializable; AllowNullLiteral>]
     let mutable reportReceived = lazy( Array.create thisDSet.Cluster.NumNodes false )
     /// A dictionary that holds key, values that is used to confirm the successful store of DSet. 
     /// If a certain peer becomes unavailable, we may choose to redelivery the elem
-    /// Key: byte[], SHA256 hash of the elem stream to be stored. 
+    /// Key: byte[], hash (Fletcher64 currently) of the elem stream to be stored. 
     /// Value: < Time: in CLock.ElapsedTicks, 
     ///          parti: partition value (used for redelivery
     ///          byte[]: the byte sent by the network queue 
@@ -1092,8 +1092,7 @@ and [<Serializable; AllowNullLiteral>]
         /// Get hash
         let endpos = readStream.Position
         //curDSet.Hash <- HashByteArrayWithLength( buf, int startpos, int (endpos-startpos))
-        curDSet.Hash <- readStream.ComputeSHA256(startpos, endpos-startpos)
-        //let b2 = readStream.ComputeSHA256(startpos, endpos-startpos)
+        curDSet.Hash <- readStream.ComputeChecksum(startpos, endpos-startpos)
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Decode DSet %s:%s, Hash = %s (%d-%d)" curDSet.Name curDSet.VersionString (BytesToHex(curDSet.Hash)) startpos endpos ))
         curDSet.DecodeDownStreamDependency( readStream )
         curDSet

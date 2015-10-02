@@ -35,6 +35,7 @@ open System.Collections.Concurrent
 open System.Diagnostics
 open System.IO
 open System.Security.AccessControl
+open System.Security.Principal
 open System.Threading
 
 open Prajna.Tools.StringTools
@@ -147,7 +148,8 @@ type internal DefaultLogger () =
         // File created are given full control by everyone, this eases the job of executing file under multiuser scenario
         if not Runtime.RunningOnMono then
             let fSecurity = File.GetAccessControl( useFilename ) 
-            fSecurity.AddAccessRule( new FileSystemAccessRule( "Everyone", FileSystemRights.FullControl, AccessControlType.Allow ) )
+            let everyoneSid = new SecurityIdentifier( WellKnownSidType.WorldSid, null )
+            fSecurity.AddAccessRule( new FileSystemAccessRule( everyoneSid, FileSystemRights.FullControl, AccessControlType.Allow ) )
             File.SetAccessControl( useFilename, fSecurity )
         Trace.Listeners.Add( useListener ) |> ignore 
         if Utils.IsNotNull logListener then 

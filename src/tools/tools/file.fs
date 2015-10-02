@@ -33,6 +33,7 @@ namespace Prajna.Tools
 open System
 open System.IO
 open System.Security.AccessControl
+open System.Security.Principal
 
 open System.Text
 
@@ -75,7 +76,8 @@ module  FileTools =
     let internal MakeFileAccessible (fname ) = 
         if not Runtime.RunningOnMono then
             let fSecurity = File.GetAccessControl( fname ) 
-            fSecurity.AddAccessRule( new FileSystemAccessRule( "Everyone", FileSystemRights.FullControl, AccessControlType.Allow ) )
+            let everyoneSid = new SecurityIdentifier( WellKnownSidType.WorldSid, null )
+            fSecurity.AddAccessRule( new FileSystemAccessRule( everyoneSid, FileSystemRights.FullControl, AccessControlType.Allow ) )
             File.SetAccessControl( fname, fSecurity )
         else
             // Mono Note: Mono does not support File.GetAccessControl on linux. To-be-investigated

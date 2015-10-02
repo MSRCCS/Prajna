@@ -32,6 +32,7 @@ namespace Prajna.Tools
 open System
 open System.Runtime.CompilerServices
 open System.Collections.Generic
+open System.Security.Principal
 
 /// <summary>
 /// Construct a comparer that uses Object.ReferenceEquals to compare object. 
@@ -123,16 +124,17 @@ module internal DirUtils =
         else
             let mutable dirInfo = new DirectoryInfo(dir)
             if not dirInfo.Exists then 
+                let everyoneSid = new SecurityIdentifier( WellKnownSidType.WorldSid, null )
                 try 
                     Directory.CreateDirectory(dir) |> ignore
                     if not Runtime.RunningOnMono then
                         let fSecurity = File.GetAccessControl( dir ) 
-                        fSecurity.AddAccessRule( new FileSystemAccessRule( "everyone", FileSystemRights.FullControl, AccessControlType.Allow ) )
+                        fSecurity.AddAccessRule( new FileSystemAccessRule( everyoneSid, FileSystemRights.FullControl, AccessControlType.Allow ) )
                         File.SetAccessControl( dir, fSecurity )
                     dirInfo <- new DirectoryInfo(dir)
                     if not Runtime.RunningOnMono then
                         let dSecurity = dirInfo.GetAccessControl()
-                        dSecurity.AddAccessRule( new FileSystemAccessRule( "Everyone", FileSystemRights.FullControl, AccessControlType.Allow ) )
+                        dSecurity.AddAccessRule( new FileSystemAccessRule( everyoneSid, FileSystemRights.FullControl, AccessControlType.Allow ) )
                         dirInfo.SetAccessControl( dSecurity )
                 with 
                 | e -> 

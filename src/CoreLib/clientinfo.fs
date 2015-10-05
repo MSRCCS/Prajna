@@ -128,60 +128,55 @@ type internal ClientStatusEx() =
     // to interface with network
     member x.SendInfo(desiredInfo : ClientInfoType, info : byte[]) =
         if (x.SendQ.Count < x.MaxOutstandingRequests) then
-            let ms = new MemStream()
+            use ms = new MemStream()
             let cmd = ControllerCommand(ControllerVerb.Report, ControllerNoun.ClientInfo)
             ms.Serialize(cmd)
             ms.WriteUInt32(uint32 desiredInfo)
             ms.Serialize(info)
             x.SendQ.Enqueue(ms.GetBuffer())
             x.SendEvent.Set() |> ignore
-            ms.DecRef()
 
     // server request client node for information
     member x.ReqInfo(desiredInfo : ClientInfoType) =
         if (x.SendQ.Count < x.MaxOutstandingRequests) then
-            let ms = new MemStream()
+            use ms = new MemStream()
             let cmd = ControllerCommand(ControllerVerb.Get, ControllerNoun.ClientInfo)
             ms.Serialize(cmd)
             ms.WriteUInt32(uint32 desiredInfo)
             x.SendQ.Enqueue(ms.GetBuffer())
             x.SendEvent.Set() |> ignore
-            ms.DecRef()
 
     member x.ReqOperation (opNoun:ControllerNoun) (target : string) =                   // currently supports delete, flexible for future needs
         if (x.SendQ.Count < x.MaxOutstandingRequests) then
-            let ms = new MemStream()
+            use ms = new MemStream()
             let cmd = ControllerCommand(ControllerVerb.Delete, opNoun)
             ms.Serialize(cmd)
             ms.WriteString(target)
            // ms.WriteUInt32(uint32 ClientInfoType.Assembly)
             x.SendQ.Enqueue(ms.GetBuffer())
             x.SendEvent.Set() |> ignore
-            ms.DecRef()
 
     member x.ReqValidate(desiredInfo : ClientInfoType) = 
         if (x.SendQ.Count < x.MaxOutstandingRequests) then
-            let ms = new MemStream()
+            use ms = new MemStream()
             let cmd = ControllerCommand(ControllerVerb.Get, ControllerNoun.ClientInfo)
             ms.Serialize(cmd)
             ms.WriteUInt32(uint32 desiredInfo)
             x.SendQ.Enqueue(ms.GetBuffer())
             x.SendEvent.Set() |> ignore 
-            ms.DecRef()
         ()
 
     member x.StartReq(name : string) =
-        let ms = new MemStream()
+        use ms = new MemStream()
         let cmd = ControllerCommand(ControllerVerb.Report, ControllerNoun.ClientInfo)
         ms.Serialize(cmd)
         ms.WriteString(name)
         x.SendQ.Enqueue(ms.GetBuffer())
         x.SendEvent.Set() |> ignore
-        ms.DecRef()
 
     // parse receive command (at both client and server)
     member x.ParseRecv(buf : byte[]) =
-        let ms = new MemStream(buf)
+        use ms = new MemStream(buf)
         let cmd = ms.Deserialize() :?> ControllerCommand
         match (cmd.Verb, cmd.Noun) with
             | (ControllerVerb.Get, ControllerNoun.ClientInfo) ->
@@ -211,7 +206,6 @@ type internal ClientStatusEx() =
                 let target = ms.ReadString()
                 x.DelDSet(target)
             | _ -> Logger.Log( LogLevel.Error, sprintf "Error: unknown controller command %A" cmd )
-        ms.DecRef()
 
     // code running on client nodes ====
     /// Update  of client node
@@ -312,7 +306,7 @@ type internal ClientStatusEx() =
 
     /// Packet status information to send to controller
     member x.Pack(reqInfoType : ClientInfoType) =
-        let ms = new MemStream()
+        use ms = new MemStream()
         if (reqInfoType.HasFlag(ClientInfoType.DSet)) then
            ms.WriteInt32(x.StorageList.Count)
            ms.Serialize(x.StorageList)
@@ -328,7 +322,6 @@ type internal ClientStatusEx() =
            ms.WriteInt32(x.clusterFiles.Count)
            ms.Serialize(x.clusterFiles)
         let outParam = ms.GetBuffer()
-        ms.DecRef()
         outParam
 
     // code running on controller ====
@@ -338,7 +331,7 @@ type internal ClientStatusEx() =
 
     /// Unpack status information for display by controller
     member x.UpdateInfo(reqInfoType : ClientInfoType, buf : byte[]) =
-        let ms = new MemStream(buf)
+        use ms = new MemStream(buf)
         if (reqInfoType.HasFlag(ClientInfoType.DSet)) then
             x.StorageList.Clear()
             let num = ms.ReadInt32()
@@ -386,7 +379,6 @@ type internal ClientStatusEx() =
 
         else
             ()
-        ms.DecRef()
 
 //following delete functions get their targets via x.ReqOperation(). Target is decoded to be a version or full entity and appropriate action is taken
     member x.DelAssembly (target:string) =
@@ -498,7 +490,7 @@ type internal ClientController() =
             let socket = new NetworkSocket( tcpClient )
             try
                 let rcvdInfo = socket.Rcvd()
-                let ms = new MemStream(rcvdInfo)
+                use ms = new MemStream(rcvdInfo)
                 let o = ms.Deserialize()
                 //let o = Deserialize rcvdInfo
                 match o with
@@ -529,7 +521,6 @@ type internal ClientController() =
                         Logger.Log( LogLevel.Error, (sprintf "Error: unknown controller command %A" cmd ))
                 | _ -> 
                     Logger.Log( LogLevel.Error, (sprintf "Error: unknown received info from cluster controller %A" rcvdInfo ))
-                ms.DecRef()
             with
             | e -> Logger.Log( LogLevel.Info, sprintf "Error: fail to communicate with cluster controller %A" e  )
         with 

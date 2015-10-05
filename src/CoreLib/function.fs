@@ -266,19 +266,11 @@ type internal MetaFunction<'U>() as x =
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "EncodeFunc, type %A input metadata %s output metadata %s" (elemArray.GetType()) (meta.ToString()) (encMeta.ToString()) ))
             if encMeta.NumElems<>elemArray.Length then 
                 let msg = sprintf "Error in MetaFunction<'U>.EncodeFunc, the length of key array doesn't match that of numElems, %s (actual %d key-values)" (MetaFunction.MetaString(meta)) elemArray.Length
-                Logger.Log( LogLevel.Warning, msg )            
-           // let ms = new MemStream() :> StreamBase<byte>
+                Logger.Log( LogLevel.Warning, msg )
             let ms = new MemoryStreamB() :> StreamBase<byte>
             ms.Info <- sprintf "EncodeFunc:"
             let orgpos = ms.Position // Position 0, 
             ms.SerializeFrom( elemArray )
-//            if Utils.IsNotNull valueArray then 
-//                if numElems<>valueArray.Length then 
-//                    let msg = sprintf "Error in MetaFunction<'K, 'V>.encodeFunc, the length of value array doesn't match that of numElems, part:%d, serial:%d, numElems:%d (%d keys, %d values)" parti serial numElems keyArray.Length valueArray.Length
-//                    Logger.Log(LogLevel.Error, msg)
-//                    failwith msg
-//            else
-//                ms.Serialize( null )
             // Set position to be read by the DecodeFunc
             ms.Seek( orgpos, SeekOrigin.Begin ) |> ignore
             ( encMeta, ms )
@@ -288,7 +280,6 @@ type internal MetaFunction<'U>() as x =
             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "EncodeFunc, input metadata %s output metadata %s" (meta.ToString()) (encMeta.ToString()) ))
             // Signal the end of stream. 
             ( encMeta, null )
-
 
 /// Mapping function wrapper: helps to deserialize and serialize Memstreams
 /// Generic, allows mapping from DSet<'U> -> DSet<'U1>
@@ -1624,7 +1615,7 @@ type internal Function () =
                 null
             | _ ->
                 let bytearray = ms.ReadBytesWLen()
-                use msFunc = new MemStream( bytearray, 0, bytearray.Length, false, true  )
+                use msFunc = new MemStream( bytearray, 0, bytearray.Length, false, true )
                 if DeploymentSettings.LoadCustomAssebly && bUnpackFunc then 
                     try
                         let o = msFunc.Deserialize() 
@@ -1638,8 +1629,6 @@ type internal Function () =
                 else
                     // Don't unpack function
                     null
-//                let fmt = Formatters.Binary.BinaryFormatter()
-//                fmt.Deserialize( ms )
         Function( FunctionType = functionType, 
             TransformType = transformType, 
             ParamTypes = paramTypes, 

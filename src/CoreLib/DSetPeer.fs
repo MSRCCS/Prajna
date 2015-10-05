@@ -223,6 +223,7 @@ and [<AllowNullLiteral>]
                 if peerIdx>=0 && bActivePeer.[peerIdx] then 
                     bActivePartitions.[parti] <- true    
         bActivePartitions
+
     /// Deserlization of dset
     /// A copy of input stream ms is made so that if the deserialization is unsuccessful with some missing argument, the missing argument be requested from communication partner. 
     /// After that, the ms stream can be attempted to be unpacked again. 
@@ -231,44 +232,23 @@ and [<AllowNullLiteral>]
         let sendStream = new MemStream( 1024 )
         try 
             // Source DSet ( used by DSetPeer ), always do not instantiate function. 
-                let curDSet = DSet.Unpack( readStream, false )
-//            let storeDSet = DSetPeerFactory.ResolveDSetPeer( curDSet.Name, curDSet.Version.Ticks )
-//            let compVal = if Utils.IsNotNull storeDSet then (storeDSet :> IComparable<DSet> ).CompareTo( curDSet ) else 1
-//            if compVal=0 then 
-//                    // Use storeDSet, release the memory associated with curDSet
-//                    // This is usually happen as multiple peers send DSet to the current node
-//                    // Confirmation message: send Name + version
-//                if Utils.IsNotNull hostQueue then 
-//                    storeDSet.AddCommandQueue( hostQueue )
-//                sendStream.WriteString( curDSet.Name )
-//                sendStream.WriteInt64( curDSet.Version.Ticks )
-//                ( Some( storeDSet) , ClientBlockingOn.None, sendStream )
-//            else
-//                if Utils.IsNotNull storeDSet then 
-//                    // Multiple entries of DSetPeer found with same name, but different content 
-//                    // We have received an update of the DSet 
-//                    DSetPeerFactory.Remove( curDSet.Name + curDSet.VersionString )
-                if ( Utils.IsNull curDSet.Cluster ) then 
-                    sendStream.WriteGuid( jobID )
-                    sendStream.WriteString( curDSet.Name )
-                    sendStream.WriteInt64( curDSet.Version.Ticks )
-                    ( None, ClientBlockingOn.Cluster, sendStream )
-                else
-                    let dsetPeer = DSetPeer( curDSet.Cluster )
-                    dsetPeer.CopyMetaData( curDSet, DSetMetadataCopyFlag.Copy )
-//                    DSetPeerFactory.CacheDSetPeer( dsetPeer )  |> ignore
-                    // Confirmation message: send Name + version
-                    sendStream.WriteGuid( jobID )
-                    sendStream.WriteString( dsetPeer.Name )
-                    sendStream.WriteInt64( dsetPeer.Version.Ticks )
-                    if Utils.IsNotNull hostQueue then 
-                        dsetPeer.AddCommandQueue( hostQueue )
-                    ( Some( dsetPeer) , ClientBlockingOn.None, sendStream )
-//                    let msg = (sprintf "Multiple DSetPeer with same name %s, but different content found in DSetPeerFactory" (curDSet.Name + curDSet.VersionString) )
-//                    Logger.Log(LogLevel.Error, msg)
-//                    // Error message is just a string
-//                    sendStream.WriteString( msg )
-//                    ( None, ClientBlockingOn.Undefined, sendStream )                   
+            let curDSet = DSet.Unpack( readStream, false )
+            if ( Utils.IsNull curDSet.Cluster ) then 
+                sendStream.WriteGuid( jobID )
+                sendStream.WriteString( curDSet.Name )
+                sendStream.WriteInt64( curDSet.Version.Ticks )
+                ( None, ClientBlockingOn.Cluster, sendStream )
+            else
+                let dsetPeer = DSetPeer( curDSet.Cluster )
+                dsetPeer.CopyMetaData( curDSet, DSetMetadataCopyFlag.Copy )
+    //                    DSetPeerFactory.CacheDSetPeer( dsetPeer )  |> ignore
+                // Confirmation message: send Name + version
+                sendStream.WriteGuid( jobID )
+                sendStream.WriteString( dsetPeer.Name )
+                sendStream.WriteInt64( dsetPeer.Version.Ticks )
+                if Utils.IsNotNull hostQueue then 
+                    dsetPeer.AddCommandQueue( hostQueue )
+                ( Some( dsetPeer) , ClientBlockingOn.None, sendStream )                  
         with       
         | ex -> 
             let msg = (sprintf "Job %A DSetPeer.Unpack encounter exception %A" jobID ex )
@@ -284,12 +264,12 @@ and [<AllowNullLiteral>]
     /// Read from Meta Data file
     static member ReadFromMetaData( stream:Stream, useHostQueue, jobID ) = 
         let byte = BytesTools.ReadToEnd stream
-        let ms = new MemStream( byte, 0, byte.Length, false, true )
+        use ms = new MemStream( byte, 0, byte.Length, false, true )
         DSetPeer.Unpack( ms, false, useHostQueue, jobID )
     /// Read from Meta Data file
     static member ReadFromMetaData( name, useHostQueue, jobID ) = 
         let byte = FileTools.ReadBytesFromFile name
-        let ms = new MemStream( byte, 0, byte.Length, false, true )
+        use ms = new MemStream( byte, 0, byte.Length, false, true )
         DSetPeer.Unpack( ms, false, useHostQueue, jobID )
     member x.Setup( ) = 
         let msSend = new MemStream( 1024 )
@@ -319,7 +299,6 @@ and [<AllowNullLiteral>]
             msSend.WriteString( x.Name ) 
             msSend.WriteInt64( x.Version.Ticks )
             ( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.DSet ), msSend )
-    
 
     /// Construct meta Data name.
     member x.MetaDataName() = 
@@ -466,6 +445,7 @@ and [<AllowNullLiteral>]
                     Logger.Log( LogLevel.Error, msg )
                     let msError = new MemStream( 1024 )
                     msError.WriteString( (UtcNowToString()) + ":" + msg )
+                    (msSend :> IDisposable).Dispose()
                     ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message), msError ) 
                 elif seenWriteDSet.[parti].ContainsKey( serial, bufRcvdLen-curBufPos ) then 
                     // Deduplicate DSet received
@@ -504,6 +484,7 @@ and [<AllowNullLiteral>]
                             let cStream = new CryptoStream( msCrypt, tdes.CreateEncryptor(tdes.Key,tdes.IV), CryptoStreamMode.Write)
                             let sWriter = new BinaryWriter( cStream ) 
                             sWriter.Write( ms.GetBuffer(), curBufPos, (bufRcvdLen - curBufPos) )
+                            (ms :> IDisposable).Dispose()
                             sWriter.Close()
                             cStream.Close()
                             ( msCrypt :> StreamBase<byte>, 0, int msCrypt.Length )
@@ -522,6 +503,7 @@ and [<AllowNullLiteral>]
                     streamPartWrite.Write( BitConverter.GetBytes( outputLen ), 0, 4 )
                     //streamPartWrite.Write( writeBuf, writepos, writecount )
                     writeMs.ReadToStream(streamPartWrite, int64 writepos, int64 writecount)
+                    (writeMs :> IDisposable).Dispose()
                     // Written confirmation
                     Logger.Log( LogLevel.MediumVerbose, ( sprintf "Write DSet partition %d, serial %d:%d (rep:%A)" parti serial numElems bReplicateWrite))
                     if x.ConfirmDelivery then 
@@ -532,7 +514,7 @@ and [<AllowNullLiteral>]
                     // streamPartWrite.Flush()
                     if bReplicateWrite then 
                         if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
-                            let msInfo = new MemStream( 1024 )
+                            use msInfo = new MemStream( 1024 )
                             msInfo.WriteString( x.Name )
                             msInfo.WriteInt64( x.Version.Ticks )
                             msInfo.WriteVInt32( parti ) 
@@ -549,6 +531,7 @@ and [<AllowNullLiteral>]
                 let msg = sprintf "Write DSet Error (inner loop), part %d, serial %d:%d with exception %A" parti serial numElems e 
                 Logger.Log( LogLevel.Error, msg )
                 msError.WriteString( msg ) 
+                (msSend :> IDisposable).Dispose()
                 ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message), msError ) 
         with
         | e ->
@@ -556,7 +539,9 @@ and [<AllowNullLiteral>]
             let msg = sprintf "Write DSet Error (outer loop), with exception %A" e 
             Logger.Log( LogLevel.Error, msg )
             msError.WriteString( msg ) 
+            (msSend :> IDisposable).Dispose()
             ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message), msError ) 
+
     member x.CloseStream( parti ) = 
         if Utils.IsNotNull x.BufferedStreamArray then 
             if Utils.IsNotNull x.BufferedStreamArray.[parti] then 
@@ -639,6 +624,7 @@ and [<AllowNullLiteral>]
             let msg = sprintf "EndPartition encounter exception %A " e
             Logger.Log( LogLevel.Error, msg )
             msError.WriteString( msg )
+            (msSend :> IDisposable).Dispose()
             ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
 
     /// Close DSet
@@ -693,10 +679,13 @@ and [<AllowNullLiteral>]
             let msg = sprintf "Close DSet encounter exception %A " e
             Logger.Log( LogLevel.Error, msg )
             msError.WriteString( msg )
+            (msSend :> IDisposable).Dispose()
             ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+
     member private x.PostCloseAllStreamsImpl( jbInfo ) = 
         x.PostCloseAllStreamsBaseImpl( jbInfo )
         x.CloseAllStreams( true )
+
     member private x.CloseAllStreamsImpl( bUpStream ) = 
         lock( x ) ( fun _ -> 
         x.NumReadJobs <- Math.Max( x.NumReadJobs - 1, 0 )
@@ -756,21 +745,16 @@ and [<AllowNullLiteral>]
                 let msg = sprintf "Peer %d: try connect to ... %A" x.CurPeerIndex peerList
                 if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
                     using ( new MemStream(1024) ) ( fun msInfo -> 
-                    msInfo.WriteString( msg )
-                    x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Verbose, ControllerNoun.Message), msInfo )
+                        msInfo.WriteString( msg )
+                        x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Verbose, ControllerNoun.Message), msInfo )
                     )
                 msg
             Logger.LogF( LogLevel.ExtremeVerbose, extremeTrack )
         ()
+
     // Replicating ms Stream, with start position bufPos to the replicating peers. 
     member x.ReplicateDSet( ms: StreamBase<byte>, bufPos  ) = 
-        //let bufRcvd = ms.GetBuffer()
-        //let bufRcvdLen = int ms.Length
-        //let curPos = int ms.Position
-        // Parsing should start at the current position
-        // replication need to restart from bufPos. 
-        //let peekStream = new MemStream( bufRcvd, curPos, bufRcvdLen-curPos, false, true )
-        let peekStream = new MemStream()
+        use peekStream = new MemStream()
         peekStream.AppendNoCopy(ms, ms.Position, ms.Length-ms.Position)
         let parti = peekStream.ReadVInt32()
         let serial = peekStream.ReadInt64()
@@ -797,6 +781,7 @@ and [<AllowNullLiteral>]
             Logger.Log( LogLevel.Error, msg )
             msError.WriteString( msg )
             ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+
     /// Try to sent out replication stream
     member x.TryReplicate( ) = 
         let peerTimeOut = List<int>() 
@@ -826,9 +811,9 @@ and [<AllowNullLiteral>]
                                 // Connection status check 
                                 let extremeTrack() =
                                     let msg = sprintf "Connected from peer %d --> %s" x.CurPeerIndex ( SeqToString( ";", connectedPeerList ) )
-                                    let msInfo = new MemStream( 1024 )
-                                    msInfo.WriteString( msg )
                                     if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
+                                        use msInfo = new MemStream( 1024 )
+                                        msInfo.WriteString( msg )
                                         x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Verbose, ControllerNoun.Message ), msInfo )
                                     msg
                                 Logger.LogF( LogLevel.ExtremeVerbose, extremeTrack)
@@ -837,10 +822,10 @@ and [<AllowNullLiteral>]
                                  streamToReplicate, int64 streamPos )
                             peerLastActiveTime.[peeri] <- x.Clock.ElapsedTicks  
                             let msg = sprintf "Replicate partition %d, serial %d:%d to peer %d" parti serial numElems peeri
-                            let msInfo = new MemStream(1024)
-                            msInfo.WriteString( msg )
                             Logger.Log( LogLevel.WildVerbose, msg )
                             if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
+                                use msInfo = new MemStream(1024)
+                                msInfo.WriteString( msg )
                                 x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Info, ControllerNoun.Message ), msInfo )
                             // Make sure we don't replicate again
                             peerList.Remove( peeri ) |> ignore 
@@ -875,6 +860,7 @@ and [<AllowNullLiteral>]
         else
             // This message is filtered out. 
             ( ControllerCommand( ControllerVerb.Nothing, ControllerNoun.DSet ), null )
+
     /// EndStore: called to end storing operation of a DSet to cloud
     member x.EndReplicate( queue:NetworkCommandQueue, timeToWait, callback ) =
         if not bEndReplicateCalled then 
@@ -922,7 +908,6 @@ and [<AllowNullLiteral>]
     member x.DoEndReplicateWait() = 
         if Utils.IsNotNull callbackRegister then 
             let cmdReplicateClose = ControllerCommand( ControllerVerb.ReplicateClose, ControllerNoun.DSet ) 
-            let mutable msSend : MemStream = null
             let mutable bIOActivity = false
             // Flushing out replication queue. 
             if ( peerReplicationItems.Count>0 || not bAllCloseDSetSent ) && x.Clock.ElapsedTicks<maxEndReplicationWait then
@@ -940,6 +925,9 @@ and [<AllowNullLiteral>]
                         for peeri in peerList do
                             bActivePeers.[peeri] <- true
                 let mutable bTestAllCloseDSetSent = true
+                use msSend = new MemStream( 1024 )
+                msSend.WriteString( x.Name ) 
+                msSend.WriteInt64( x.Version.Ticks )
                 for i=0 to x.Cluster.NumNodes-1 do 
                     // Send a Close DSet command only for active peer. 
                     let q = x.Cluster.Queue( i )
@@ -963,10 +951,6 @@ and [<AllowNullLiteral>]
                                         bTestAllCloseDSetSent <- false
                             else
                                 if not bCloseDSetSent.[i] then 
-                                    if Utils.IsNull msSend then 
-                                        msSend <- new MemStream( 1024 )
-                                        msSend.WriteString( x.Name ) 
-                                        msSend.WriteInt64( x.Version.Ticks )
                                     q.ToSend( cmdReplicateClose, msSend )
                                     bIOActivity <- true 
                                     bCloseDSetSent.[i] <- true
@@ -1038,6 +1022,7 @@ and [<AllowNullLiteral>]
             bIOActivity 
         else
             false
+
     static member EndReplicateWait( o: Object ) = 
         match o with 
         | :? DSetPeer as x ->
@@ -1046,6 +1031,7 @@ and [<AllowNullLiteral>]
             let msg = ( sprintf "Logic error, DSetPeer.EndReplicateWait receives a call with object that is not DSet peer but %A" o )    
             Logger.Log( LogLevel.Error, msg )
             failwith msg
+
     member x.ReplicateDSetCallback( cmd:ControllerCommand, peeri, msRcvd:StreamBase<byte>, jobID ) = 
         try
             let q = x.Cluster.Queue( peeri )
@@ -1057,11 +1043,11 @@ and [<AllowNullLiteral>]
                 // Close DSet received
 //                    bPeerInReplicate.[peeri] <- false
                 bConfirmCloseRcvd.[peeri] <- true
-                let msSend = new MemStream( 1024 )
-                msSend.WriteString( x.Name )
-                msSend.WriteInt64( x.Version.Ticks )
-                msSend.WriteVInt32( peeri )
                 if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
+                    use msSend = new MemStream( 1024 )
+                    msSend.WriteString( x.Name )
+                    msSend.WriteInt64( x.Version.Ticks )
+                    msSend.WriteVInt32( peeri )
                     x.HostQueue.ToSend( ControllerCommand( ControllerVerb.ReplicateClose, ControllerNoun.DSet), msSend )
                 // Informed peer that Close, DSet received. 
             | ( ControllerVerb.Get, ControllerNoun.ClusterInfo ) ->
@@ -1084,14 +1070,14 @@ and [<AllowNullLiteral>]
                 let serial = msRcvd.ReadInt64()
                 let numElems = msRcvd.ReadVInt32()
                 let peerIdx = msRcvd.ReadVInt32()
-                let msSend = new MemStream( 1024 )
-                msSend.WriteString( x.Name )
-                msSend.WriteInt64( x.Version.Ticks )
-                msSend.WriteVInt32( parti )
-                msSend.WriteInt64( serial )
-                msSend.WriteVInt32( numElems )
-                msSend.WriteVInt32( peerIdx )
                 if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
+                    use msSend = new MemStream( 1024 )
+                    msSend.WriteString( x.Name )
+                    msSend.WriteInt64( x.Version.Ticks )
+                    msSend.WriteVInt32( parti )
+                    msSend.WriteInt64( serial )
+                    msSend.WriteVInt32( numElems )
+                    msSend.WriteVInt32( peerIdx )
                     x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Echo2Return, ControllerNoun.DSet), msSend )
             | ( ControllerVerb.Acknowledge, ControllerNoun.DSet ) ->
                 ()
@@ -1144,6 +1130,7 @@ and [<AllowNullLiteral>]
                     let useVersionName, _, provider = lst.[idx]
                     let useVersion = StringTools.VersionFromString( useVersionName )
                     let dsetOpt, blockingOn, sendStream = DSetPeer.RetrieveDSetMetadata( jobID, name, useVersion.Ticks, provider )
+                    (sendStream :> IDisposable).Dispose()
                     match dsetOpt with 
                     | Some ( s ) ->
                         let sendDSet = Option.get dsetOpt
@@ -1158,6 +1145,7 @@ and [<AllowNullLiteral>]
                 useDSet
             else
                 null
+
     static member ExceptionToClient( jobID, name, verNumber, ex ) = 
         let msSend = new MemStream( 10240 )
         msSend.WriteGuid( jobID )
@@ -1189,6 +1177,7 @@ and [<AllowNullLiteral>]
             let msg = sprintf "Error in DSetPeer.GetDSet, exception %A" ex
             ex.Data.Add( "@Daemon", msg )
             DSetPeer.ExceptionToClient( jobID, name, verNumber, ex )
+
     static member RetrieveDSetMetadata( jobID: Guid, name, verNumber, provider ) = 
         let path = DSetPeer.ConstructDSetPath( name, verNumber )
         let metaLst = 
@@ -1202,6 +1191,7 @@ and [<AllowNullLiteral>]
             DSetPeer.ReadFromMetaData( stream, null, jobID )
         else
             ( None, ClientBlockingOn.DSet, null )
+
     static member UseDSet( jobID, name, verNumber ) = 
         try 
             let storageProviderList = 
@@ -1256,6 +1246,7 @@ and [<AllowNullLiteral>]
             msSend.WriteInt64( verNumber )
             msSend.WriteException( ex )
             ( ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet ), msSend ) 
+
     /// Test for Empty Partition 
     /// Return: true for partition with 0 keys
     member x.EmptyPartition parti =
@@ -1265,6 +1256,7 @@ and [<AllowNullLiteral>]
             let maxStreamLength = Array.max x.MappingStreamLength.[parti]
             bNullStream <- maxNumElems = 0 && maxStreamLength=0L        
         bNullStream
+
     /// Read one chunk in async work format. 
     /// Return: Async<byte[]>, if return null, then the operation reads the end of stream of partition parti. 
     member x.AsyncReadChunk (jbInfo:JobInformation) parti ( pushChunkFunc: (BlobMetadata*MemStream)->unit ) = 
@@ -1329,7 +1321,8 @@ and [<AllowNullLiteral>]
                                                         let serial = ms.ReadInt64()
                                                         let numElems = ms.ReadVInt32()
                                                         let meta = BlobMetadata( parti, serial, numElems, buflen )
-                                                        pushChunkFunc( meta, ms )  
+                                                        pushChunkFunc( meta, ms )
+                                                        (ms :> IDisposable).Dispose()  
                                                     else
                                                         Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Throw away %dB as stored SHA512 hash doesn't match" readlen ) )
                                                         nSomeError := !nSomeError + 1
@@ -1353,7 +1346,7 @@ and [<AllowNullLiteral>]
                         let msg = sprintf "Error in AsyncReadChunk, with exception %A, stack %A" e (StackTrace (0, true))
                         let bSendHost = Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend 
                         if bSendHost then 
-                            let msError = new MemStream( 1024 )
+                            use msError = new MemStream( 1024 )
                             msError.WriteString( msg ) 
                             x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
                         Logger.Log( LogLevel.Error, ((sprintf "Send Host: %A" bSendHost) + msg))
@@ -1427,7 +1420,8 @@ and [<AllowNullLiteral>]
                                                     let serial = ms.ReadInt64()
                                                     let numElems = ms.ReadVInt32()
                                                     let meta = BlobMetadata( parti, serial, numElems, buflen )
-                                                    pushChunkFunc( meta, ms )  
+                                                    pushChunkFunc( meta, ms ) 
+                                                    (ms :> IDisposable).Dispose() 
                                                 else
                                                     Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Throw away %dB as stored SHA512 hash doesn't match" readlen ) )
                                                     nSomeError := !nSomeError + 1
@@ -1451,7 +1445,7 @@ and [<AllowNullLiteral>]
                     let msg = sprintf "Error in SyncReadChunk, with exception %A, stack %A " e (StackTrace (0, true))
                     Logger.Log( LogLevel.Error, msg )
                     if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
-                        let msError = new MemStream( 1024 )
+                        use msError = new MemStream( 1024 )
                         msError.WriteString( msg ) 
                         x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
                 null, true

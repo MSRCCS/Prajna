@@ -62,8 +62,7 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
             ( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.ClusterInfo ), null )
         else
             // Replicate the whole stream so that it can be read again, don't forget to copy the pointer. 
-            //let readStream = new MemStream( ms.GetBuffer(), 0, int ms.Length, false, true )
-            let readStream = new MemStream()
+            use readStream = new MemStream()
             readStream.AppendNoCopy(ms, 0L, ms.Length)
             readStream.Seek( ms.Position, SeekOrigin.Begin ) |> ignore
             let dsetOption, errMsg, msSend = DSetPeer.Unpack( readStream, true, x, jobID )
@@ -78,16 +77,17 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
                 x.BlockOn <- 0
                 let curDSet = Option.get( dsetOption )
                 let newDSet = DSetPeerFactory.CacheDSetPeer( curDSet )
+                (msSend :> IDisposable).Dispose()
                 newDSet.Setup()
             | _ ->
                 // Error, fail to set DSet
                 let retCmd = ControllerCommand( ControllerVerb.Error, ControllerNoun.Message )
                 ( retCmd, msSend )
+
     /// Update DSet meta data, when the peer finished writing. 
     member internal x.UpdateDSet( jobID: Guid, ms: StreamBase<byte> ) = 
         // Replicate the whole stream so that it can be read again, don't forget to copy the pointer. 
-        //let readStream = new MemStream( ms.GetBuffer(), 0, int ms.Length, false, true )
-        let readStream = new MemStream()
+        use readStream = new MemStream()
         readStream.AppendNoCopy(ms, 0L, ms.Length)
         readStream.Seek( ms.Position, SeekOrigin.Begin ) |> ignore
         let dsetOption, errMsg, msSend = DSetPeer.Unpack( readStream, true, x, jobID )
@@ -105,6 +105,7 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
                 curDSet.WriteDSetMetadata()
                 curDSet.CloseStorageProvider()
                 DSetPeerFactory.CacheDSetPeer( curDSet ) |> ignore
+            (msSend :> IDisposable).Dispose()
             curDSet.Setup()
         | _ ->
             // Error, fail to set DSet

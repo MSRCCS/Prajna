@@ -78,14 +78,11 @@ type internal BlobFactory() =
             ref (null:StreamBase<byte>), ref (PerfDateTime.UtcNowTicks()), ConcurrentDictionary<_,(StreamBase<byte>*int64->unit)>(), ConcurrentDictionary<_,_>()
         let tuple = x.Collection.GetOrAdd( id, addFunc )
         let refMS, refTicks, epTrigger, epDic = tuple 
-        let ms = !refMS
         refTicks := (PerfDateTime.UtcNowTicks())
         epDic.GetOrAdd( epSignature, true ) |> ignore
-        if Utils.IsNull ms then 
-            epTrigger.GetOrAdd( jobID, triggerFunc ) |> ignore 
-            null
-        else
-            ms.Replicate()
+        // enqueue the trigger function
+        epTrigger.GetOrAdd( jobID, triggerFunc ) |> ignore 
+
     /// Store object info into the Factory class, apply trigger if there are any function waiting to be executed. 
     member x.Store( id:byte[], ms: StreamBase<byte>, epSignature:int64 ) = 
         let addFunc _ = 
@@ -95,7 +92,7 @@ type internal BlobFactory() =
         let oldMS = !refMS
         refMS := ms.Replicate()
         if Utils.IsNotNull oldMS then 
-            oldMS.DecRef()
+            (oldMS :> IDisposable).Dispose()
         refTicks := (PerfDateTime.UtcNowTicks())
         epDic.GetOrAdd( epSignature, true ) |> ignore
         let refValue = ref Unchecked.defaultof<_>
@@ -103,6 +100,7 @@ type internal BlobFactory() =
             let bExist, triggerFunc = epTrigger.TryRemove( pair.Key )
             if bExist then 
                 triggerFunc( ms, epSignature )
+
     /// Retrieve object info from the Factory class. 
     member x.Retrieve( id ) = 
         let bExist, tuple = x.Collection.TryGetValue( id )
@@ -112,6 +110,7 @@ type internal BlobFactory() =
             !blob
         else
             null
+
     /// Unregister blobs for a certain jobID & remove all entry of the cached blob trigger associated with the job 
     member x.UnregisterAndRemove( jobID: Guid ) = 
         for pair0 in x.Collection do 
@@ -122,8 +121,9 @@ type internal BlobFactory() =
             if bRemove then 
                 if epTrigger.IsEmpty then 
                     if (Utils.IsNotNull !refMS) then
-                        (!refMS).DecRef()
+                        (!refMS :> IDisposable).Dispose()
                     x.Collection.TryRemove( id ) |> ignore 
+
     /// Cache Information, used the existing object in Factory if it is there already
     member x.ReceiveWriteBlob( fastHash, cryptoHash: Lazy<byte[]>, ms: StreamBase<byte>, epSignature ) = 
         let (bExist, tuple),cryptoHashOption = 
@@ -136,9 +136,9 @@ type internal BlobFactory() =
         if bExist then 
             let refMS, refTicks, epTrigger, epDic = tuple 
             let oldMS = !refMS
-            refMS := ms.Replicate()
+            //refMS := ms.Replicate() // don't save
             if Utils.IsNotNull oldMS then 
-                oldMS.DecRef()
+                (oldMS :> IDisposable).Dispose()
             refTicks := (PerfDateTime.UtcNowTicks())
             epDic.GetOrAdd( epSignature, true ) |> ignore
             let refValue = ref Unchecked.defaultof<_>
@@ -147,6 +147,7 @@ type internal BlobFactory() =
                 if bExist then 
                     triggerFunc( ms, epSignature )
             // JinL: 9/8/2015, discuss with Sanjeev, try to control queue from growing. 
+            (ms :> IDisposable).Dispose()
             x.Collection.TryRemove( fastHash ) |> ignore 
             true, cryptoHashOption
         else
@@ -162,6 +163,7 @@ type internal BlobFactory() =
                 Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "remove blob %A after %d secs of inactivity"
                                                                        pair.Key BlobFactory.InactiveSecondsToEvictBlob ))
                 x.Remove(pair.Key)
+
     /// Remove a certain entry
     member x.Remove( id ) = 
         let bExist, tuple = x.Collection.TryRemove(id)
@@ -170,14 +172,8 @@ type internal BlobFactory() =
             let oldMS = !refMS
             if Utils.IsNotNull oldMS then 
                 // Dispose Streambase
-                oldMS.DecRef()
-                
-//        let mutable tuple = Unchecked.defaultof<(_*_*_*_)>
-//        let ret = x.Collection.TryRemove( id, &tuple )
-//        if (ret) then
-//            let refMS, refTicks, epQueue, epDic = tuple
-//            if (Utils.IsNotNull (!refMS)) then
-//                (!refMS).DecRef()
+                (oldMS :> IDisposable).Dispose()
+
     /// Refresh timer entry of an object
     member x.Refresh( id ) = 
         let bExist, tuple = x.Collection.TryGetValue( id ) 
@@ -220,7 +216,6 @@ type internal BlobFactory() =
     static member toArray() = 
         BlobFactory.Current.ToArray()
 
-
 and [<AllowNullLiteral>]
     internal Blob() = 
     /// Blob Name, which should correspond to the underlying data name, e.g., Cluster Name, DSet name, etc..
@@ -248,8 +243,7 @@ and [<AllowNullLiteral>]
     member x.IsAllocated with get() = Utils.IsNotNull x.Stream
     member x.Release() = 
         if x.IsAllocated then
-            x.Stream.DecRef()
-            x.Stream.Dispose()
+            (x.Stream :> IDisposable).Dispose()
             x.Stream <- null
     /// Index of the array in the specific Blob type. 
     member val Index=0 with get, set
@@ -299,7 +293,7 @@ type internal BlobAvailability(numBlobs) =
     member val AvailVector = Array.create numBlobs (byte BlobStatus.NoInformation) with get, set
     member val AllAvailable = false with get, set
     /// Pack to encode availability information
-    member x.Pack( ms:MemStream ) = 
+    member x.Pack( ms:StreamBase<byte> ) = 
         // Write availability vector of fixed length 
         ms.WriteBytes( x.AvailVector )
     member x.CheckAllAvailable() = 

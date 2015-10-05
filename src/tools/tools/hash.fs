@@ -6,7 +6,7 @@ open System
 open System.Runtime.InteropServices
 open System.Security.Cryptography
 
-open FSharp.NativeInterop
+open Microsoft.FSharp.NativeInterop
 
 module Hash =
 

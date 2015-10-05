@@ -356,7 +356,7 @@ type internal DSetAction() =
             let registerDSet = seq { yield! x.RemappedDSet
                                      yield! x.Job.DstDSet }
             for dset in registerDSet do 
-                using ( new MemStream( 1024 )) ( fun msSend -> 
+                using ( new MemStream( 1024 ) ) ( fun msSend -> 
                     let currentWriteID = x.Job.JobID
                     msSend.WriteGuid( currentWriteID )
                     msSend.WriteString( dset.Name ) 

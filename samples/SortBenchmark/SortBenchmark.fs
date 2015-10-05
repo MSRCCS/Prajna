@@ -510,7 +510,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                                 bHasBuf := false
                         sr.Release()
 
-                        buffer.DecRef()
+                        (buffer :> IDisposable).Dispose()
                         let t2 = DateTime.UtcNow
 
                         for i = 0 to nump - 1 do
@@ -522,7 +522,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                                     rand.NextBytes(tBuf)
                                     yield (partstream).[i]
                                 else 
-                                    (partstream).[i].DecRef()
+                                    ((partstream).[i] :> IDisposable).Dispose()
                         
                         Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "repartition: %d records, takes %f s" (buffer.Length / 100L) ((t2-t1).TotalSeconds) )          )          
                 }
@@ -873,7 +873,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
 
 
     member internal x.RepartitionAndWriteToFileMem ( ms:MemoryStreamB ) = 
-        ms.DecRef()
+        (ms :> IDisposable).Dispose()
 
     member val WriteEventHandle:Object = null with get,set
 
@@ -941,10 +941,8 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                                 if len = 0 then
                                     bHasBuf := false
                             sr.Release()
-                            (!ms).DecRef()                   
+                            ((!ms) :> IDisposable).Dispose()
                     RemoteFunc.repartitionBuf.Push(fp,filesize)
-
-
 
         if Utils.IsNull x.sortThread then
             lock(x) (fun _ ->
@@ -959,16 +957,14 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
 
         ms.Seek(0L,SeekOrigin.Begin) |> ignore
         let parti = ms.ReadByte()
-        let t1 = DateTime.UtcNow
-
-        
+        let t1 = DateTime.UtcNow        
         
         if (ms.Length = 2L) then
             let cc = Interlocked.Increment(x.CleanUpSignalCount) 
             if cc = filePartNum then
                 if (Interlocked.CompareExchange(x.CleaningUp,1,0) = 0) then
                     Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Flush Buffer"))
-                    ms.DecRef()
+                    (ms :> IDisposable).Dispose()
                     CleanCache(true)
                     let elem = ref Unchecked.defaultof<_> 
                     while (RemoteFunc.repartitionBuf.TryPop(elem) && !(x.CleaningUp) = 1) do
@@ -1002,14 +998,11 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
             x.dumpCache.Enqueue(ms) |> ignore
 
 
-
-
-
     member x.ReturnSharedBuf ( parti:int,buf:byte[],len:int ) = 
         RemoteFunc.partiSharedMem.Enqueue(buf)
         
     member internal x.DeRefMemStream ( buf:MemoryStreamB ) = 
-        buf.DecRef()
+        (buf :> IDisposable).Dispose()
         ()
 
     member internal x.DeRefMemStreamSeq ( data ) = 
@@ -1355,7 +1348,7 @@ let main orgargs =
 
 
             let failedIds = new List<_>()
-            let valms = new MemStream()
+            use valms = new MemStream()
             let valdata = new List<_>()
             valSet |> DSet.localIter (fun (parti,buf,len,output) ->     
                                                                     valdata.Add((parti,buf,len))

@@ -596,7 +596,7 @@ type FrontEndInstance< 'StartParamType
             if bExist then 
                 for cmd, ms in x.InitialMessage do 
                     // Wrap initial message with health information & end marker
-                    let msSend = new MemStream( int ms.Length + 128 ) 
+                    use msSend = new MemStream( int ms.Length + 128 ) 
                     health.WriteHeader( msSend ) 
                     let (ms, pos, len) = ms.GetBufferPosLength()
                     msSend.AppendNoCopy(ms, int64 pos, int64 len)
@@ -616,7 +616,7 @@ type FrontEndInstance< 'StartParamType
                     if not (Utils.IsNull queue ) && queue.CanSend then 
                         // send echo message 
                         let t1 = (PerfADateTime.UtcNowTicks())
-                        let msEcho = new MemStream( 128 ) 
+                        use msEcho = new MemStream( 128 ) 
                         health.WriteHeader( msEcho ) 
                         health.WriteEndMark( msEcho ) 
                         queue.ToSend( ControllerCommand(ControllerVerb.Echo, ControllerNoun.QueryReply ), msEcho )
@@ -668,7 +668,7 @@ type FrontEndInstance< 'StartParamType
                     let collection = OwnershipTracking.Current.RemoteCollection.GetOrAdd( remoteSignature, fun _ -> ConcurrentDictionary<_,_>() )
                     guids |> Array.iter ( fun guid -> collection.Item( guid ) <- null )
                     let items = BufferCache.Current.FindMissingGuids( guids ) 
-                    let msSend = new MemStream( )
+                    use msSend = new MemStream( )
                     health.WriteHeader( msSend ) 
                     BufferCache.PackGuid( items, msSend )
                     health.WriteEndMark( msSend ) 
@@ -749,7 +749,7 @@ type FrontEndInstance< 'StartParamType
         let queue = Cluster.Connects.LookforConnectBySignature( remoteSignature ) 
         let bExist, health = x.BackEndHealth.TryGetValue( remoteSignature ) 
         if bExist && Utils.IsNotNull queue then 
-            let msSend = new MemStream( )
+            use msSend = new MemStream( )
             health.WriteHeader( msSend ) 
             BufferCache.PackGuid( [| id |], msSend )
             health.WriteEndMark( msSend ) 
@@ -970,7 +970,7 @@ type FrontEndInstance< 'StartParamType
     /// Return : true is request is sent
     member internal x.SendRequest( reqID, reqHolder, tuple ) = 
         let queue, health, serviceInstanceBasic = tuple
-        let msRequest = new MemStream( ) 
+        use msRequest = new MemStream( ) 
         // Count the request as being sent 
         health.RegisterRequest() 
         health.WriteHeader( msRequest ) 

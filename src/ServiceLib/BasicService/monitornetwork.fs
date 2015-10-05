@@ -133,12 +133,11 @@ type MonitorNetworkInstance< 'StartParamType
         let mutable ticksCycleStart = (PerfADateTime.UtcNowTicks())
         let mutable cntCur = 0 
         /// Generate a 102400B stream that to be written out. 
-        let msStream = new MemStream( x.EchoStreamLength )
+        use msStream = new MemStream( x.EchoStreamLength )
         let rnd = System.Random(0)
         let byt = Array.zeroCreate( x.EchoStreamLength )
         rnd.NextBytes( byt )
         msStream.Write( byt, 0, x.EchoStreamLength )
-
 
         while not (x.EvTerminated.WaitOne(0)) do 
             let ticksCycleStart = (PerfDateTime.UtcNowTicks())

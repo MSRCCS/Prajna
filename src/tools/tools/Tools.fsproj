@@ -51,7 +51,6 @@
     <Compile Include="serialize.fs" />
     <Compile Include="customserialize.fs" />
     <Compile Include="ArgumentParser.fs" />
-    <Compile Include="ReflectionTools.fs" />
     <Compile Include="HttpBuilder.fs" />
     <Compile Include="dns.fs" />
     <Compile Include="basenetwork.fs" />

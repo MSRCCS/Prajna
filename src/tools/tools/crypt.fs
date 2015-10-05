@@ -24,11 +24,13 @@ open Prajna.Tools
 
 [<AbstractClass>]
 type internal Crypt() =
+    static let zeroBlk = Array.zeroCreate<byte>(Crypt.MaxBlkSize >>> 8)
 
     static member SaltBytes = 32
     static member DeriveByteIter = 10000
     static member DefaultKeySize = 256
     static member DefaultBlkSize = 128
+    static member MaxBlkSize = 1024
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
     static member Encrypt(clearBuf : byte[], pwd : string, keySize : int, blkSize : int) =
@@ -38,7 +40,7 @@ type internal Crypt() =
         rjndn.Padding <- PaddingMode.None
         assert(rjndn.BlockSize/8 < 256)
         let blkBytes = byte (rjndn.BlockSize / 8)
-        let ms = new MemStream()
+        use ms = new MemStream()
 
         // use random salt to generate key
         let salt = Array.zeroCreate<byte>(Crypt.SaltBytes)
@@ -64,7 +66,6 @@ type internal Crypt() =
         cs.Write(clearBuf, 0, clearBuf.Length)
         cs.Flush() // should flush underlying MemStream
         let outBuf = Array.sub (ms.GetBuffer()) 0 (int ms.Length)
-        ms.DecRef()
         outBuf
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
@@ -77,7 +78,7 @@ type internal Crypt() =
         rjndn.Padding <- PaddingMode.None
         assert(rjndn.BlockSize/8 < 256)
         let blkBytes = byte (rjndn.BlockSize / 8)
-        let ms = new MemStream()
+        use ms = new MemStream()
 
         // use random salt to generate key
         let salt = Array.zeroCreate<byte>(Crypt.SaltBytes)
@@ -108,7 +109,6 @@ type internal Crypt() =
         cs.Write(clearBuf, 0, clearBuf.Length)
         cs.Flush() // should flush underlying MemStream
         let outBuf = Array.sub (ms.GetBuffer()) 0 (int ms.Length)
-        ms.DecRef()
         outBuf
 
     static member Decrypt(cipherBuf : byte[], pwd : string, keySize : int, blkSize : int) =
@@ -118,7 +118,7 @@ type internal Crypt() =
         rjndn.Padding <- PaddingMode.None
         assert(rjndn.BlockSize/8 < 256)
         let blkBytes = byte (rjndn.BlockSize / 8)
-        let ms = new MemStream(cipherBuf)
+        use ms = new MemStream(cipherBuf)
 
         // read salt & get padding
         let salt = Array.zeroCreate<byte>(Crypt.SaltBytes)
@@ -133,7 +133,6 @@ type internal Crypt() =
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-Crypt.SaltBytes)
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         let outBuf = Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
-        ms.DecRef()
         outBuf
 
     // no need to separately send parameters being used
@@ -164,7 +163,6 @@ type internal Crypt() =
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-(int ms.Position))
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         let outBuf = Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
-        ms.DecRef()
         outBuf
 
     static member EncryptStr(str : string, pwd : string) =
@@ -279,6 +277,24 @@ type internal Crypt() =
         cs.Flush()
         ms
 
+    static member EncryptStream(rjnd : AesCryptoServiceProvider, msOrig : StreamBase<byte>) : StreamBase<byte> =
+        if (rjnd.BlockSize > Crypt.MaxBlkSize) then
+            failwith "Illegal block size"
+        rjnd.GenerateIV()
+        let blkBytes = byte (rjnd.BlockSize >>> 3)
+        let mutable nPadding = blkBytes - byte (msOrig.Length % int64 blkBytes)
+        rjnd.Padding <- PaddingMode.None
+        let ms = msOrig.GetNew()
+        ms.WriteByte(nPadding)
+        ms.WriteBytesWLen(rjnd.IV)
+        let cs = new CryptoStream(ms, rjnd.CreateEncryptor(), CryptoStreamMode.Write)
+        use sr = new Prajna.Tools.StreamReader<byte>(msOrig, 0L)
+        sr.ApplyFnToBuffers(fun (buf, offset, cnt) -> cs.Write(buf, offset, cnt))
+        if (nPadding <> 0uy) then
+            cs.Write(zeroBlk, 0, int nPadding)
+        cs.Flush()
+        ms
+
     static member Decrypt(rjnd : AesCryptoServiceProvider, ms : StreamBase<byte>) : byte[]*int =
         let nPadding = ms.ReadByte()
         rjnd.IV <- ms.ReadBytesWLen()
@@ -292,8 +308,17 @@ type internal Crypt() =
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         (clearBuf, clearBuf.Length-nPadding)
 
+    static member DecryptStream(rjnd : AesCryptoServiceProvider, ms : StreamBase<byte>) : StreamBase<byte> =
+        let nPadding = ms.ReadByte()
+        rjnd.IV <- ms.ReadBytesWLen()
+        rjnd.Padding <- PaddingMode.None
+        let cs = new CryptoStream(ms, rjnd.CreateDecryptor(), CryptoStreamMode.Read)
+        use clearStream = ms.GetNew()
+        clearStream.WriteFromStream(cs, ms.Length-ms.Position)
+        let clearStreamNoPad = clearStream.Replicate(0L, clearStream.Length - (int64 nPadding))
+        clearStreamNoPad
+
     static member Decrypt(rjnd : AesCryptoServiceProvider, buf : byte[]) : byte[]*int =
         use ms = new MemStream(buf)
         let outParam = Crypt.Decrypt(rjnd, ms)
-        ms.DecRef()
         outParam

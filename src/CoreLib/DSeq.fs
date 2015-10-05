@@ -429,7 +429,7 @@ and [<AllowNullLiteral>]
             sWriter.Write( msRcvd.GetBuffer(), curBufPos, (bufRcvdLen - curBufPos) )
             sWriter.Close()
             cStream.Close()
-            msRcvd.DecRef()
+            (msRcvd :> IDisposable).Dispose()
             ( msCrypt :> StreamBase<byte>, 0, int msCrypt.Length )
         else
             ( msRcvd, curBufPos, bufRcvdLen )    
@@ -462,7 +462,7 @@ and [<AllowNullLiteral>]
                 streamPartWrite.Write( BitConverter.GetBytes( outputLen ), 0, 4 )
                 //streamPartWrite.Write( writeBuf, writepos, writecount )
                 writeMs.ReadToStream(streamPartWrite, int64 writepos, int64 writecount)
-                writeMs.DecRef()
+                (writeMs :> IDisposable).Dispose()
                 if x.ConfirmDelivery then 
                     streamPartWrite.Write( resHash, 0, resHash.Length )
                 Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Write out to stream %s:%s parti %d a blob of %dB %s" x.Name x.VersionString parti outputLen (meta.ToString()) ))
@@ -760,11 +760,13 @@ and [<AllowNullLiteral>]
             | :? StreamBase<byte> as ms -> 
                 ms.InsertBefore( metaStream ) |> ignore
                 let msSend = metaStream
+                (ms :> IDisposable).Dispose()
                 ControllerCommand( ControllerVerb.Write, ControllerNoun.DStream), msSend 
             | _ -> 
                 Logger.Fail( sprintf "DStream.AsyncPackageToSend, object pushed is of unknonw type %A, %A" (streamObject.GetType()) streamObject )
         else
             ControllerCommand( ControllerVerb.ClosePartition, ControllerNoun.DStream), metaStream 
+
     member internal x.SyncPackageToSend (meta:BlobMetadata) (streamObject:Object) jobID = 
         if Utils.IsNotNull streamObject then 
             match streamObject with 
@@ -777,7 +779,7 @@ and [<AllowNullLiteral>]
                 meta.Pack( metaStream ) 
                 ms.InsertBefore( metaStream ) |> ignore
                 let msSend = metaStream
-                ms.DecRef() // done with this now, metaStream contains  information
+                //(ms :> IDisposable).Dispose() // done with this now, metaStream contains  information
                 ControllerCommand( ControllerVerb.SyncWrite, ControllerNoun.DStream), msSend 
             | _ -> 
                 Logger.Fail( sprintf "DStream.SyncPackageToSend, object pushed is of unknonw type %A, %A" (streamObject.GetType()) streamObject )
@@ -926,8 +928,7 @@ and [<AllowNullLiteral>]
                         x.MonitorSendPeerStatus peeri peerQueue bCansend
                         if ( bCansend || (peerQueue.CanSend && bForceSend) ) then 
                             peerQueue.ToSend( cmd, ms )
-                            if (Utils.IsNotNull ms) then
-                                ms.DecRef()
+                            ms.Dispose()
                             Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> let len = if Utils.IsNull ms then 0L else ms.Length
                                                                                         sprintf "DStream.SyncSendPeer, Send %A command %A to peer %d with %dB" (meta.ToString()) cmd peeri len ))
                             bSend := true
@@ -997,6 +998,9 @@ and [<AllowNullLiteral>]
                     // Async network queue is used 
                     if not bClusterReplicate then
                             x.SyncSendPeer jbInfo parti meta o peeri 
+                            match o with
+                            | :? StreamBase<byte> as ms -> (ms :> IDisposable).Dispose()
+                            | _ -> ()
                         // We don't flush network queue (as the network queue are multiplexed), the execution queue will be flushed at close stream. 
                         // x.SendPeer jbInfo parti meta o peeri 
         | PassTo childS
@@ -1014,6 +1018,9 @@ and [<AllowNullLiteral>]
             else
                 // Async network queue is used 
                 childStream.SyncSendPeer jbInfo parti meta o peeri
+                match o with
+                | :? StreamBase<byte> as ms -> (ms :> IDisposable).Dispose()
+                | _ -> ()
                     // We don't flush network queue (as the network queue are multiplexed), the execution queue will be flushed at close stream. 
                     // x.SendPeer jbInfo parti meta o peeri 
                 ()
@@ -1022,7 +1029,7 @@ and [<AllowNullLiteral>]
             let mapping = childStream.GetMapping()
             let peers = mapping.[parti]
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "DStream %s:%s, Multicast to peers %A with blob %A" x.Name x.VersionString peers meta ))
-            let ms = o :?> StreamBase<byte>
+            use ms = o :?> StreamBase<byte>
             for peeri in peers do 
                 // Write to local. 
                 if peeri = childStream.CurPeerIndex then 
@@ -1032,12 +1039,10 @@ and [<AllowNullLiteral>]
                         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "DStream PassTo.SendTo %s:%s, reach end of SyncExecuteDownstream for parti %d with null object" x.Name x.VersionString parti ))
                 else
                     // Async network queue is used 
-                    ms.AddRef() // syncsendpeer will dec one ref
                     childStream.SyncSendPeer jbInfo parti meta ms peeri
                     // We don't flush network queue (as the network queue are multiplexed), the execution queue will be flushed at close stream. 
                     // x.SendPeer jbInfo parti meta o peeri 
                 ()
-            ms.DecRef()
         | DecodeTo child ->
             let childDSet = child.Target 
             childDSet.SyncExecuteDownstream jbInfo parti meta o
@@ -1049,24 +1054,16 @@ and [<AllowNullLiteral>]
             let writeMeta = x.CountFunc.GetMetadataForPartition( meta, parti, 0 )
             x.SyncWriteChunk jbInfo parti writeMeta null
         else
-//            match streamObject with 
-//            | :? MemStream as ms -> 
-                let ms = streamObject
-                // Add serial and numElems as prefix. 
-                //let msPrefix = new MemStream( 128 )
-                let msPrefix = ms.GetNew()
-                msPrefix.WriteInt64( meta.Serial )
-                msPrefix.WriteVInt32( meta.NumElems ) 
-                //let msCombine = ms.InsertBefore( msPrefix )
-                ms.InsertBefore(msPrefix) |> ignore
-                ms.DecRef()
-                let msCombine = msPrefix
-                let writeMeta = x.CountFunc.GetMetadataForPartition( meta, parti, meta.NumElems )
-                x.SyncWriteChunk jbInfo parti writeMeta msCombine
-//            | _ -> 
-//                let msg = sprintf "DStream.SyncPreWrite, object pushed to SinkStream is not unknonw type %A, %A" (streamObject.GetType()) streamObject
-//                Logger.Log(LogLevel.Error, msg)
-//                failwith msg
+            let ms = streamObject
+            // Add serial and numElems as prefix. 
+            let msPrefix = ms.GetNew()
+            msPrefix.WriteInt64( meta.Serial )
+            msPrefix.WriteVInt32( meta.NumElems ) 
+            ms.InsertBefore(msPrefix) |> ignore
+            (ms :> IDisposable).Dispose()
+            let msCombine = msPrefix
+            let writeMeta = x.CountFunc.GetMetadataForPartition( meta, parti, meta.NumElems )
+            x.SyncWriteChunk jbInfo parti writeMeta msCombine
 
     /// All downstream operation completed? 
 //    override x.IterateHasCompletedAllDownstreamTask() = 

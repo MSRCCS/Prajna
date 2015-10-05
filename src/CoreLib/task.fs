@@ -226,7 +226,7 @@ and [<AllowNullLiteral>]
                     not (Utils.IsNull x.JobLoopbackQueue) && x.JobLoopbackQueue.CanSend then 
                     // Attempt to register. 
                     if Interlocked.CompareExchange( queueStatusRef, int TaskConnectedQueueStatus.ConnectionRegistered, priorQueueStatus ) = priorQueueStatus then 
-                        let msRegister = new MemStream( 1024 )
+                        use msRegister = new MemStream( 1024 )
                         msRegister.WriteInt64( queueSignature )
                         x.JobLoopbackQueue.ToSend( ControllerCommand( ControllerVerb.Open, ControllerNoun.Connection ), msRegister )
         /// <summary>
@@ -251,7 +251,7 @@ and [<AllowNullLiteral>]
                 if Interlocked.CompareExchange( queueStatusRef, int TaskConnectedQueueStatus.ConnectionDeregistered, 
                                                     int TaskConnectedQueueStatus.ConnectionRegistered ) = int TaskConnectedQueueStatus.ConnectionRegistered then 
                     if not (Utils.IsNull x.JobLoopbackQueue) && x.JobLoopbackQueue.CanSend then 
-                        let msRegister = new MemStream( 1024 )
+                        use msRegister = new MemStream( 1024 )
                         msRegister.WriteInt64( queueSignature )
                         x.JobLoopbackQueue.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.Connection ), msRegister )
                         x.ConnectedQueue.IsEmpty 
@@ -596,7 +596,7 @@ and [<AllowNullLiteral; Serializable>]
     member x.ErrorAsSeparateApp(msg) = 
         Logger.Log( LogLevel.Error, msg )
         if Utils.IsNotNull x.QueueToClient then 
-            let msSend = new MemStream( 1024 )
+            use msSend = new MemStream( 1024 )
             msSend.WriteString( msg )
             let queue = x.QueueToClient
             queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msSend ) 
@@ -891,7 +891,7 @@ and [<AllowNullLiteral; Serializable>]
     // member val private bWarningOnReportClose = false with get, set
     member x.TaskReportClosePartition( jbInfo:JobInformation, dobj, meta:BlobMetadata, pos ) = 
         let dsetReport = x.FindDObject TraverseUpstream dobj x.IsDstDSet
-        use msInfo = new MemStream( 128 ) 
+        use msInfo = new MemStream( 128 )
         if Utils.IsNotNull dsetReport then 
             if meta.Parti>=0 then 
                 msInfo.WriteGuid( jbInfo.JobID )     
@@ -958,7 +958,7 @@ and [<AllowNullLiteral; Serializable>]
                 if not jobAction.IsCancelled then 
                     Logger.LogF( jbInfo.JobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "Reaching end of part %d with %d mistakes" meta.Partition meta.NumElems ))
                 if not jbInfo.HostShutDown then 
-                        using( new MemStream( 1024 ) ) ( fun msWire -> 
+                        using( new MemStream( 1024 ) ) ( fun msWire ->
                             msWire.WriteGuid( jbInfo.JobID )
                             msWire.WriteString( dset.Name ) 
                             msWire.WriteInt64( dset.Version.Ticks )
@@ -977,12 +977,12 @@ and [<AllowNullLiteral; Serializable>]
                 if (Utils.IsNotNull x.Blobs.[i].Hash) then
                     BlobFactory.remove x.Blobs.[i].Hash
                 if (Utils.IsNotNull x.Blobs.[i].Stream) then
-                    x.Blobs.[i].Stream.DecRef()
+                    (x.Blobs.[i].Stream :> IDisposable).Dispose()
         if (Utils.IsNotNull x.MetadataStream) then
-            x.MetadataStream.DecRef()
+            (x.MetadataStream :> IDisposable).Dispose()
         Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
         Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
-        BufferListStream<byte>.DumpStreamsInUse()
+        MemoryStreamB.DumpStreamsInUse()
 
 /// Read, Job (DSet) 
     member x.DSetReadAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
@@ -1004,7 +1004,7 @@ and [<AllowNullLiteral; Serializable>]
                             msWire.WriteVInt32( meta.NumElems )
                             //msWire.Write( ms.GetBuffer(), int ms.Position, int ms.Length - int ms.Position )
                             msWire.AppendNoCopy( ms, ms.Position, ms.Length-ms.Position)
-                            ms.DecRef()
+                            (ms :> IDisposable).Dispose()
                             let cmd = ControllerCommand( ControllerVerb.Write, ControllerNoun.DSet )
                             let bSendout = ref false
                             while not jbInfo.HostShutDown && not !bSendout do
@@ -1026,7 +1026,7 @@ and [<AllowNullLiteral; Serializable>]
         let syncJobs jbInfo parti ()=  
             dset.SyncEncode jbInfo parti ( readFunc jbInfo) 
 
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) (fun _ ->())
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Read" syncJobs ( fun _ -> () ) ( fun _ -> x.OnJobFinish() )
             
 /// ReadToNetwork, Job (DSet) 
     member x.DSetReadToNetworkAsSeparateAppSync( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
@@ -1094,12 +1094,13 @@ and [<AllowNullLiteral; Serializable>]
                         (!dStreamToSendSyncClose).SyncSendCloseDStreamToAll(jbInfo)
                         Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "All ReadToNetwork tasks completed for job %s:%s DSet %s:%s, send SyncClose, DStream to all peers !" x.Name x.VersionString dset.Name dset.VersionString))
             )
+            x.OnJobFinish()
+
         x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "ReadToNetwork" readToNetworkFunci
-            beginJob finalJob           
-      
+            beginJob finalJob      
 
 /// Fold, Job (DSet) 
-    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object ) = 
+    member x.DSetFoldAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions, foldFunc: FoldFunction, aggregateFunc: AggregateFunction, serializeFunc: GVSerialize, stateFunc: unit->Object, msRep : StreamBase<byte> ) = 
         let syncFoldFunci (jbInfo:JobInformation) parti param = 
             let meta, elemObject = param
             jbInfo.FoldState.Item( parti ) <- foldFunc.FoldFunc (jbInfo.FoldState.GetOrAdd(parti, fun partitioni -> stateFunc() )) param
@@ -1120,11 +1121,14 @@ and [<AllowNullLiteral; Serializable>]
             msWire.WriteVInt32( usePartitionsArray.Length )
             for i = 0 to usePartitionsArray.Length - 1 do
                 msWire.WriteVInt32( usePartitionsArray.[i] )
-            let msSend = serializeFunc.SerializeFunc msWire finalState
+            let msSend = serializeFunc.SerializeFunc (msWire :> StreamBase<byte>) finalState
             Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "All aggregate fold completed for job %s:%s DSet %s:%s, send WriteGV,DSet to client!" x.Name x.VersionString dset.Name dset.VersionString))
             jbInfo.ToSendHost( ControllerCommand( ControllerVerb.WriteGV, ControllerNoun.DSet ), msSend )
-        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) ) beginJob finalJob
+            x.OnJobFinish()
 
+        x.SyncJobExecutionAsSeparateApp ( queueHost, endPoint, dset, usePartitions) "Fold" (fun jbInfo parti () -> dset.SyncIterateProtected jbInfo parti (syncFoldFunci jbInfo parti ) ) beginJob finalJob
+        if (Utils.IsNotNull msRep) then
+            (msRep :> IDisposable).Dispose()
 
     member val JobFinished = new List<WaitHandle>()
 
@@ -1236,7 +1240,7 @@ and [<AllowNullLiteral; Serializable>]
     /// The error cannot be localized to a certain job, but can be assoicated with a network queue 
     static member ErrorInSeparateApp (queue:NetworkCommandQueue, msg ) = 
         Logger.Log( LogLevel.Error, msg )
-        using (new MemStream(1024) ) ( fun msError -> 
+        using (new MemStream(1024)) ( fun msError ->
             msError.WriteString( msg )
             queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
         )
@@ -1244,7 +1248,7 @@ and [<AllowNullLiteral; Serializable>]
     /// Throw exception to application
     static member ExceptionInTask (queue:NetworkCommandQueue, x:Task, msg ) = 
         Logger.Log( LogLevel.Info, ( sprintf "Exception in job %A, name %s:%s with exception %s" (x.JobID) (x.Name) (x.VersionString) msg ) )
-        let ms = new MemStream()
+        use ms = new MemStream()
         ms.WriteGuid( x.JobID )
         ms.WriteString( x.Name )
         ms.WriteInt64( x.Version.Ticks )
@@ -1256,9 +1260,10 @@ and [<AllowNullLiteral; Serializable>]
     /// Note that general exception may or may not be able to propagate back to application as it may miss routing information
     static member ExceptionInGeneral (queue:NetworkCommandQueue, msg ) = 
         Logger.Log( LogLevel.Info, ( sprintf "Exception: %s" msg ) )
-        let ms = new MemStream()
+        use ms = new MemStream()
         ms.WriteString( msg )
         queue.ToSend( ControllerCommand(ControllerVerb.Exception, ControllerNoun.Message ), ms ) 
+
     static member ParseQueueCommandAtContainer (task : Task ref)
                                     (queue : NetworkCommandQueue)
                                     (allConnections : ConcurrentDictionary<_,_>) 
@@ -1307,9 +1312,9 @@ and [<AllowNullLiteral; Serializable>]
                                     let y = allTasks.GetOrAdd( jobID, x )
                                     if Object.ReferenceEquals( x, y ) then 
                                         // Task entry inserted. Insert a removal entry 
+                                        jobAction.LifeCycleObject.OnDisposeFS( x.OnJobFinish )
                                         jobAction.LifeCycleObject.OnDisposeFS( fun _ -> allTasks.TryRemove(jobID) |> ignore )
                                         jobAction.LifeCycleObject.OnDisposeFS( fun _ -> BlobFactory.unregisterAndRemove(jobID) |> ignore )
-                                        jobAction.LifeCycleObject.OnDisposeFS( x.OnJobFinish )
                                         x.ClientAvailability( queue.RemoteEndPointSignature, Some x.ReceiveBlobNoFeedback, None ) 
                                         Logger.LogF( jobID, 
                                                      LogLevel.MildVerbose, ( fun _ ->  let t1 = (PerfADateTime.UtcNowTicks())
@@ -1380,9 +1385,7 @@ and [<AllowNullLiteral; Serializable>]
                                     Logger.LogF( jobID, LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Write, Blob from job %s:%s, blob %d, pos %d (buf %dB)"
                                                                                             x.Name x.VersionString
                                                                                             blobi pos (ms.Length-ms.Position) ))
-            //                        blob.Hash <- HashByteArrayWithLength( buf, int pos, count )
-                                    blob.Stream <- ms
-                                    blob.Stream.AddRef()
+                                    blob.Stream <- ms.Replicate()
                                     /// Passthrough DSet is to be decoded at LoadAll() function. 
                                     let bSuccessful = x.ClientReceiveBlob( blobi, false )
                                     if not bSuccessful then 
@@ -1445,16 +1448,16 @@ and [<AllowNullLiteral; Serializable>]
                         let msg = sprintf "Error@AppDomain: Start, Job (ID:%A) %s:%s can't find the relevant job in allTasks " jobID name (VersionToString(DateTime(verNumber)))
                         jobAction.ThrowExceptionAtContainer( msg )
             )
-        | ( ControllerVerb.Cancel, ControllerNoun.Job ) -> 
-            let jobID = ms.ReadGuid()
-            use jobAction = SingleJobActionContainer.TryFind( jobID )
-            if Utils.IsNull jobAction then 
-                    Logger.LogF( jobID, 
-                                 LogLevel.WildVerbose, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Cancel, Job from endpoint %s of %dB payload, but failed to find corresponding job"
-                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
-                                                                           ms.Length )
-            else
-                jobAction.CancelJob()
+//        | ( ControllerVerb.Cancel, ControllerNoun.Job ) -> 
+//            let jobID = ms.ReadGuid()
+//            use jobAction = SingleJobActionContainer.TryFind( jobID )
+//            if Utils.IsNull jobAction then 
+//                    Logger.LogF( jobID, 
+//                                 LogLevel.WildVerbose, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Cancel, Job from endpoint %s of %dB payload, but failed to find corresponding job"
+//                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+//                                                                           ms.Length )
+//            else
+//                jobAction.CancelJob()
 
         | ( ControllerVerb.Echo2, ControllerNoun.Job ) ->
             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Echo2, Job from client"))
@@ -1498,7 +1501,7 @@ and [<AllowNullLiteral; Serializable>]
                                     let param = ms.DeserializeObjectWithTypeName() 
                                     Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to start service %s ..." serviceName ))
                                     ServiceCollection.Current.BeginStartService( serviceName, service, param, 
-                                                                    fun bInitializeSuccess -> let msInfo = new MemStream( 1024 )
+                                                                    fun bInitializeSuccess -> use msInfo = new MemStream(1024)
                                                                                               msInfo.WriteGuid( jobID )
                                                                                               msInfo.WriteString( dsetName )
                                                                                               msInfo.WriteInt64( dsetVersion ) 
@@ -1525,6 +1528,7 @@ and [<AllowNullLiteral; Serializable>]
                                         jobAction.ThrowExceptionAtContainer( msg )
                                     else
                                         let dsetOption, errMsg, msSend = DSetPeer.Unpack( ms, true, queue, jobID )
+                                        (msSend :> IDisposable).Dispose()
                                         match errMsg with 
                                         | ClientBlockingOn.Cluster ->
                                             // Cluster Information can't be parsed, Wait for cluster information. 
@@ -1597,12 +1601,11 @@ and [<AllowNullLiteral; Serializable>]
                                                 else
                                                     null
                                             let endpos = ms.Position
-                                            let buf, pos, length = 
+                                            let msRep, pos, length = 
                                                 if bCommonStatePerNode || Utils.IsNull state then 
                                                     null, 0L, 0L
                                                 else
-                                                    ms.AddRef()
-                                                    ms, startpos, endpos-startpos
+                                                    ms.Replicate(), startpos, endpos-startpos
                                             let replicateMsStreamFunc()  = 
                                                 if bCommonStatePerNode || Utils.IsNull state then 
                                                     null
@@ -1610,7 +1613,7 @@ and [<AllowNullLiteral; Serializable>]
                                                     // Start pos will not be the end of stream, garanteed by state not null 
                                                     let ms = new MemoryStreamB()
                                                     ms.Info <- "Replicated stream"
-                                                    ms.AppendNoCopy(buf, 0L, pos+length) // this is a write operation, position moves forward
+                                                    ms.AppendNoCopy(msRep, 0L, pos+length) // this is a write operation, position moves forward
                                                     ms.Seek(pos, SeekOrigin.Begin) |> ignore
                                                     ms
                                             let stateFunc() = 
@@ -1621,14 +1624,13 @@ and [<AllowNullLiteral; Serializable>]
                                                     if cnt = 0 then 
                                                         state 
                                                     else
-                                                        let msRead = replicateMsStreamFunc()
+                                                        use msRead = replicateMsStreamFunc()
                                                         // msRead will not be null, as the null condition is checked above
                                                         let stateTypeName = msRead.ReadString() 
                                                         let s = msRead.CustomizableDeserializeToTypeName( stateTypeName )
-                                                        msRead.DecRef()
                                                         s
                                         
-                                            ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc ) )
+                                            ta := ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Job Thread, DSet Fold %s" dsetName) ( fun _ -> x.DSetFoldAsSeparateApp( queue, endPoint, useDSet, usePartitions, foldFunc, aggregateFunc, serializeFunc, stateFunc, msRep ) )
                                         | _ ->
                                             ()
 
@@ -1649,7 +1651,7 @@ and [<AllowNullLiteral; Serializable>]
                                     let serviceName = ms.ReadString() 
                                     Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "attempt to stop service %s ..." serviceName ))
                                     let bSuccessToStop = ServiceCollection.Current.StopService( serviceName )
-                                    let msInfo =  new MemStream( 1024 )
+                                    use msInfo = new MemStream( 1024 )
                                     msInfo.WriteString( dsetName )
                                     msInfo.WriteInt64( dsetVersion ) 
                                     msInfo.WriteBoolean( bSuccessToStop )
@@ -1658,6 +1660,7 @@ and [<AllowNullLiteral; Serializable>]
                             let msg = sprintf "Error@AppDomain: Can't find job %s:%s in %A, %A " name (VersionToString(DateTime(verNumber))) (command.Verb) (command.Noun) 
                             jobAction.ThrowExceptionAtContainer( msg )
             )
+        | ( ControllerVerb.Cancel, ControllerNoun.Job )
         | ( ControllerVerb.Close, ControllerNoun.Job ) ->
             let jobID = ms.ReadGuid()
             using ( SingleJobActionContainer.TryFind( jobID )) ( fun jobAction -> 
@@ -1776,7 +1779,7 @@ and [<AllowNullLiteral; Serializable>]
             listener.OnAccepted( Action<_>(listener.OnIncomingQueue), fun _ -> "Accepted queue"  )
         
         if (Utils.IsNull listener) && jobport > 0 then 
-            let msSend = new MemStream( 1024 )
+            use msSend = new MemStream( 1024 )
             msSend.WriteString( sigName )
             msSend.WriteInt64( sigVersion ) 
             queue.ToSend( ControllerCommand( ControllerVerb.Stop, ControllerNoun.Program ), msSend ) 
@@ -1817,7 +1820,7 @@ and [<AllowNullLiteral; Serializable>]
                     // The decoding logic isn't as well protected as the main link, this is because the module communicates with PrajnaClient, 
                     // We expect most of the errors to be weeded out by the PrajnaClient.
                     // Moreover, if there is error, the job simply dies, which is considered OK. 
-                    let msSend = new MemStream( 1024 )
+                    use msSend = new MemStream( 1024 )
                     msSend.WriteString( sigName )
                     msSend.WriteInt64( sigVersion )
                     queue.ToSend( ControllerCommand( ControllerVerb.Link, ControllerNoun.Program ), msSend ) 
@@ -1854,7 +1857,7 @@ and [<AllowNullLiteral; Serializable>]
                 Task.WaitForCompletition(jobs, clientProcessId, clientModuleName, clientStartTimeTicks)
 
             // Stop the Program and sever connection. 
-            let msSend = new MemStream( 1024 )
+            use msSend = new MemStream( 1024 )
             msSend.WriteString( sigName )
             msSend.WriteInt64( sigVersion ) 
             queue.ToSend( ControllerCommand( ControllerVerb.Stop, ControllerNoun.Program ), msSend ) 
@@ -1884,20 +1887,20 @@ and [<AllowNullLiteral; Serializable>]
     /// Error: error in parsing 
     static member Error ( msg ) = 
         Logger.Log( LogLevel.Error, msg )
-        let msgError = new MemStream( 1024 )
+        use msgError = new MemStream( 1024 )
         msgError.WriteString( msg )
         ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msgError )
     /// Error: error in parsing 
     static member FError ( fmsg ) = 
         Logger.Log( LogLevel.Error, (fmsg()))
-        let msgError = new MemStream( 1024 )
+        use msgError = new MemStream( 1024 )
         msgError.WriteString( fmsg() )
         ( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msgError )
     member x.Error ( msg ) = 
         Logger.Log( LogLevel.Error, msg )
         let hostQueue = x.PrimaryHostQueue
         if Utils.IsNotNull hostQueue && hostQueue.CanSend then 
-            let msgError = new MemStream( 1024 )
+            use msgError = new MemStream( 1024 )
             msgError.WriteString( msg )
             hostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msgError )
 
@@ -1919,7 +1922,7 @@ and [<AllowNullLiteral; Serializable>]
                                 ( fun (meta, ms:MemStream ) ->
                                     if Utils.IsNotNull ms then 
                                         Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Sending %s over the wire for read" (MetaFunction.MetaString(meta)) ))
-                                        let msWire = new MemStream( int ms.Length + 1024 )
+                                        use msWire = new MemStream( int ms.Length + 1024 )
                                         msWire.WriteString( curDSet.Name )
                                         msWire.WriteInt64( curDSet.Version.Ticks )
                                         msWire.WriteVInt32( meta.Partition)
@@ -1949,7 +1952,7 @@ and [<AllowNullLiteral; Serializable>]
                                         // Do nothing, we will wait for all jobs to complete in Async.RunSynchronously
                                         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Reaching end of part %d with %d mistakes" meta.Partition meta.NumElems ))
                                         if Utils.IsNotNull hostQueue && not hostQueue.Shutdown then 
-                                            let msWire = new MemStream( 1024 )
+                                            use msWire = new MemStream( 1024 )
                                             msWire.WriteString( curDSet.Name ) 
                                             msWire.WriteInt64( curDSet.Version.Ticks )
                                             msWire.WriteVInt32( meta.Partition )
@@ -1966,7 +1969,7 @@ and [<AllowNullLiteral; Serializable>]
                 | e ->
                     Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Executing JobTaskKind.ReadOne during Async.RunSynchronously encounter exception %A (this may due to cancellation of task)" e ))
                 curDSet.CloseAllStreams( true )
-                let msWire = new MemStream( 1024 )
+                use msWire = new MemStream( 1024 )
                 msWire.WriteString( curDSet.Name )
                 msWire.WriteInt64( curDSet.Version.Ticks )
                 if Utils.IsNotNull hostQueue && not hostQueue.Shutdown then 
@@ -2017,6 +2020,7 @@ and [<AllowNullLiteral; Serializable>]
             ( cmd, msInfo, task )  
         else
             ( cmd, msInfo, null ) 
+
     /// Initialize the avaliablity vector
     member x.ClientAvailability(epSignature:int64, registerFuncOpt, availFuncOpt ) = 
         // Initialize current peer availability vector 
@@ -2046,7 +2050,9 @@ and [<AllowNullLiteral; Serializable>]
                         | _ -> 
                             match registerFuncOpt with 
                             | Some registerFunc -> 
-                                BlobFactory.register( x.JobID, blob.Hash, registerFunc blobi blob, epSignature )
+                                if (Utils.IsNull blob.Stream) then
+                                    BlobFactory.register(x.JobID, blob.Hash, registerFunc blobi blob, epSignature)
+                                blob.Stream
                             | None -> 
                                 null
                     let bExist = not (Utils.IsNull stream)
@@ -2113,14 +2119,11 @@ and [<AllowNullLiteral; Serializable>]
                         if blob.IsAllocated then 
                             x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
                         else
-                            if bExist then 
+                            if bExist then
                                 let buf, pos, count = stream.GetBufferPosLength()
-                                blob.Stream <- buf.GetNew()
+                                blob.Stream <- stream.Replicate(int64 pos, int64 count)
                                 blob.Stream.Info <- "BlobKind.DStream"
-                                blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
-                                //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
                                 blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
-
                                 x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
                             else
                                 x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.NotAvailable                            
@@ -2187,25 +2190,19 @@ and [<AllowNullLiteral; Serializable>]
                 queue.ToSend( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Blob ), msFeedback )
         else
             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Receive Blob %A %d from peer %s, but blob has already been allocated" blob.TypeOf blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
-        // once allocated, the input stream is no longer useful
-        //ms.DecRef()
 
     member x.ReceiveBlobNoFeedback blobi blob (ms, epSignature) = 
         Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Rcvd Write, Blob %d from peer %s" blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
         if not (blob.IsAllocated) then 
             let buf, pos, count = ms.GetBufferPosLength()
-            blob.Stream <- buf.GetNew()
+            blob.Stream <- buf.Replicate(int64 pos, int64 count)
             blob.Stream.Info <- "ReceiveBlobNoFeedback"
-            blob.Stream.AppendNoCopy(buf, 0L, buf.Length)
-            //blob.Stream <- new MemStream( buf, 0, buf.Length, false, true )
             blob.Stream.Seek( int64 pos, SeekOrigin.Begin ) |> ignore
             x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable
             x.AvailThis.CheckAllAvailable()
             let bSuccess = x.ClientReceiveBlob( blobi, false ) 
             if not bSuccess then 
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Fail to decode Blob %d from peer %s" blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) ))
-        // once allocated, the input stream is no longer useful
-        //ms.DecRef()
 
     /// Load all Assemblies
     member x.LoadAllAssemblies() = 
@@ -2445,18 +2442,6 @@ and [<AllowNullLiteral; Serializable>]
     /// Sync metadata, in P2P fashion. 
     member x.TrySyncMetadataClient() = 
         ()
-    member x.ParseError( msg ) = 
-        Logger.Log( LogLevel.Error, msg )
-        let msError = new MemStream(1024 )
-        msError.WriteString( msg ) 
-        Some( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
-    member x.StartJob() = 
-        let msFeedback = new MemStream(1024)
-        msFeedback.WriteGuid( x.JobID )
-        msFeedback.WriteString( x.Name )
-        msFeedback.WriteInt64( x.Version.Ticks )
-        msFeedback.WriteBoolean( true )
-        Some( ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Job ), msFeedback )
     /// Client: perform necessary processing of arrival of Blobi, e.g., 
     ///    for assembly, write the blob data to assembly file
     member x.ClientReceiveBlob( blobi, bDecodeAll ) = 
@@ -2507,7 +2492,7 @@ and [<AllowNullLiteral; Serializable>]
             let membershipList = x.IncomingQueuesClusterMembership.[peeri]
             if membershipList.Count<=0 then 
                 // For host, each peer replies on Peer availability 
-                let msInfo = new MemStream(1024)
+                use msInfo = new MemStream(1024)
                 msInfo.WriteGuid( x.JobID )
                 msInfo.WriteString( x.Name ) 
                 msInfo.WriteInt64( x.Version.Ticks )
@@ -2598,7 +2583,7 @@ and [<AllowNullLiteral; Serializable>]
             // It will link the the job back to PrajnaClient
             let bSuccess = ms.ReadBoolean()
             // Job started at the AppDomain/Exe
-            let msFeedback = new MemStream( 1024 )
+            use msFeedback = new MemStream( 1024 )
             msFeedback.WriteGuid( x.JobID )
             msFeedback.WriteString( x.Name )
             msFeedback.WriteInt64( x.Version.Ticks )
@@ -2657,7 +2642,8 @@ and [<AllowNullLiteral; Serializable>]
             | JobTaskKind.AppDomainMask ->
                 let queue = x.QueueAtClientMonitor
                 if ( Utils.IsNotNull queue && queue.CanSend )  then 
-                    let msSend = new MemStream( 1024 )
+                    use msSend = new MemStream( 1024 )
+                    msSend.WriteGuid( x.JobID )
                     msSend.WriteString( x.Name )
                     msSend.WriteInt64( x.Version.Ticks )
                     queue.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.Job ), msSend )
@@ -2686,8 +2672,9 @@ and [<AllowNullLiteral; Serializable>]
     member x.ToStartJob() = 
         Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Send (Set, Job), metadata, (Start, Job) to AppDomain/Exe of task %s:%s" x.Name x.VersionString) )
         /// Send job metadata to the loopback interface. 
-        let jobMetadataStream = 
-            if Utils.IsNotNull x.MetadataStream then x.MetadataStream
+        use jobMetadataStream = 
+            if Utils.IsNotNull x.MetadataStream then 
+                x.MetadataStream.Replicate()
             else 
                 let st = new MemStream( 4096 ) 
                 x.Pack( st )
@@ -2720,7 +2707,6 @@ and [<AllowNullLiteral; Serializable>]
         else
             Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "!!! The queue to the associated job of task %s:%s is not operational" x.Name x.VersionString) )
 
-
 and internal ContainerAppDomainLauncher() = 
     inherit System.MarshalByRefObject() 
     member x.Start(name, ver, bUseAllDrive, ticks, memory_size, ip, port, jobip, jobport, logdir, verbose_level:int, jobdir:string, jobenvvars:List<string*string>,
@@ -2751,6 +2737,7 @@ and internal ContainerAppDomainLauncher() =
 //        let task = Task( SignatureName=name, SignatureVersion=ver )
         Task.StartTaskAsSeperateApp( name, ver, ip, port, jobip, jobport, authParams, None, None, None)
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ContainerAppDomainLauncher.Start returns"))
+
 and [<AllowNullLiteral>]
     internal ContainerAppDomainInfo() =
     member val Name = "" with get, set
@@ -2910,9 +2897,13 @@ and internal TaskQueue() =
         else
             // Never executed. 
             taskAdd
+
     member x.RemoveTaskByJobID( jobID ) = 
         lookupTable.TryRemove( jobID ) |> ignore
+
     member x.RemoveTask( ta:Task ) = 
+        if (Utils.IsNotNull ta) then
+            ta.OnJobFinish()
         x.RemoveTaskByJobID( ta.JobID )
             
     member x.LinkQueueAndTask( ta:Task, queue: NetworkCommandQueue ) = 
@@ -3042,6 +3033,7 @@ and internal TaskQueue() =
                                     true
                                 else
                                     let nodeInfo = taskHolder.CurNodeInfo
+                                    task.TypeOf <- taskHolder.TypeOf
                                     let foundTask = x.AddTask( task, queue )
                                     foundTask.TaskHolder <- taskHolder
                                     use msSend = new MemStream( 1024 )
@@ -3170,8 +3162,6 @@ and internal TaskQueue() =
 //                Some( Task.Error( msg ) )
         | _ ->
             false
-
-
         
     /// Add a task with feedback Queue
     member x.AddSeparateTask( ta:Task, queue: NetworkCommandQueue ) = 
@@ -3500,7 +3490,7 @@ and internal TaskQueue() =
                                                                   sprintf "Attemp to Remove job %s:%s from lookup queue" 
                                                                            name (VersionToString(ver)) ))
         else
-            let errMS = new MemStream( 1024 )
+            use errMS = new MemStream( 1024 )
             errMS.WriteString( sigName )
             errMS.WriteInt64( sigVer )
             errMS.WriteString( sprintf "Program %s crashes" sigName ) 

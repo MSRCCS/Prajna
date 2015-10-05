@@ -173,11 +173,11 @@ type internal ContractStoreCommon() =
         let bSuccess =  Utils.IsNull !errorMsg
         if not ( Utils.IsNull queue ) && queue.CanSend then 
             if bSuccess then 
-                let msFeedback = new MemStream( 64 )
+                use msFeedback = new MemStream( 64 )
                 msFeedback.WriteGuid( reqID ) 
                 queue.ToSend( ControllerCommand( ControllerVerb.Reply, ControllerNoun.Contract), msFeedback )
             else
-                let msError = new MemStream( (!errorMsg).Length * 2 + 16)
+                use msError = new MemStream( (!errorMsg).Length * 2 + 16)
                 msError.WriteGuid( reqID ) 
                 msError.WriteString( !errorMsg ) 
                 queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract), msError )
@@ -216,7 +216,7 @@ type internal ContractStoreCommon() =
                         let queue = Cluster.Connects.LookforConnectBySignature( queueSignature ) 
                         if not ( Utils.IsNull queue ) && queue.CanSend then 
                             let arr = lst.ToArray()
-                            let msReply = new MemStream() 
+                            use msReply = new MemStream() 
                             msReply.WriteGuid( reqID )
                             msReply.SerializeObjectWithTypeName( arr )
                             Logger.LogF( DeploymentSettings.TraceLevelSeqFunction, ( fun _ -> sprintf "ParseRemoteSeqFunction: Reply, Contract to send %d count of %s as reply for req %A (%dB)"
@@ -231,7 +231,7 @@ type internal ContractStoreCommon() =
                 if not ( Utils.IsNull queue ) && queue.CanSend then 
                     if lst.Count > 0 then 
                         let arr = lst.ToArray()
-                        let msReply = new MemStream() 
+                        use msReply = new MemStream() 
                         msReply.WriteGuid( reqID )
                         msReply.SerializeObjectWithTypeName( arr )
                         Logger.LogF( DeploymentSettings.TraceLevelSeqFunction, ( fun _ -> sprintf "ParseRemoteSeqFunction: Reply, Contract to send FINAL %d count of %s (+null) as reply for req %A (%dB)"
@@ -246,7 +246,7 @@ type internal ContractStoreCommon() =
                                                                                             reqID ))
                         
                     /// Signal the end of the reply 
-                    let msEnd = new MemStream() 
+                    use msEnd = new MemStream() 
                     msEnd.WriteGuid( reqID )
                     msEnd.SerializeObjectWithTypeName( null )
                     queue.ToSend( ControllerCommand( ControllerVerb.Reply, ControllerNoun.Contract), msEnd )
@@ -254,7 +254,7 @@ type internal ContractStoreCommon() =
             Logger.Log( LogLevel.MildVerbose, !errorMsg )
             let queue = Cluster.Connects.LookforConnectBySignature( queueSignature ) 
             if not ( Utils.IsNull queue ) && queue.CanSend then 
-                    let msError = new MemStream( (!errorMsg).Length * 2 + 20 )
+                    use msError = new MemStream( (!errorMsg).Length * 2 + 20 )
                     msError.WriteGuid( reqID )
                     msError.WriteString( !errorMsg ) 
                     queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract), msError )
@@ -279,12 +279,12 @@ type internal ContractStoreCommon() =
         let bSuccess = Utils.IsNull !errorMsg
         if not ( Utils.IsNull queue ) && queue.CanSend then 
             if bSuccess then 
-                let msReply = new MemStream( 64 )
+                use msReply = new MemStream( 64 )
                 msReply.WriteGuid( reqID ) 
                 msReply.SerializeObjectWithTypeName( !resultRef )
                 queue.ToSend( ControllerCommand( ControllerVerb.Reply, ControllerNoun.Contract), msReply )
             else
-                let msError = new MemStream( (!errorMsg).Length * 2 + 20 )
+                use msError = new MemStream( (!errorMsg).Length * 2 + 20 )
                 msError.WriteGuid( reqID ) 
                 msError.WriteString( !errorMsg ) 
                 queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract), msError )
@@ -313,7 +313,7 @@ type internal ContractStoreCommon() =
                     /// Send partial result back to server. 
                     let queue = Cluster.Connects.LookforConnectBySignature( queueSignature ) 
                     if not ( Utils.IsNull queue ) && queue.CanSend then 
-                        let msReply = new MemStream() 
+                        use msReply = new MemStream() 
                         msReply.WriteGuid( reqID )
                         msReply.SerializeObjectWithTypeName( reply.Result )
                         queue.ToSend( ControllerCommand( ControllerVerb.Reply, ControllerNoun.Contract), msReply )
@@ -325,7 +325,7 @@ type internal ContractStoreCommon() =
             Logger.Log( LogLevel.MildVerbose, !errorMsg )
         if not ( Utils.IsNull queue ) && queue.CanSend then 
             if not bSuccess then 
-                let msError = new MemStream( (!errorMsg).Length * 2 + 20)
+                use msError = new MemStream( (!errorMsg).Length * 2 + 20)
                 msError.WriteGuid( reqID )
                 msError.WriteString( !errorMsg ) 
                 queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract), msError )
@@ -571,7 +571,7 @@ type internal ContractStoreAtDaemon() =
                 if Utils.IsNotNull queue && queue.CanSend then 
                     if contractInfo.IsAggregable then 
                         // Insert a null reply before error 
-                        let msNull = new MemStream( 1024 )
+                        use msNull = new MemStream( 1024 )
                         msNull.WriteGuid( reqID )
                         CustomizedSerialization.WriteNull(msNull) 
                         queue.ToSend( ControllerCommand( ControllerVerb.Reply, ControllerNoun.Contract ), msNull )
@@ -628,7 +628,7 @@ type internal ContractStoreAtDaemon() =
                                                                            ))
                     let queue = Cluster.Connects.LookforConnectBySignature( epSignature )
                     if not (Utils.IsNull queue) && queue.CanSend then 
-                        let msContract = new MemStream( 1024 )
+                        use msContract = new MemStream( 1024 )
                         msContract.WriteStringV( name )
                         queue.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.Contract ), msContract )
                     x.ImportCollections.TryRemove( pair0.Key ) |> ignore 
@@ -648,7 +648,7 @@ type internal ContractStoreAtDaemon() =
                     Logger.Log( LogLevel.ExtremeVerbose, errMsg )
                     let queue = Cluster.Connects.LookforConnectBySignature( replyToSignature )
                     if Utils.IsNotNull queue && queue.CanSend then 
-                        let msError = new MemStream( errMsg.Length * 2 + 20) 
+                        use msError = new MemStream( errMsg.Length * 2 + 20) 
                         msError.WriteGuid( reqID ) 
                         msError.WriteString( errMsg ) 
                         queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract ), msError )
@@ -709,7 +709,7 @@ type internal ContractStoreAtDaemon() =
                         Logger.Log( LogLevel.MildVerbose, errMsg )
                         let queue = Cluster.Connects.LookforConnectBySignature( replyToSignature )
                         if Utils.IsNotNull queue && queue.CanSend then 
-                            let msError = new MemStream( errMsg.Length * 2 + 20) 
+                            use msError = new MemStream( errMsg.Length * 2 + 20) 
                             msError.WriteGuid( reqID ) 
                             msError.WriteString( errMsg ) 
                             queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract ), msError )
@@ -793,7 +793,7 @@ type internal ContractResolver( name ) =
             if Utils.IsNull reqHolder then 
                 // This happens for Action, in which we do not track incoming reply
                 ContractResolver.OutgoingCollections.TryRemove( reqID ) |> ignore     
-            let msRequest = new MemStream( )
+            use msRequest = new MemStream( )
             msRequest.WriteStringV( name )
             msRequest.WriteGuid( reqID ) 
             msRequest.SerializeObjectWithTypeName( inp )
@@ -1004,10 +1004,9 @@ type ContractServersInfo() =
     /// Add a cluster 
     member x.AddCluster( cl: Cluster ) = 
         if Utils.IsNotNull cl then 
-            let ms = new MemStream()
+            use ms = new MemStream()
             cl.Pack( ms )
             let oneCluster = ContractServerType.ServerCluster( cl.Name, cl.Version.Ticks, ms.GetBuffer() )
-            ms.DecRef()
             x.ServerCollection.Enqueue( oneCluster )
             x.NewID()
 //    /// Get all clusters in the serversinfo
@@ -1313,7 +1312,7 @@ type internal ContractStoreAtProgram() =
     /// </summary> 
     member x.RegisterContractToServers (serversInfo) ( name, info, bReload, parseFunc: int64*StreamBase<byte> -> unit ) = 
         let mutable bRegisterSuccessful = false
-        let msInfo = ContractInfo.PackWithName( name, info, bReload )
+        use msInfo = ContractInfo.PackWithName( name, info, bReload )
         x.Collections.Item( name ) <- parseFunc
         let allqueues = ContractServerQueues.GetNetworkQueues( serversInfo ) 
         let store = x.RegisteredContract.GetOrAdd( name, fun _ -> ContractRequest() )
@@ -1330,7 +1329,7 @@ type internal ContractStoreAtProgram() =
     member x.RegisterContractToDaemon  = 
         x.RegisterContractToServers null  
     member x.LookforContractAtServers ( registerFunc:int64 -> unit) (unregisterFunc:string->int64->unit) (constructReqFunc) (serversInfo:ContractServersInfo) ( name, info: ContractInfo) = 
-        let msLookfor = new MemStream( )
+        use msLookfor = new MemStream()
         msLookfor.WriteStringV( name ) 
         let addFunc name = 
             let oneResolver = 
@@ -1521,7 +1520,7 @@ type internal ContractStoreAtProgram() =
                     Logger.Log( LogLevel.MildVerbose, errMsg )
                     let queue = Cluster.Connects.LookforConnectBySignature( queueSignature ) 
                     if Utils.IsNotNull queue && queue.CanSend then 
-                        let msError = new MemStream( errMsg.Length * 2 + 20 )
+                        use msError = new MemStream( errMsg.Length * 2 + 20 )
                         msError.WriteGuid( reqID ) 
                         msError.WriteString( errMsg ) 
                         queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract), msError )
@@ -1533,7 +1532,7 @@ type internal ContractStoreAtProgram() =
                 Logger.Log( LogLevel.MildVerbose, errMsg )
                 let queue = Cluster.Connects.LookforConnectBySignature( queueSignature ) 
                 if Utils.IsNotNull queue && queue.CanSend then 
-                    let msError = new MemStream( errMsg.Length * 2 + 20 )
+                    use msError = new MemStream( errMsg.Length * 2 + 20 )
                     msError.WriteGuid( reqID ) 
                     msError.WriteString( errMsg ) 
                     queue.ToSend( ControllerCommand( ControllerVerb.FailedRequest, ControllerNoun.Contract), msError )

@@ -86,8 +86,7 @@ type [<AllowNullLiteral>] NetworkCommand() =
         then
             x.cmd <- cmd
             if (Utils.IsNotNull ms) then
-                x.ms <- ms
-                x.ms.AddRef()
+                x.ms <- ms.Replicate()
                 // if position = length, assume stream just written, seek back for read purposes
                 if (ms.Position = ms.Length) then
                     x.startPos <- 0L
@@ -100,8 +99,7 @@ type [<AllowNullLiteral>] NetworkCommand() =
         new NetworkCommand()
         then
             x.cmd <- cmd
-            x.ms <- ms
-            x.ms.AddRef()
+            x.ms <- ms.Replicate()
             x.startPos <- startPos
 
     member val startPos = 0L with get, set
@@ -126,8 +124,7 @@ type [<AllowNullLiteral>] NetworkCommand() =
     /// release the underlying memstream
     member x.Release() =
         if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
-            if (Utils.IsNotNull x.ms) then
-                x.ms.DecRef()
+            x.ms.Dispose()
 
     interface IDisposable with
         override x.Dispose() =
@@ -656,11 +653,10 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
 
     member private x.SetRecvAES(buf : byte[]) =
         x.AESRecv <- new AesCryptoServiceProvider()
-        let ms = new MemStream(buf)
+        use ms = new MemStream(buf)
         x.AESRecv.BlockSize <- ms.ReadInt32()
         x.AESRecv.KeySize <- ms.ReadInt32()
         x.AESRecv.Key <- ms.ReadBytesWLen()
-        ms.DecRef()
 
     member private x.Verification(o : obj, buf : byte[], bufOffset : int, bufSize : int) =
         let cmd : VerificationCmd = EnumOfValue(buf.[bufOffset])
@@ -678,17 +674,22 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 bLocalVerified <- true // not really, but can continue, other side will terminate if fails
             | VerificationCmd.AESKeyUsingPwd ->
                 Logger.LogF( LogLevel.Info, (fun _ -> "Receive Pwd Encrypted information"))
-                let decryptBuf = Crypt.DecryptWithParams(recvBuf, x.ONet.Password)
-                x.SetRecvAES(decryptBuf)
                 use ms = new MemStream()
-                ms.WriteBytes(x.MyGuid.ToByteArray())
-                ms.WriteBytesWLen(Crypt.RSAToPublicKey x.MyAuthRSA)
-                ms.WriteBytesWLen(Crypt.RSAToPublicKey x.MyExchangeRSA)
-                let cryptBuf = Crypt.EncryptWithParams(ms.GetValidBuffer(), x.ONet.Password)
-                let bufToSend = Array.concat([[|byte VerificationCmd.AESVerificationUsingPwd|]; HashByteArray(decryptBuf); cryptBuf])
-                x.AsyncSendBufWSizeTryCatch(bufToSend, 0, bufToSend.Length)
-                bLocalVerified <- true
-                ms.DecRef()
+                try 
+                    let decryptBuf = Crypt.DecryptWithParams(recvBuf, x.ONet.Password)
+                    x.SetRecvAES(decryptBuf)
+                    ms.WriteBytes(x.MyGuid.ToByteArray())
+                    ms.WriteBytesWLen(Crypt.RSAToPublicKey x.MyAuthRSA)
+                    ms.WriteBytesWLen(Crypt.RSAToPublicKey x.MyExchangeRSA)
+                    let cryptBuf = Crypt.EncryptWithParams(ms.GetValidBuffer(), x.ONet.Password)
+                    let bufToSend = Array.concat([[|byte VerificationCmd.AESVerificationUsingPwd|]; HashByteArray(decryptBuf); cryptBuf])
+                    x.AsyncSendBufWSizeTryCatch(bufToSend, 0, bufToSend.Length)
+                    bLocalVerified <- true
+                with e ->
+                    let str = "Invalid password during authentication, connection terminates"
+                    Logger.LogF(LogLevel.Info, fun _ -> str)
+                    x.MarkFail()
+                    raise(Exception(str))
             | VerificationCmd.AESVerificationUsingRSA ->
                 let (key, signBuf) = o :?> byte[]*byte[]
                 let rsa = Crypt.RSAFromKey(key)
@@ -706,14 +707,13 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 else
                     bRemoteVerified <- true
                     let decryptBuf = Crypt.DecryptWithParams(Array.sub recvBuf sentBufHash.Length (recvBuf.Length-sentBufHash.Length), x.ONet.Password)
-                    let ms = new MemStream(decryptBuf)
+                    use ms = new MemStream(decryptBuf)
                     let guid = new Guid(ms.ReadBytes(sizeof<Guid>))
                     let publicKey = ms.ReadBytesWLen()
                     let exchangePublicKey = ms.ReadBytesWLen()
                     Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connection verification from %s succeeds using password - adding %s to allowed connection list" x.EPInfo (guid.ToString("N"))))
                     if not (fst (x.ONet.CheckForAllowedConnection(guid))) then
                         x.ONet.AddToAllowedConnection(guid, publicKey, exchangePublicKey)
-                    ms.DecRef()
             | _ ->
                 // unknown command or failure, terminate
                 x.MarkFail()
@@ -749,7 +749,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                     if (allowed) then
                         // use public encryption key of remote end to encrypt buffer
                         let rsa = Crypt.RSAFromKey(snd key)
-                        let ms = new MemStream()
+                        use ms= new MemStream()
                         ms.WriteInt32(x.AESSend.BlockSize)
                         ms.WriteInt32(x.AESSend.KeySize)
                         ms.WriteBytesWLen(x.AESSend.Key)
@@ -758,12 +758,11 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                         let bufToSend = Array.concat([[|byte VerificationCmd.AESKeyUsingRSA|]; signBuf])
                         x.AsyncSendBufWSizeTryCatch(bufToSend, 0, bufToSend.Length)
                         x.AsyncRecvBufWSizeTryCatch(x.Verification, (fst key, signBuf), 0)
-                        ms.DecRef()
                     else
                         // create buffer with information
                         if (3*(sizeof<int>)+x.AESSend.Key.Length > 1024) then
                             failwith "Illegal blk /key size"
-                        let ms = new MemStream(buf2, true)
+                        use ms = new MemStream(buf2, true)
                         ms.WriteInt32(x.AESSend.BlockSize)
                         ms.WriteInt32(x.AESSend.KeySize)
                         ms.WriteBytesWLen(x.AESSend.Key)
@@ -771,7 +770,6 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                         let bufToSend = Array.concat([[|byte VerificationCmd.AESKeyUsingPwd|]; Crypt.EncryptWithParams(buf2, x.ONet.Password)])
                         x.AsyncSendBufWSizeTryCatch(bufToSend, 0, bufToSend.Length)
                         x.AsyncRecvBufWSizeTryCatch(x.Verification, HashByteArray(buf2), 0)
-                        ms.DecRef()
                 else
                     bRemoteVerified <- true
                     if (not bLocalVerified) then
@@ -851,9 +849,9 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo))
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" BufferListStream<byte>.MemStack.StackSize BufferListStream<byte>.MemStack.GetStack.Size)
-            BufferListStream<byte>.DumpStreamsInUse()
-            BufferListStream<byte>.MemStack.DumpInUse(LogLevel.MildVerbose)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
+            MemoryStreamB.DumpStreamsInUse()
+            MemoryStreamB.MemStack.DumpInUse(LogLevel.MildVerbose)
             x.ONet.BufStackRecv.DumpInUse(LogLevel.MildVerbose)
             x.ONet.BufStackSend.DumpInUse(LogLevel.MildVerbose)
             xCSend.SelfClose()
@@ -936,11 +934,13 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         let command = new ControllerCommand(enum<ControllerVerb>(int headerRecv.[4]), enum<ControllerNoun>(int headerRecv.[5]))
         if (command.Verb = ControllerVerb.Decrypt) then
             // decrypt the body
-            let (decryptBuf, bufLen) = Crypt.Decrypt(x.AESRecv, body)
-            let command = new ControllerCommand(enum<ControllerVerb>(int decryptBuf.[4]), enum<ControllerNoun>(int decryptBuf.[5]))
-            body.DecRef()
-            // form a memory stream using this buffer01
-            let ms = new MemStream(decryptBuf, 8, bufLen-8)
+            use decryptMs = Crypt.DecryptStream(x.AESRecv, body)
+            body.Dispose()
+            decryptMs.ReadInt32() |> ignore
+            let verb = enum<ControllerVerb>(int (decryptMs.ReadByte()))
+            let noun = enum<ControllerNoun>(int (decryptMs.ReadByte()))
+            let command = new ControllerCommand(verb, noun)
+            let ms = decryptMs.Replicate(decryptMs.Position, decryptMs.Length-decryptMs.Position)
             ms.Info <- sprintf "Cmd:%A:" command
             curRecvCmd <- new NetworkCommand(command, ms)
         else
@@ -948,6 +948,8 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 body.Seek(0L, SeekOrigin.Begin) |> ignore
                 body.Info <- sprintf "Info:%A:" command
             curRecvCmd <- new NetworkCommand(command, body)
+            if (Utils.IsNotNull body) then
+                body.Dispose()
             //x.TraceCurRecvCommand(fun _ -> sprintf "Built bodyLen:%d eRem: %d" body.Length xgc.ERecvRem)
         curStateRecv <- ReceivingMode.EnqueuingCommand
         
@@ -981,8 +983,6 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 // allow zero length array creation so memstream is not null
                 let bodyLen = totalLen - 4
                 if (bodyLen <> 0) then
-                    //body <- new MemStream(bodyLen)
-                    //body <- new MemoryStreamB(bodyLen)
                     body <- new MemoryStreamB()
                     curStateRecv <- ReceivingMode.ReceivingBody
                     xgc.CurBufRecv <- null
@@ -1184,7 +1184,9 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         Interlocked.Add(x.ONet.TotalCmdRecvSize, -(!cmd).CmdLen()) |> ignore
         Ev.SetOnNotCondNoInline(x.RecvSAFullDesired, recvSAQ.Empty)
         (!cmd).Release()
-        (!cmd).ms.DecRef() // also release underlying memstream here
+        // also release underlying stream, if someone needs it, should copy and replicate it
+        // can't do for sending side, since multiple queues often contain same stream (since ToSend does not replicate)
+        ((!cmd).ms :> IDisposable).Dispose()
 
     // ===========================
 
@@ -1197,16 +1199,14 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     member x.ToSendEncrypt (command, arr:byte[], offset:int, arrCount:int) =
         if (connectionStatus < ConnectionStatus.Verified) then
             eVerified.Wait() |> ignore
-        let ms = new MemStream(arrCount + 8)
+        use ms = new MemStream(arrCount + 8)
         x.BuildHeader(command, arrCount + 4, ms)
         ms.Write(arr, offset, arrCount)
-        let encryptMs = Crypt.Encrypt(x.AESSend, ms.GetBuffer())
-        ms.DecRef()
+        let encryptMs = Crypt.EncryptStream(x.AESSend, ms)
         let cmd = new NetworkCommand(ControllerCommand(ControllerVerb.Decrypt, ControllerNoun.Message), encryptMs)
         x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
         Interlocked.Add(unProcessedBytes, int64 (cmd.CmdLen())) |> ignore
         let sendQ = xCSend.Q :?> FixedSizeQ<NetworkCommand>
-        //sendQ.EnqueueSyncSize cmd (int64 (cmd.CmdLen())) |> ignore
         x.EQSendCmdSyncSize cmd |> ignore
 
     // ===========================================
@@ -1257,15 +1257,13 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// <param name="bExpediateSend">Optional argument - unused for now</param>
     member x.ToForward( endPoint:IPEndPoint, command:ControllerCommand, sendStream:StreamBase<byte>, ?bExpediateSend ) = 
         let bExpediate = defaultArg bExpediateSend false
-        let forwardHeader = new MemStream( 128 )
+        use forwardHeader = sendStream.GetNew()
         forwardHeader.WriteVInt32( 1 )
         forwardHeader.WriteIPEndPoint( endPoint )
         forwardHeader.WriteByte( byte command.Verb )
         forwardHeader.WriteByte( byte command.Noun )
         sendStream.InsertBefore( forwardHeader ) |> ignore
-        let mergedStream = forwardHeader
-        x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), mergedStream, bExpediate )
-        mergedStream.DecRef()
+        x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), forwardHeader, bExpediate )
 
     /// Wrap the Memstream to forward to multiple endPoints during the communication. 
     /// <param name="endPoints">The endpoints to forward to</param>
@@ -1274,16 +1272,14 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// <param name="bExpediateSend">Optional argument - unused for now</param>
     member x.ToForward( endPoints:IPEndPoint[], command:ControllerCommand, sendStream:StreamBase<byte>, ?bExpediateSend ) = 
         let bExpediate = defaultArg bExpediateSend false
-        let forwardHeader = new MemStream( 128 )
+        use forwardHeader = sendStream.GetNew()
         forwardHeader.WriteVInt32( endPoints.Length )
         for i = 0 to endPoints.Length - 1 do
             forwardHeader.WriteIPEndPoint( endPoints.[i] )
         forwardHeader.WriteByte( byte command.Verb )
         forwardHeader.WriteByte( byte command.Noun )
         sendStream.InsertBefore( forwardHeader ) |> ignore
-        let mergedStream = forwardHeader
-        x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), mergedStream, bExpediate )
-        mergedStream.DecRef()
+        x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), forwardHeader, bExpediate )
 
 // can add following to timer routine:
 // - garbage collect, monitor, keep alive (all timer based, but all timers currently removed)
@@ -1375,21 +1371,19 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             x.MyGuid <- Guid.NewGuid()
             x.MyAuthRSA <- Crypt.RSAFromPrivateKey(privateKey, x.KeyFilePassword)
             x.CreateDirectory(mykeyfile)
-            let ms = new MemStream()
+            use ms = new MemStream()
             ms.WriteBytes(x.MyGuid.ToByteArray())
             ms.WriteBytesWLen(privateKey)
             let (exchangePrivateKey, exchangePublicKey) = Crypt.RSAGetNewKeys(x.KeyFilePassword, KeyNumber.Exchange)
             x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(exchangePrivateKey, x.KeyFilePassword)
             ms.WriteBytesWLen(exchangePrivateKey)
             File.WriteAllBytes(mykeyfile, ms.GetValidBuffer())
-            ms.DecRef()
             Logger.LogF (LogLevel.MildVerbose, fun _ -> sprintf "InitializeAuthentication: write to key file: %s" mykeyfile)
         else
-            let ms = new MemStream(File.ReadAllBytes(mykeyfile))
-            x.MyGuid <- new Guid(ms.ReadBytes(sizeof<Guid>))
+            use ms = new MemStream(File.ReadAllBytes(mykeyfile))
+            x.MyGuid <- Guid(ms.ReadBytes(sizeof<Guid>))
             x.MyAuthRSA <- Crypt.RSAFromPrivateKey(ms.ReadBytesWLen(), x.KeyFilePassword)
             x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(ms.ReadBytesWLen(), x.KeyFilePassword)
-            ms.DecRef()
             Logger.LogF (LogLevel.MildVerbose, fun _ -> sprintf "InitializeAuthentication: read from key file: %s" mykeyfile)
         // add self to allowed list
         x.AllowedConnections.[x.MyGuid] <- (Crypt.RSAToPublicKey(x.MyAuthRSA), Crypt.RSAToPublicKey(x.MyExchangeRSA))
@@ -1409,7 +1403,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     /// - Key blob (unencrypted) with length containing encryption public key
     /// </param>
     static member ObtainKeyInfoFromFiles(keyfile : string) =
-        let ms = new MemStream()
+        use ms = new MemStream()
         let mykeyfile = keyfile + "_mykey.txt"
         if (File.Exists(mykeyfile)) then
             ms.WriteBytes(File.ReadAllBytes(mykeyfile))
@@ -1425,7 +1419,6 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                     ms.WriteBytes(File.ReadAllBytes(f))
                 with e -> ()
         let outBuf = ms.GetValidBuffer()
-        ms.DecRef()
         outBuf
 
     /// Initialize authentication / security information from key information obtained in buffer
@@ -1448,7 +1441,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
         x.RequireAuth <- true
         x.KeyFilePassword <- keyfilepwd
         // get guid / key info for self
-        let ms = new MemStream(keyInfo)
+        use ms = new MemStream(keyInfo)
         x.MyGuid <- new Guid(ms.ReadBytes(sizeof<Guid>))
         x.MyAuthRSA <- Crypt.RSAFromPrivateKey(ms.ReadBytesWLen(), x.KeyFilePassword)
         x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(ms.ReadBytesWLen(), x.KeyFilePassword)
@@ -1465,18 +1458,16 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                 bContinue <- false
             if (ms.Position >= ms.Length) then
                 bContinue <- false
-        ms.DecRef()
 
     /// Add to allowed connection list by adding to file and concurrent dictionary
     member internal x.AddToAllowedConnection(guid : Guid, publicKey : byte[], exchangePublicKey : byte[]) =
         if not (x.KeyFile.Equals("", StringComparison.Ordinal)) then
             let thiskeyfile = x.KeyFile + "_" + guid.ToString("N") + ".txt"
             x.CreateDirectory(thiskeyfile)
-            let ms = new MemStream()
+            use ms = new MemStream()
             ms.WriteBytesWLen(publicKey)
             ms.WriteBytesWLen(exchangePublicKey)
             File.WriteAllBytes(thiskeyfile, ms.GetValidBuffer())
-            ms.DecRef()
         // add to allowed connections
         x.AllowedConnections.[guid] <- (publicKey, exchangePublicKey)
 
@@ -1487,9 +1478,8 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
         else
             let thiskeyfile = x.KeyFile + "_" + guid.ToString("N") + ".txt"
             if (File.Exists(thiskeyfile)) then
-                let ms = new MemStream(File.ReadAllBytes(thiskeyfile))
+                use ms = new MemStream(File.ReadAllBytes(thiskeyfile))
                 x.AllowedConnections.[guid] <- (ms.ReadBytesWLen(), ms.ReadBytesWLen())
-                ms.DecRef()
                 (true, x.AllowedConnections.[guid])
             else
                 (false, (null, null))
@@ -1571,7 +1561,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             )
             x.fnQSend <- Some(fun() -> new FixedLenQ<RBufPart<byte>>(DeploymentSettings.NetworkSASendQSize, DeploymentSettings.NetworkSASendQSize) :> BaseQ<RBufPart<byte>>)
             // initialize shared memory pool for fast memory stream
-            BufferListStream<byte>.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
+            MemoryStreamB.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
             // start the monitoring
             x.StartMonitor() 
 
@@ -1716,9 +1706,9 @@ UnprocessedCmD:%d bytes Status:%A"
         )
         Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.BufStackRecv.StackSize x.BufStackRecv.GetStack.Size)
         Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.BufStackSend.StackSize x.BufStackSend.GetStack.Size)
-        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" BufferListStream<byte>.MemStack.StackSize BufferListStream<byte>.MemStack.GetStack.Size)
-        BufferListStream<byte>.DumpStreamsInUse()
-        BufferListStream<byte>.MemStack.DumpInUse(LogLevel.MildVerbose)
+        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
+        MemoryStreamB.DumpStreamsInUse()
+        MemoryStreamB.MemStack.DumpInUse(LogLevel.MildVerbose)
         x.BufStackRecv.DumpInUse(LogLevel.MildVerbose)
         x.BufStackSend.DumpInUse(LogLevel.MildVerbose)
 

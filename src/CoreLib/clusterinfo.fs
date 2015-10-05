@@ -369,7 +369,6 @@ type internal HomeInClient( versionInfo, datadrive, reportingServer:List<string*
                                 //let readstr = System.Text.ASCIIEncoding.ASCII.GetString( bytebuf )
                                 Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Exception read from server at %s:%d" servername port) )
                                 ()
-                            sendStream.DecRef()
                         else
                             Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Home in server at %s:%d failed." servername port ))
                     with
@@ -712,11 +711,10 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
         Path.Combine( DeploymentSettings.LocalFolder, DeploymentSettings.ClusterFolder, DeploymentSettings.ClusterLstName(x.Name, x.Version) )
     /// Save the current ClusterInfoBase to file
     member x.SaveOld(name) = 
-        let ms = new MemStream( 102400 )
+        use ms = new MemStream( 102400 )
         ms.Write( DeploymentSettings.ClusterInfoPlainGuid.ToByteArray(), 0, 16 )
         ms.Serialize( x :> ClusterInfoBase )
         WriteBytesToFileConcurrentP name (ms.GetBuffer()) 0 (int ms.Length)
-        ms.DecRef()
     member x.DumpString() =
         let mutable str = ""
         str <- sprintf "%sClusterInfoPlainV2Guid: %A\n" str DeploymentSettings.ClusterInfoPlainV2Guid
@@ -811,18 +809,16 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
             ms.WriteInt64( node.GPUMemoryCapacity )
         ms.Write( DeploymentSettings.ClusterInfoEndV2Guid.ToByteArray(), 0, 16 )
     member x.PackToBytes() = 
-        let ms = new MemStream( 102400 )
+        use ms = new MemStream( 102400 )
         x.Pack( ms )
         let bytearray = Array.zeroCreate<byte> (int ms.Length)
         Array.Copy( ms.GetBuffer(), bytearray, int ms.Length ) 
-        ms.DecRef()
         bytearray
     /// New Cluster Format
     member x.Save(name) = 
-        let ms = new MemStream( 102400 )
+        use ms = new MemStream( 102400 )
         x.Pack( ms ) 
         WriteBytesToFileConcurrentP name (ms.GetBuffer()) 0 (int ms.Length)
-        ms.DecRef()
     /// Read the current cluster from file 
     static member ReadOld (name:string) = 
         try
@@ -950,9 +946,8 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
 
     /// Unpack to cluster information. 
     static member Unpack( bytearray:byte[] ) = 
-        let ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
+        use ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
         let outParam = ClusterInfo.Unpack( ms )   
-        ms.DecRef()
         outParam
     /// Read the current cluster from file 
     static member Read (name:string) = 
@@ -963,9 +958,8 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
                 ClusterInfo.ParseListFile(name)
             else
                 let bytearray = ReadBytesFromFile( name ) 
-                let ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
+                use ms = new MemStream( bytearray, 0, bytearray.Length, false, true )
                 let outParam = ClusterInfo.Unpack( ms )
-                ms.DecRef()
                 let passwd = None // inf file does not support password yet
                 outParam, passwd
         with
@@ -1299,7 +1293,6 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
                         HomeInServer.ListOfClients.Add( c.Name, c )
                         HomeInServer.Updated <- true
             )
-            rcvdMemStream.DecRef()
             Logger.Log( LogLevel.MildVerbose, (sprintf "Rcvd %dB from %A..." rcvdBuf.Length socket ))
         with
         | _ -> () 

@@ -424,7 +424,7 @@ type StreamBaseExtension =
                         x.WriteInt32(int32 arr.[i].Length)
                     for i=0 to arr.Length-1 do
                         x.AppendNoCopy(arr.[i], 0L, arr.[i].Length)
-                        arr.[i].DecRef()
+                        (arr.[i] :> IDisposable).Dispose()
                 | _ ->
                     x.WriteBytes( GenericSerialization.DefaultFormatterGuid.ToByteArray() )
                     let fmt = GenericSerialization.GetDefaultFormatter()

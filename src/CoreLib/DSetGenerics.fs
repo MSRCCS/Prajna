@@ -229,7 +229,7 @@ type DSet<'U> () =
                     let kvList = arr.[parti].GetRange(0, wLen)
                     let _, msOutput = codec.EncodeFunc( meta, kvList.ToArray() ) 
                     ms.Append(msOutput)
-                    msOutput.DecRef()
+                    (msOutput :> IDisposable).Dispose()
                     written.[parti] <- written.[parti] + wLen
                     if x.NumReplications<=1 || peers.Length > 1 then 
                         peers |> Array.iter( fun peeri -> 
@@ -246,7 +246,6 @@ type DSet<'U> () =
                         let newpeers = x.CanWrite( parti )
                         if newpeers.[0] >=0 then 
                             writeout( parti, newpeers, bFlush )
-                    ms.DecRef()
 
             o |> Seq.iteri ( fun i elem -> 
                     let parti = x.PartitionFunc( elem, x.NumPartitions )

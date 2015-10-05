@@ -270,16 +270,16 @@ type internal Listener =
         msException.WriteException( ex )
         Logger.LogF( LogLevel.Info, fun _ -> sprintf "ExceptionOfDSetAtDaemon at job %A, DSet: %s, message :%A" jobID name ex )
         queue.ToSend( ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet), msException )
-    member x.ParseSendBackAtDaemon( queuePeer : NetworkCommandQueuePeer, returnCmd : ControllerCommand, ms:MemStream ) = 
+    member x.ParseSendBackAtDaemon( queuePeer : NetworkCommandQueuePeer, returnCmd : ControllerCommand, ms:StreamBase<byte> ) = 
         if queuePeer.CanSend then 
             if returnCmd.Verb<>ControllerVerb.Unknown then 
                 queuePeer.ToSend( returnCmd, ms )
-    member x.ParseSendBackAtDaemonAndDispose( queuePeer : NetworkCommandQueuePeer, returnCmd : ControllerCommand, ms:MemStream ) = 
+    member x.ParseSendBackAtDaemonAndDispose( queuePeer : NetworkCommandQueuePeer, returnCmd : ControllerCommand, ms:StreamBase<byte> ) = 
         if queuePeer.CanSend then 
             if returnCmd.Verb<>ControllerVerb.Unknown then 
                 queuePeer.ToSend( returnCmd, ms )
-        if Utils.IsNotNull ms then 
-            ( ms :> IDisposable ).Dispose()
+        if Utils.IsNotNull ms then
+            ms.Dispose()
     /// Parse Command At Daemon
     member x.ParseCommandAtDaemon (queuePeer : NetworkCommandQueuePeer) 
                                 (command : ControllerCommand)
@@ -329,7 +329,7 @@ type internal Listener =
                             | None ->
                                 let msg = "Set CurrentClusterInfo can't be unpacked, object is not based on ClusterInfoBase"
                                 Logger.Log( LogLevel.Error, msg )
-                                let msSend = new MemStream(1024)
+                                use msSend = new MemStream(1024)
                                 msSend.WriteString( msg )
                                 queue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.ClusterInfo ), msSend )
                         else
@@ -423,7 +423,7 @@ type internal Listener =
                                             let rcvdSpeed = ms.ReadInt64()
                                             curDSet.PeerRcvdSpeed <- rcvdSpeed
                                             let msg = sprintf "Peer %d: Set recieving speed of every peer to %d" curDSet.CurPeerIndex rcvdSpeed
-                                            let msInfo = new MemStream(1024)
+                                            use msInfo = new MemStream(1024)
                                             msInfo.WriteString( msg ) 
                                             Logger.Log( LogLevel.WildVerbose, msg )
                                             queuePeer.ToSend( ControllerCommand( ControllerVerb.Info, ControllerNoun.Message ), msInfo )
@@ -476,7 +476,8 @@ type internal Listener =
                                             msTask.WriteIPEndPoint( queue.RemoteEndPoint :?> IPEndPoint )
                                             msTask.WriteVInt32( int FunctionParamType.DSet )
                                             ms.Seek( int64 bufPos, SeekOrigin.Begin ) |> ignore
-                                            use msForward = ms.InsertBefore( msTask )
+                                            ms.InsertBefore( msTask ) |> ignore
+                                            let msForward = msTask
                                             match (command.Verb, command.Noun ) with
                                             | (ControllerVerb.Read, ControllerNoun.DSet ) ->                                                                                                      
                                                 dsetTask.QueueAtClient.ToSend( ControllerCommand( ControllerVerb.Read, ControllerNoun.Job ), msForward )

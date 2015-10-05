@@ -201,7 +201,7 @@ type JobListener() =
                         /// Wait a long time and the job still doesn't start
                         let msg1 = sprintf "Rcvd from %A msg of InfoContainer, Job (%dB) claiming from Cluster %s:%s of peer %d, wait for %f seconds, but can't resolve Cluser" (queuePeer.RemoteEndPoint) ( ms.Length - ms.Position ) name (VersionToString(DateTime(verNumber))) peerIndex elapse
                         Logger.Log( LogLevel.Error, (msg1))
-                        let msError = new MemStream( 1024 )
+                        use msError = new MemStream( 1024 )
                         msError.WriteString( msg1 ) 
                         queuePeer.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
                     elif queuePeer.Shutdown then 
@@ -264,7 +264,7 @@ type JobListener() =
                                     let msg1 = sprintf "Rcvd from %A msg of %A (%dB) for DStream %s:%s, wait for %f seconds, but " (queuePeer.RemoteEndPoint) command ( ms.Length - ms.Position ) name (VersionToString(DateTime(verNumber))) elapse
                                     let msg2 = !reasonBlocked
                                     Logger.Log( LogLevel.Error, (msg1+msg2))
-                                    let msError = new MemStream( 1024 )
+                                    use msError = new MemStream( 1024 )
                                     msError.WriteString( msg1 + msg2 ) 
                                     queuePeer.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
                                 elif queuePeer.Shutdown then 

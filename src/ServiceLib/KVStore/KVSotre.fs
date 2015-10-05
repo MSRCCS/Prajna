@@ -210,7 +210,7 @@ type internal KVService<'K,'V >() =
         let filename = x.Param.GetKVStoreName()
         if File.Exists( filename ) then 
             let byt = FileTools.ReadBytesFromFile filename
-            let ms = new MemStream( byt, 0, byt.Length, false, true )
+            use ms = new MemStream( byt, 0, byt.Length, false, true )
             let cnt = ms.ReadInt32()
             for i = 0 to cnt - 1 do 
                 let key = ms.DeserializeObjectWithTypeName() :?> 'K

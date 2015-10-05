@@ -733,6 +733,7 @@ and
                                           config.PortsRange)
 
     member val internal MsgToHost=List<(ControllerCommand*MemStream)>() with get
+    member val internal PeerIndexFromEndpoint : ConcurrentDictionary<EndPoint, int> = new ConcurrentDictionary<_,_>() with get
     member internal x.Queues with get() = queues
                              and set( q ) = queues <- q
     member val internal QueuesInitialized = ref 0 with get
@@ -1198,6 +1199,7 @@ and
                     NodeConnectionFactory.Current.DaemonConnect( x.Nodes.[peeri].MachineName, x.Nodes.[peeri].MachinePort, 
                         (fun queue -> Cluster.ParseHostCommand queue peeri), 
                         (fun _ -> x.Queues.[peeri] <- null) )
+                x.PeerIndexFromEndpoint.[x.Queues.[peeri].RemoteEndPoint] <- peeri
                 queue := x.Queues.[peeri]
                 // Read some receiving command to unblock
                 Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Attempt to connect to %s:%d as peer %d" x.Nodes.[peeri].MachineName x.Nodes.[peeri].MachinePort peeri ))
@@ -1423,7 +1425,8 @@ and
                             Logger.LogF( !jobIDRef, LogLevel.ExtremeVerbose, (fun _ -> sprintf "(OK, job may be cancelled) Receive cmd %A from peer %d with payload of %dB, but there is no parsing logic!" 
                                                                                                     cmd i (ms.Length) ))
                         if Utils.IsNotNull cb then 
-                            bNotBlocked <- cb.Callback( cmd, i, ms, !jobIDRef, name, ver, x )
+                            let peerIndex = x.PeerIndexFromEndpoint.[q.RemoteEndPoint]
+                            bNotBlocked <- cb.Callback( cmd, peerIndex, ms, !jobIDRef, name, ver, x )
                         else 
                             let bExist, staticCommandCallback = staticCallback.TryGetValue( cmd )
                             if bExist then 
@@ -1487,9 +1490,6 @@ and
                 | ex ->
                     let msg = (sprintf "Receive cmd %A from peer %d, during processing, incur exception %A " cmd i ex )    
                     Logger.Log( LogLevel.Info, msg )
-                    let msError = new MemStream( 1024 )
-                    msError.WriteString( msg )
-                    ms.DecRef()
             | None -> 
                 ()
 

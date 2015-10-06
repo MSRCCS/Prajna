@@ -68,6 +68,7 @@ module Matrix =
                 let d =
                     DSet<float[]>(Cluster = cluster, NumParallelExecution = numPartitions)
                     |> DSet.distributeN numPartitions matrix
+                    |> DSet.cacheInMemory
                 // Force push DSet to cluster
                 do d |> DSet.fold (fun _ _ -> 0) (fun _ _ -> 0) 0 |> ignore
                 d

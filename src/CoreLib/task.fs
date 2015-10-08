@@ -836,7 +836,9 @@ and [<AllowNullLiteral; Serializable>]
                     else
                         for parti=0 to dset.NumPartitions - 1 do 
                             dset.InitializeCachePartition( parti )
-                            dset.ThreadPool.EnqueueRepeatableFunction ( dset.NewThreadToExecuteDownstream jbInfo parti ) (jobAction.CTS) parti ( fun pi -> sprintf "ExecuteDownStream Job WildMixFrom DSet %s:%s partition %d" dset.Name dset.VersionString pi )
+                            //dset.ThreadPool.EnqueueRepeatableFunction ( dset.NewThreadToExecuteDownstream jbInfo parti ) (jobAction.CTS) parti ( fun pi -> sprintf "ExecuteDownStream Job WildMixFrom DSet %s:%s partition %d" dset.Name dset.VersionString pi )
+                            Component<_>.AddWorkItem ( dset.NewThreadToExecuteDownstream jbInfo parti ) dset.ThreadPool (jobAction.CTS) parti ( fun pi -> sprintf "ExecuteDownStream Job WildMixFrom DSet %s:%s partition %d" dset.Name dset.VersionString pi ) |> ignore
+                        Component<_>.ExecTP dset.ThreadPool
                         dset.ThreadPool.TryExecute()
                 )
             | _ -> 
@@ -1195,10 +1197,12 @@ and [<AllowNullLiteral; Serializable>]
 
                         for parti in usePartitions do
                             // tasks.AddTask( x.CancellationToken.Token, parti, syncAction jbInfo parti )
-                            tasks.EnqueueRepeatableFunction (wrappedSyncAction jbInfo parti) jobAction.CTS parti ( fun pi -> sprintf "Job %A, %s Task %s:%s, DSet %s:%s, part %d" x.JobID taskName x.Name x.VersionString dset.Name dset.VersionString pi )
+                            //tasks.EnqueueRepeatableFunction (wrappedSyncAction jbInfo parti) jobAction.CTS parti ( fun pi -> sprintf "Job %A, %s Task %s:%s, DSet %s:%s, part %d" x.JobID taskName x.Name x.VersionString dset.Name dset.VersionString pi )
+                            Component<_>.AddWorkItem (wrappedSyncAction jbInfo parti) tasks jobAction.CTS parti ( fun pi -> sprintf "Job %A, %s Task %s:%s, DSet %s:%s, part %d" x.JobID taskName x.Name x.VersionString dset.Name dset.VersionString pi ) |> ignore
                         try 
                         // JinL: 05/10/2014, need to find a way to wait for all intermediate task.  
                             if not (!bExistPriorTasks) then 
+                                Component<_>.ExecTP tasks
                                 let bDone = tasks.WaitForAll( -1 )
                                 endJob jbInfo
                                 // Release the resource of the execution engine

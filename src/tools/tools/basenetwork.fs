@@ -669,12 +669,12 @@ type [<AllowNullLiteral>] internal ComponentBase() =
 
     static let componentCount = ref -1
     let componentId = Interlocked.Increment(componentCount)
-    let mutable sharedStatePosition = -1
+    let mutable sharedStateObj : obj = null
 
     static member GetNextId() : int = Interlocked.Increment(componentCount)
     member x.ComponentId with get() = componentId
     member val Notify : SharedComponentState->unit = (fun s -> ()) with get, set
-    member x.SharedStatePosition with get() = sharedStatePosition and set(v) = sharedStatePosition <- v
+    member x.SharedStateObj with get() = sharedStateObj and set(v) = sharedStateObj <- v
 
 and [<AllowNullLiteral>] internal SharedComponentState() =
     let items = new ConcurrentDictionary<int, ComponentBase>()
@@ -695,33 +695,36 @@ and [<AllowNullLiteral>] internal SharedComponentState() =
 
     member x.Items with get() = items
 
+    // allow threadpool to close
+    member val AllowClose = false with get, set
+
     // static add
-    static member val SharedState = new Dictionary<int, obj*SharedComponentState>() with get
+    static member val SharedState = new Dictionary<obj, SharedComponentState>() with get
     static member Add(id : int, c : ComponentBase, o : obj) =
         let sc : SharedComponentState ref = ref null
-        let position = ref -1
         lock (SharedComponentState.SharedState) (fun _ ->
             for s in SharedComponentState.SharedState do
-                let (o1, sc1) = s.Value
-                if (Object.ReferenceEquals(o1, o)) then
+                let sc1 = s.Value
+                if (Object.ReferenceEquals(s.Key, o)) then
                     sc := sc1
-                    position := s.Key
             if Utils.IsNull !sc then
                 sc := new SharedComponentState()
-                position := SharedComponentState.SharedState.Count
-                SharedComponentState.SharedState.[!position] <- (o, !sc)
+                SharedComponentState.SharedState.[o] <- !sc
             (!sc).Add(id, c)
         )
-        !position
+        o
         
-    static member Remove(id : int, key : int) =
-        if (key >= 0) then
+    static member Remove(id : int, key : obj) : bool =
+        let bDone = ref false
+        if (Utils.IsNotNull key) then
             lock (SharedComponentState.SharedState) (fun _ ->
-                let (o, sc) = SharedComponentState.SharedState.[key]
+                let sc = SharedComponentState.SharedState.[key]
                 sc.Remove(id)
                 if (sc.Items.Count = 0) then
+                    bDone := sc.AllowClose
                     SharedComponentState.SharedState.Remove(key) |> ignore
             )
+        !bDone
 
 /// A component class provides a generic tool to build a processing pipeline using a threadpool
 /// It provides the following functionality:
@@ -924,13 +927,16 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
             handle.Set() |> ignore
 
     // process on own thread
-    static member private ProcessOnOwnThread(o : obj) =
+    static member private ProcessOnOwnThread (o : obj) (fn : Option<unit->unit>) =
         let action = o :?> (unit->ManualResetEvent*bool)
         let mutable bContinue = true
         while (bContinue) do
             let (waitEvent, bStop) = action()
             if (bStop) then
                 bContinue <- false
+                match fn with
+                    | None ->()
+                    | Some(cb) -> cb()
             else if Utils.IsNotNull waitEvent then
                 waitEvent.WaitOne() |> ignore
 
@@ -939,8 +945,9 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// <param name="infoFunc">A function which returns information about the thread</param>
     static member StartProcessOnOwnThread(proc : unit->ManualResetEvent*bool)
                                          (tpKey : 'TP)
+                                         (fnCb : Option<unit->unit>)
                                          (infoFunc : 'TP -> string) : unit =
-        let thread = ThreadTracking.StartThreadForAction ( fun _ -> infoFunc tpKey ) (Action<_>( fun _ -> Component<'T>.ProcessOnOwnThread(proc) ))
+        let thread = ThreadTracking.StartThreadForAction ( fun _ -> infoFunc tpKey ) (Action<_>( fun _ -> Component<'T>.ProcessOnOwnThread(proc) (fnCb)))
         thread.IsBackground <- false
         ()
 //        let threadStart = new ParameterizedThreadStart(Component<'T>.ProcessOnOwnThread)
@@ -949,21 +956,76 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
 //        thread.IsBackground <- false
 //        thread.Start(proc)
 
-    /// Start work item on pool
+    // thread pool to process on
+    static member internal StartOnThreadPool(threadPool : ThreadPoolWithWaitHandles<'TP>)
+                                            (processFunc : unit -> ManualResetEvent*bool)
+                                            (cts : CancellationToken)
+                                            (tpKey : 'TP)
+                                            (infoFunc : 'TP -> string) =
+        threadPool.EnqueueRepeatableFunction processFunc cts tpKey infoFunc
+        threadPool.TryExecute()
+
+    // thread pool using system thread pool
+    static member internal StartOnSystemThreadPool(processFunc : unit->ManualResetEvent*bool) (finishCb : Option<unit->unit>) =
+        let waitAndContinue (o : obj) (bTimeOut : bool) =
+            let (rwh, handle, func) = o :?> RegisteredWaitHandle ref*ManualResetEvent*WaitCallback
+            if (not bTimeOut) then
+                //(!rwh).Unregister(handle) |> ignore
+                System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
+        let wrappedFunc (o : obj) : unit =
+            let func = o :?> WaitCallback
+            let (event, finish) = processFunc()
+            if (not finish) then
+                if (Utils.IsNotNull event) then
+                    let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
+                    rwh := ThreadPool.RegisterWaitForSingleObject(event, waitAndContinue, (rwh, event, func), -1, true)
+                else
+                    // queue again if not finished
+                    System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
+            else
+                match finishCb with
+                    | None -> ()
+                    | Some(cb) -> cb()
+                    
+        // start the work
+        let wc = new WaitCallback(wrappedFunc)
+        System.Threading.ThreadPool.QueueUserWorkItem(wc, wc) |> ignore
+
+    /// Add work item on pool, but don't necessarily start it until ExecTP is called
     /// <param name="threadPool">The thread pool to execute upon</param>
     /// <param name="tpKey">A key to identify the processing component</param>
     /// <param name="infoFunc">A function which returns information about the processing component</param>
-    static member internal StartWorkItem(func : unit->ManualResetEvent*bool)
-                                        (threadPool : ThreadPoolWithWaitHandles<'TP>)
-                                        (cts : CancellationToken)
-                                        (tpKey : 'TP)
-                                        (infoFunc : 'TP -> string) : int*int =
+    static member internal AddWorkItem(func : unit->ManualResetEvent*bool)
+                                      (threadPool : ThreadPoolWithWaitHandles<'TP>)
+                                      (cts : CancellationToken)
+                                      (tpKey : 'TP)
+                                      (infoFunc : 'TP -> string) =
         let compBase = new ComponentBase()
-        let sharedStatePosition = SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        Component<'T>.StartOnSystemThreadPool func
-        //Component<'T>.StartOnThreadPool threadPool func cts tpKey infoFunc
-        //Component<'T>.StartProcessOnOwnThread func tpKey infoFunc
-        (compBase.ComponentId, sharedStatePosition)
+        compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
+        let finishCb : Option<unit->unit> =
+            if (Utils.IsNull threadPool) then
+                None
+            else
+                threadPool.HandleDoneExecution.Reset() |> ignore
+                let fnFinish() =
+                    let bDone = SharedComponentState.Remove(compBase.ComponentId, compBase.SharedStateObj)
+                    if (bDone) then
+                        threadPool.HandleDoneExecution.Set() |> ignore
+                Some(fnFinish)
+        //Component<'T>.StartOnSystemThreadPool func compBase threadPool
+        threadPool.EnqueueRepeatableFunction func cts tpKey infoFunc
+        //Component<'T>.StartProcessOnOwnThread func tpKey finishCb infoFunc
+        //Prajna.Tools.ThreadPool.Current.AddWorkItem(func, finishCb, infoFunc(tpKey))
+
+    static member internal ExecTP(threadPool : ThreadPoolWithWaitHandles<'TP>) =
+        // now allow closing of threadpool
+        let (ret, value) = SharedComponentState.SharedState.TryGetValue(threadPool)
+        if (ret) then
+            value.AllowClose <- true
+            if (value.Items.Count = 0) then
+               threadPool.HandleDoneExecution.Set() |> ignore
+        else
+            threadPool.HandleDoneExecution.Set() |> ignore
 
     /// Start component processing on threadpool - internal as ThreadPoolWithWaitHandles is not internal
     /// <param name="threadPool>The thread pool to execute upon</param>
@@ -975,10 +1037,28 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                   (tpKey : 'TP)
                                   (infoFunc : 'TP -> string) : unit =
         proc <- Component.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
-        compBase.SharedStatePosition <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        Component<'T>.StartOnSystemThreadPool proc
+        compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
+        Component<'T>.StartOnSystemThreadPool proc None
         //Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
-        //Component<'T>.StartProcessOnOwnThread proc tpKey infoFunc
+        //Component<'T>.StartProcessOnOwnThread proc tpKey finishCb infoFunc
+        //Prajna.Tools.ThreadPool.Current.AddWorkItem(proc, None, infoFunc(tpKey))
+
+    /// Start work item on pool
+    /// <param name="threadPool">The thread pool to execute upon</param>
+    /// <param name="tpKey">A key to identify the processing component</param>
+    /// <param name="infoFunc">A function which returns information about the processing component</param>
+    static member internal StartWorkItem(func : unit->ManualResetEvent*bool)
+                                        (threadPool : ThreadPoolWithWaitHandles<'TP>)
+                                        (cts : CancellationToken)
+                                        (tpKey : 'TP)
+                                        (infoFunc : 'TP -> string) =
+        let compBase = new ComponentBase()
+        compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
+        Component<'T>.StartOnSystemThreadPool func None
+        //Component<'T>.StartOnThreadPool threadPool func cts tpKey infoFunc
+        //Component<'T>.StartProcessOnOwnThread func tpKey finishCb infoFunc
+        //Prajna.Tools.ThreadPool.Current.AddWorkItem(func, None, infoFunc(tpKey))
+        compBase
 
     //  internally overwrites Dequeue and Proc (Dequeue reuses old Dequeue for internal dequeueing)
     /// Initialize the use of multiple processors - this is useful if multiple actions need to be performed
@@ -1072,7 +1152,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                 Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ThreadPool Function Work item %A terminates" (infoFunc(tpKey))))
                 closeAction()
                 // no more running on thread pool
-                SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStatePosition)
+                SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStateObj) |> ignore
                 x.ProcWaitHandle <- null
                 x.InProcessing <- false
                 (null, true)
@@ -1100,7 +1180,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                     Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ThreadPool Function Work item %A terminates" (infoFunc(tpKey))))
                     closeAction()
                     // no more running on thread pool
-                    SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStatePosition)
+                    SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStateObj) |> ignore
                     x.ProcWaitHandle <- null
                     x.InProcessing <- false
                     (null, true)
@@ -1138,36 +1218,6 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                     ev.WaitOne(x.WaitTimeMs) |> ignore
                 count <- count + 1
         (ev, closed)
-
-    // thread pool to process on
-    static member internal StartOnThreadPool(threadPool : ThreadPoolWithWaitHandles<'TP>)
-                                            (processFunc : unit -> ManualResetEvent*bool)
-                                            (cts : CancellationToken)
-                                            (tpKey : 'TP)
-                                            (infoFunc : 'TP -> string) =
-        threadPool.EnqueueRepeatableFunction processFunc cts tpKey infoFunc
-        threadPool.TryExecute()
-
-    // thread pool using system thread pool
-    static member internal StartOnSystemThreadPool(processFunc : unit->ManualResetEvent*bool) =
-        let waitAndContinue (o : obj) (bTimeOut : bool) =
-            let (rwh, handle, func) = o :?> RegisteredWaitHandle ref*ManualResetEvent*WaitCallback
-            if (not bTimeOut) then
-                //(!rwh).Unregister(handle) |> ignore
-                System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
-        let wrappedFunc (o : obj) : unit =
-            let func = o :?> WaitCallback
-            let (event, finish) = processFunc()
-            if (not finish) then
-                if (Utils.IsNotNull event) then
-                    let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
-                    rwh := ThreadPool.RegisterWaitForSingleObject(event, waitAndContinue, (rwh, event, func), -1, true)
-                else
-                    // queue again if not finished
-                    System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
-        // start the work
-        let wc = new WaitCallback(wrappedFunc)
-        System.Threading.ThreadPool.QueueUserWorkItem(wc, wc) |> ignore
 
     // process Component of obj which is unit->ManualResetEvent functions - can be used as Proc action
     static member internal ProcessFn (fn : obj) : bool*ManualResetEvent =

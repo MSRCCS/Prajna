@@ -1551,7 +1551,9 @@ and [<AllowNullLiteral>]
                 for pi = 0 to func.Length - 1 do
                     let funci = func.[pi]
                         // Only one set of threads will be launched. 
-                    x.ThreadPool.EnqueueRepeatableFunction funci (jobAction.CTS) ( parti * func.Length + pi ) ( fun _ -> nameFunc(pi))
+                    //x.ThreadPool.EnqueueRepeatableFunction funci (jobAction.CTS) ( parti * func.Length + pi ) ( fun _ -> nameFunc(pi))
+                    Component<_>.AddWorkItem funci (x.ThreadPool) (jobAction.CTS) ( parti * func.Length + pi ) ( fun _ -> nameFunc(pi)) |> ignore
+                Component<_>.ExecTP x.ThreadPool
                 x.ThreadPool.TryExecute()
         )
     member internal x.FreeBaseResource( jbInfo : JobInformation ) = 

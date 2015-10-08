@@ -2361,13 +2361,20 @@ and
                         x.JobCallback( cmd, peeri, ms, jobID, name, verNumber, cl )
                 } )
     member val private nExecutorForDisposer = ref 0 with get 
+    member val private nExecutorForUnregister = ref 0 with get
     /// Free all resource related to the Job
-    member x.FreeJobResource() = 
-        if Interlocked.Increment( x.nExecutorForDisposer )= 1 then 
+    member private x.DisposeBlobsAndMetadataStream() = 
+        if (Interlocked.Increment(x.nExecutorForDisposer) = 1) then
             x.UnallocateAllBlobs()
+            if (Utils.IsNotNull x.MetadataStream) then
+                x.MetadataStream.Dispose()
+                x.MetadataStream <- null
             if Utils.IsNotNull jobMetadataStream then 
                 jobMetadataStream.Dispose()
-                jobMetadataStream <- null 
+                jobMetadataStream <- null             
+    member x.FreeJobResource() = 
+        x.DisposeBlobsAndMetadataStream()
+        if Interlocked.Increment( x.nExecutorForUnregister )= 1 then             
             for cluster in x.Clusters do 
                 cluster.UnRegisterCallback( x.JobID, [| ControllerCommand( ControllerVerb.Set, ControllerNoun.Metadata ); 
                                                            ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Job ); 
@@ -2743,14 +2750,7 @@ and
     member x.Ready() = 
         if not bReady then 
             bReady <- x.ReadyMetaData()
-            if (Utils.IsNotNull x.MetadataStream) then
-                x.MetadataStream.Dispose()
-            if (Utils.IsNotNull jobMetadataStream) then
-                jobMetadataStream.Dispose()
-            for b in x.Blobs do
-                if (Utils.IsNotNull b.Stream) then
-                    (b.Stream :> IDisposable).Dispose()
-                    b.Stream <- null            
+            x.DisposeBlobsAndMetadataStream()      
             Logger.LogF( x.JobID, 
                          LogLevel.MildVerbose, ( fun _ -> let t1 = (PerfADateTime.UtcNowTicks())
                                                           sprintf "Job %s, ready in %.2f ms"

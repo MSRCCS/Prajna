@@ -246,10 +246,10 @@ type JobDependencies() =
     member val JobName : string = null with get, set
     /// Job Directory of the remote container 
     member val JobDirectory = "" with get, set
-    member val internal FileDependencies = new List<JobDependency>() with get
+    member val internal FileDependencies = List<JobDependency>() with get
     /// Additional Environmental setting required by the remote container 
     /// It will be used to set ProcessStartInfo.EnvironmentVariables during the launch of the remote container
-    member val EnvVars : List<string*string> = new List<string*string>() with get
+    member val EnvVars : List<string*string> = List<string*string>() with get
     
     /// Job File Dependencies Hash
     member internal x.JobDependencySHA256() =
@@ -537,6 +537,7 @@ type JobDependencies() =
             System.Threading.Interlocked.Increment ( x.nDependencyChanged ) |> ignore
     /// The serializer collection is always coded to a separate bytestream, to be wrapped for delivery 
     /// The bytestream is only deserialized at the remote execution container, not at daemon. 
+    // Caller needs to be responsible on releasing the returned MemStream
     member internal x.PackCustomizedFuncCollection( ) = 
         let ms = new MemStream()
         let arrMemoryManager = x.MemoryManagerCollection |> Seq.toArray

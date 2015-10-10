@@ -101,6 +101,13 @@ type internal PartitionCacheBase( cacheType: CacheKind ) =
     abstract ToSeq : unit -> seq< BlobMetadata * Object >
     abstract Reset: unit -> unit
     abstract HandlesToMonitor: string * IEnumerable<ManualResetEvent> -> unit
+    
+    // Note: Temporary fix: we have a derived type PartitionCacheQueue<'U> is IDisposable now
+    //       however, once it's created it was always casted back to PartitionCacheBase to the owner
+    //       to implement the interface here to make the owner to cast it to IDisposable to call the 
+    //       derived classes "Dispose" method if exists. 
+    interface IDisposable with
+        member x.Dispose() = ()
 
 /// Cache Structure used to cache a partition of Prajna
 [<AllowNullLiteral>]
@@ -269,9 +276,18 @@ type internal PartitionCacheQueue<'U>( cacheType, parti:int, serializationLimit:
         let meta = x.LastMetadata()
         Seq.singleton (meta, null )
     static member ConstructPartitionCacheQueue( cacheType:CacheKind, parti:int, serializationLimit:int ) = 
-        PartitionCacheQueue<'U>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
+        // caller needs to be responsible for dispoing the returned queue
+        new PartitionCacheQueue<'U>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
     override x.Reset() = 
         x.QueueReset()
+
+    interface IDisposable with
+        member x.Dispose() = 
+            x.CanRead.Dispose()
+            x.CanWrite.Dispose()
+            // for x.MonitorHandles, assume the caller who passes those handles to x.HandlesToMonitor is responsible for disposing the handles.
+            // Currently, "x.HandlesToMonitor" is not called anywhere
+            GC.SuppressFinalize(x)
 
 /// Cache Structure used to cache a partition of Prajna
 [<AllowNullLiteral>]
@@ -364,7 +380,7 @@ type internal PartitionCacheEnumerable<'U>( cacheType, parti:int, serializationL
         x.ReserializationThis()
         x.BaseToSeq() 
     static member ConstructPartitionCacheEnumerable( cacheType:CacheKind, parti:int, serializationLimit:int ) = 
-        PartitionCacheEnumerable<'U>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
+        new PartitionCacheEnumerable<'U>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
 
 /// Cache Structure used to cache a partition of Prajna
 /// This one uses List<_>, we find that it is not observably faster than a ConcurrentQueue, and since ConcurrentQueue has better property, it is used as default. 
@@ -454,7 +470,7 @@ type internal PartitionCacheList<'U>( cacheType, parti:int, serializationLimit:i
         x.ReserializationThis()
         x.BaseToSeq() 
     static member ConstructPartitionCacheEnumerable( cacheType:CacheKind, parti:int, serializationLimit:int ) = 
-        PartitionCacheList<'U>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
+        new PartitionCacheList<'U>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
 
 /// Cache Structure used to cache a partition of Prajna
 /// The ConcurrentDictionary carries a penalty compared with ConcurrentQueue, 
@@ -509,7 +525,7 @@ type internal PartitionCacheKeyValueStore<'K,'V>(cacheType, parti:int, serializa
         x.ReserializationDerived( if Utils.IsNull x.CachedConcurrentDictionary then Seq.empty else x.CachedConcurrentDictionary |> Seq.map ( fun pair -> (pair.Key, pair.Value) ) )
         x.BaseToSeq()        
     static member ConstructPartitionCacheKeyValue( cacheType:CacheKind, parti:int, serializationLimit:int ) = 
-        PartitionCacheKeyValueStore<'K,'V>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
+        new PartitionCacheKeyValueStore<'K,'V>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
 
 // Cache Structure used to cache a partition of Prajna
 [<AllowNullLiteral>]
@@ -563,7 +579,7 @@ type internal PartitionCacheSortedKeyValueStore<'K,'V>(comparer:IComparer<'K>, c
         x.ReserializationDerived( if Utils.IsNull x.CachedSortedDictionary then Seq.empty else x.CachedSortedDictionary |> Seq.map ( fun pair -> (pair.Key, pair.Value) ) )
         x.BaseToSeq()    
     static member ConstructPartitionCacheSortedKeyValue( comparer:IComparer<'K> ) ( cacheType:CacheKind, parti:int, serializationLimit:int ) = 
-        PartitionCacheSortedKeyValueStore<'K,'V>( comparer, cacheType, parti, serializationLimit ) :> PartitionCacheBase
+        new PartitionCacheSortedKeyValueStore<'K,'V>( comparer, cacheType, parti, serializationLimit ) :> PartitionCacheBase
     
 
 // Cache Structure used to cache a partition of Prajna
@@ -617,7 +633,7 @@ type internal PartitionCacheSortedSet<'U>(comparer:IComparer<'U>, cacheType, par
         x.ReserializationDerived( if Utils.IsNull x.CachedSortedDictionary then Seq.empty else x.CachedSortedDictionary |> Seq.map ( fun pair -> pair.Key ) )
         x.BaseToSeq()         
     static member ConstructPartitionCacheSortedSet ( comparer:IComparer<'U>) ( cacheType:CacheKind, parti:int, serializationLimit:int ) = 
-        PartitionCacheSortedSet<'U>( comparer, cacheType, parti, serializationLimit ) :> PartitionCacheBase
+        new PartitionCacheSortedSet<'U>( comparer, cacheType, parti, serializationLimit ) :> PartitionCacheBase
 
 [<AllowNullLiteral>]
 type internal PartitionCacheConcurrentQueue<'U>(cacheType, parti, serializationLimit) = 
@@ -673,4 +689,4 @@ type internal PartitionCacheConcurrentQueue<'U>(cacheType, parti, serializationL
     override x.ToSeq() = 
         if Utils.IsNull x.CachedQueue then Seq.empty else x.CachedQueue :> seq<_> 
     static member ConstructPartitionCacheConcurrentQueue ( cacheType:CacheKind, parti:int, serializationLimit:int ) = 
-        PartitionCacheConcurrentQueue<'U>( cacheType, parti, serializationLimit ) :> PartitionCacheBase
+        new PartitionCacheConcurrentQueue<'U>( cacheType, parti, serializationLimit ) :> PartitionCacheBase

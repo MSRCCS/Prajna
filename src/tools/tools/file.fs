@@ -76,7 +76,7 @@ module  FileTools =
     let internal MakeFileAccessible (fname ) = 
         if not Runtime.RunningOnMono then
             let fSecurity = File.GetAccessControl( fname ) 
-            let everyoneSid = new SecurityIdentifier( WellKnownSidType.WorldSid, null )
+            let everyoneSid = SecurityIdentifier( WellKnownSidType.WorldSid, null )
             fSecurity.AddAccessRule( new FileSystemAccessRule( everyoneSid, FileSystemRights.FullControl, AccessControlType.Allow ) )
             File.SetAccessControl( fname, fSecurity )
         else
@@ -85,6 +85,7 @@ module  FileTools =
 
     /// <summary>
     /// Create a file stream to write, and make the file accessible to everyone (for shared use in a cluster)
+    /// Caller should be responsible for dispose the returned stream.
     /// </summary>
     let CreateFileStreamForWrite( fname ) = 
         let fStream = new FileStream( fname, FileMode.Create, Security.AccessControl.FileSystemRights.FullControl, 
@@ -93,6 +94,7 @@ module  FileTools =
         MakeFileAccessible (fname )
         fStream
 
+    // Caller needs to be responsible for dispose the returned fStream
     let internal CreateFileStreamForWriteWOBuffer( fname ) = 
         let fStream = new FileStream( fname, FileMode.Create, Security.AccessControl.FileSystemRights.FullControl, 
                                       FileShare.Read, 0, FileOptions.WriteThrough )
@@ -347,7 +349,6 @@ module  FileTools =
     let ReadFromFile (filename:string) =
         use file = new StreamReader(filename)
         let ret = file.ReadToEnd()
-        file.Close()
         ret
     
     /// save a string to file, do not write if we find that the file is not writable.

@@ -342,7 +342,7 @@ type StreamBaseExtension =
     [<Extension>]
     static member internal Serialize( x : StreamBase<'T>, obj )=
         StreamBaseExtension.BinaryFormatterSerializeFromTypeName(x, obj, obj.GetType().FullName)
-//        let fmt = new Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+//        let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
 //        if Utils.IsNull obj then 
 //            fmt.Serialize( x, NullObjectForSerialization() )
 //        else
@@ -351,7 +351,7 @@ type StreamBaseExtension =
     /// Deserialize an object from bytestream with BinaryFormatter, support deserialization of null. 
     [<Extension>]
     static member internal Deserialize(x : StreamBase<'T>) =
-//        let fmt = new Runtime.Serialization.Formatters.Binary.BinaryFormatter()
+//        let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
         let fmt = CustomizedSerialization.GetBinaryFormatter(x.GetNewMs, x.GetNewMsByteBuf)
         let o = fmt.Deserialize( x )
         match o with 

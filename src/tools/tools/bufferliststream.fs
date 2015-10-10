@@ -1,4 +1,4 @@
-﻿(*---------------------------------------------------------------------------
+(*---------------------------------------------------------------------------
     Copyright 2013 Microsoft
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -81,7 +81,7 @@ type [<AllowNullLiteral>] internal SharedPool<'K,'T when 'T :> IRefCounter<'K> a
         if (BufferListDebugging.DebugLeak) then
             Logger.LogF(level, fun _ -> sprintf "SharedPool %A has %d objects in use" info usedList.Count)
             Logger.LogF(level, fun _ ->
-                let sb = new System.Text.StringBuilder()
+                let sb = System.Text.StringBuilder()
                 for o in usedList do
                     sb.AppendLine(sprintf "Used object %A : %A : %A : %A" o.Key o.Value o.Value.Key o.Value.DebugInfo) |> ignore
 #if DEBUGALLOCS
@@ -257,7 +257,7 @@ type [<AbstractClass>] [<AllowNullLiteral>] RefCountBase() =
 
     interface IRefCounter<string> with
 #if DEBUGALLOCS
-        override val Allocs = new ConcurrentDictionary<string, string>() with get
+        override val Allocs = ConcurrentDictionary<string, string>() with get
 #endif
         override x.Key with get() = key
         override val DebugInfo : string = "" with get, set
@@ -784,7 +784,7 @@ type StreamBaseByte =
 type RefCntList<'T,'TBase when 'T :> SafeRefCnt<'TBase> and 'TBase:null and 'TBase:>IRefCounter<string>>() =
     inherit RefCountBase()
     static let defaultInitNumElem = 8
-    let mutable list : List<'T> = new List<'T>(defaultInitNumElem)
+    let mutable list : List<'T> = List<'T>(defaultInitNumElem)
     let releaseList(_) =
         for l in list do
             l.Release()
@@ -801,7 +801,7 @@ type RefCntList<'T,'TBase when 'T :> SafeRefCnt<'TBase> and 'TBase:null and 'TBa
 type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
     inherit StreamBase<'T>()
 
-    static let streamsInUse = new ConcurrentDictionary<int64, BufferListStream<'T>>()
+    static let streamsInUse = ConcurrentDictionary<int64, BufferListStream<'T>>()
     static let streamsInUseCnt = ref 0L
 
     static let bufferSizeDefault = 64000
@@ -879,7 +879,7 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
 #endif
         Interlocked.Increment(streamsInUseCnt) |> ignore
         if (bAlloc) then
-            let newList = new RefCntList<RBufPart<'T>,RefCntBuf<'T>>()
+            let newList = RefCntList<RBufPart<'T>,RefCntBuf<'T>>()
             bufList <- newList.List
             bufListRef <- new SafeRefCnt<RefCntList<RBufPart<'T>,RefCntBuf<'T>>>("BufferList", newList)
         getNewWriteBuffer <- x.GetStackElem
@@ -935,7 +935,7 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
 #if DEBUG
         if (BufferListDebugging.DebugLeak) then
             Logger.LogF (LogLevel.MildVerbose, fun _ ->
-                let sb = new System.Text.StringBuilder()
+                let sb = System.Text.StringBuilder()
                 sb.AppendLine(sprintf "Num streams in use: %d" streamsInUse.Count) |> ignore
                 for s in streamsInUse do
                     let (key, value) = (s.Key, s.Value)

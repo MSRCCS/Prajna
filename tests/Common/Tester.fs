@@ -28,6 +28,7 @@ type Tester () =
         // From: http://blogs.msdn.com/b/tess/archive/2008/08/19/questions-on-application-domains-application-pools-and-unhandled-exceptions.aspx,
         // "all appdomains in the process share the same GC, threadpool, finalizer thread etc"
         // GC.Collect()
+        // GC.WaitForPendingFinalizers()
         let proc = Diagnostics.Process.GetCurrentProcess()
         Logger.LogF( LogLevel.Info, 
                      ( fun _ -> sprintf "##### Test %s ends: %s (%i ms) (%i THs, GC Heap: %f MB, Private Memory %f MB) #####" 

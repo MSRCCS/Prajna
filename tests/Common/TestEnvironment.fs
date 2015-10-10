@@ -49,6 +49,7 @@ type TestEnvironment private () =
     
     let reportProcessStatistics msg = 
         // GC.Collect()
+        // GC.WaitForPendingFinalizers()
         let proc = Process.GetCurrentProcess()
         Logger.Log(LogLevel.Info, 
                    sprintf "%s -- # of TH: %i, GC Heap: %f MB, Private Memory: %f MB" 

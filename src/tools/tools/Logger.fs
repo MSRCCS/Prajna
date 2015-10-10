@@ -148,14 +148,14 @@ type internal DefaultLogger () =
         // File created are given full control by everyone, this eases the job of executing file under multiuser scenario
         if not Runtime.RunningOnMono then
             let fSecurity = File.GetAccessControl( useFilename ) 
-            let everyoneSid = new SecurityIdentifier( WellKnownSidType.WorldSid, null )
+            let everyoneSid = SecurityIdentifier( WellKnownSidType.WorldSid, null )
             fSecurity.AddAccessRule( new FileSystemAccessRule( everyoneSid, FileSystemRights.FullControl, AccessControlType.Allow ) )
             File.SetAccessControl( useFilename, fSecurity )
         Trace.Listeners.Add( useListener ) |> ignore 
         if Utils.IsNotNull logListener then 
             Trace.Listeners.Remove( logListener )
             logListener.Flush()
-            logListener.Close()
+            logListener.Dispose()
         logFile <- useFilename
         logListener <- useListener
 
@@ -260,8 +260,8 @@ type internal DefaultLogger () =
                 // This is a rare place in the code base that we have an untracked thread. The reason is
                 // it is used by ThreadTracking, and can't use ThreadTracking
                 // DoFlush contains blocking code, and is not suitable to be launched in Task. 
-                let threadDelegate = new ThreadStart( DoFlush ) 
-                let thread = new Thread( threadDelegate ) 
+                let threadDelegate = ThreadStart( DoFlush ) 
+                let thread = Thread( threadDelegate ) 
                 thread.Start()
 
     let EmitLogEntry(logLevel : LogLevel, message : string) =
@@ -277,7 +277,7 @@ type internal DefaultLogger () =
         let str =
             if shouldShowStackTrace || logLevel <= LogLevel.Warning then 
                 // Debug & release may need to peel of different trace
-                let stack = new StackTrace (1, true)
+                let stack = StackTrace (1, true)
                 if Utils.IsNotNull stack then
                     let frame = stack.GetFrame(0)
                     if Utils.IsNotNull frame then
@@ -343,6 +343,12 @@ type internal DefaultLogger () =
         member this.GetLogFile () =
             logFile
 
+    interface IDisposable with
+        member x.Dispose() = 
+            if Utils.IsNotNull logListener then
+                logListener.Dispose()
+            GC.SuppressFinalize(x)
+
 /// Logger
 type Logger internal ()=    
     // Note: the type contains APIs that can be shared by both F#/C# APIs
@@ -351,7 +357,9 @@ type Logger internal ()=
     static member val DefaultLogId = "Default" with get
 
     /// The logger provider that is used for logging
-    static member val LoggerProvider : ILoggerProvider =  let logger = DefaultLogger() :> ILoggerProvider
+    static member val LoggerProvider : ILoggerProvider =  // Note: DefaultLogger is IDisposable. However, it is assigned to a static member of Logger class
+                                                          // thus it will only be finalized/disposed when the appdomain unloads. It should be OK.
+                                                          let logger = (new DefaultLogger()) :> ILoggerProvider
                                                           logger 
                                                           with get, set
 

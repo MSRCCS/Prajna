@@ -635,16 +635,6 @@ and [<Serializable; AllowNullLiteral>]
             bInitialized <- true    
             x.SetupPartitionMapping() 
 
-    /// Send the current cluster information to all clients
-//    member x.SendClusterInfo() = 
-//        let cluster = x.Cluster.ClusterStatus :> ClusterInfoBase
-//        let ms = new MemStream( 10240 ) 
-//        ms.Serialize( cluster )
-//        let cmd = ControllerCommand( ControllerVerb.Set, ControllerNoun.ClusterInfo ) 
-//        for q in x.Queues do 
-//            if Utils.IsNotNull q then
-//                q.ToSend( cmd, ms ) 
-
     member internal x.IncrementMetaDataVersion() = 
         x.MetaDataVersion <- x.MetaDataVersion + 1
     member internal x.PackWithPeerInfo (peeri:int) (ms:MemStream) flagPack = 
@@ -1006,7 +996,7 @@ and [<Serializable; AllowNullLiteral>]
 //            | Some (cl ) -> cl
 //            | None -> 
 //                if File.Exists clusterName then 
-//                    let loadCluster = new Cluster( null, clusterName )
+//                    let loadCluster = Cluster( null, clusterName )
 //                    ClusterFactory.Store( clusterName, loadCluster )
 //                    loadCluster
 //                else
@@ -1318,8 +1308,8 @@ and [<Serializable; AllowNullLiteral>]
         peerQueue.ToSend( cmd, ms )
 
         if x.ConfirmDelivery then 
-//            // let sha512 = new Security.Cryptography.SHA512CryptoServiceProvider()
-//            let sha512 = new Security.Cryptography.SHA512Managed()
+//            // let sha512 = Security.Cryptography.SHA512CryptoServiceProvider()
+//            let sha512 = Security.Cryptography.SHA512Managed()
 //            let res = sha512.ComputeHash( buf, offset, length )
             let res = ms.ComputeSHA512(0L, ms.Length)
             // Overwrite old item, if there is one. s
@@ -3066,6 +3056,13 @@ and [<Serializable; AllowNullLiteral>]
                     jbInfo.PartitionFailure( ex, "___ NewThreadToExecuteDownstream ___ ", parti )
                     null, true
         )
+
+//    Note: make it disposable affect usablity, currently rely on finalizer
+//    interface IDisposable with
+//        member x.Dispose() = 
+//            x.MappingInfoUpdatedEvent.Dispose()
+//            // dispose remaining items in deliveryQueue
+//            // walk the dependence graph to dispose DStreams
 
 // Data structure related to an instance of the job 
 // E.g., what partition has been read, remapped, etc.. 

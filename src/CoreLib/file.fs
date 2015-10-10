@@ -283,3 +283,8 @@ type internal HDDStream() =
                     bFind.[i] <- true
         bFind
             
+    interface IDisposable with
+        member x.Dispose() = 
+            if Utils.IsNotNull fStream then
+                fStream.Dispose()
+            GC.SuppressFinalize(x);

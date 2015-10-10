@@ -755,6 +755,7 @@ type internal SingleJobActionGeneric<'T when 'T :> JobLifeCycle and 'T : null >(
 type internal SingleJobActionApp ( jobLifeCycleObj: JobLifeCycle ) = 
     inherit SingleJobActionGeneric<JobLifeCycle>( jobLifeCycleObj )
     member x.LifeCycleObject with get() = jobLifeCycleObj
+    // caller is responsible for disposing the returned SingleJobActionApp
     static member TryFind( jobID: Guid ) = 
         let lifeCycleObj = JobLifeCycleCollectionApp.TryFind( jobID)
         if Utils.IsNull lifeCycleObj then 
@@ -766,6 +767,7 @@ type internal SingleJobActionApp ( jobLifeCycleObj: JobLifeCycle ) =
                 null 
             else
                 jobActionObj
+    // caller is responsible for disposing the returned SingleJobActionApp
     static member TryEnter( jobLifeCycleObj ) = 
         let jobActionObj = new SingleJobActionApp( jobLifeCycleObj )
         if jobActionObj.IsCancelled then 
@@ -773,6 +775,7 @@ type internal SingleJobActionApp ( jobLifeCycleObj: JobLifeCycle ) =
             null 
         else
             jobActionObj
+    // caller is responsible for disposing the returned SingleJobActionApp
     static member TryEnterAndThrow( jobLifeCycleObj ) = 
         let jobActionObj = new SingleJobActionApp( jobLifeCycleObj )
         if jobActionObj.IsCancelled then 
@@ -1151,7 +1154,7 @@ and [<AllowNullLiteral>]
     DistributedObject internal ( cl: Cluster, ty:FunctionParamType, name:string, ver: DateTime) as this = 
     inherit DParam( cl, name, ver) 
     internal new () = 
-        DistributedObject( null, FunctionParamType.None, "", DateTime.MinValue )
+        new DistributedObject( null, FunctionParamType.None, "", DateTime.MinValue )
 
     /// <summary> 
     /// Blob that represent the coded stream of the current object. It is used to speed up serialization (i.e., if the Hash exists, we assume 
@@ -1458,8 +1461,9 @@ and [<AllowNullLiteral>]
 
     member val internal CloseAllStreams : bool -> unit = fun _ -> () with get, set
     member val internal TasksWaitAll = None with get, set
+    // WaitForUpstreamCanCloseEvents is not the owner of the ManualResetEvent's, and is not responsible for disposing them
     member val internal WaitForUpstreamCanCloseEvents = List<ManualResetEvent>() with get
-    member internal x.SetUpstreamCanCloseEvent( event ) = 
+    member internal x.SetUpstreamCanCloseEvent( event ) =         
         x.WaitForUpstreamCanCloseEvents.Clear()
         x.WaitForUpstreamCanCloseEvents.Add( event ) 
     member internal  x.SetUpstreamCanCloseEvents( events ) = 
@@ -1700,14 +1704,27 @@ and [<AllowNullLiteral>]
     member private x.NetworkReadyImpl( jbInfo ) = 
         x.BaseNetworkReady( jbInfo ) |> ignore
 
+    member internal x.DisposeNativeResource() = 
+         x.CanCloseDownstreamEvent.Dispose()
+         x.AllPeerClosedEvent.Dispose()
+
+//    Note: cannot make DistributedObject disposable, otherwise, DSet will be, which affects its usablility
+//          need a better design
+//    interface IDisposable with
+//        member x.Dispose() = 
+//            if Utils.IsNotNull x.ThreadPool then
+//                (x.ThreadPool :> IDisposable).Dispose()
+//            x.CanCloseDownstreamEvent.Dispose()
+//            x.AllPeerClosedEvent.Dispose()
+//            GC.SuppressFinalize(x)
+
 // A global variable in Prajna
 [<Serializable; AllowNullLiteral>]
 type internal GV( cl, name, ver) = 
     inherit DistributedObject( cl, FunctionParamType.GV, name, ver )
     new () = 
         GV( null, DeploymentSettings.GetRandomName(), (PerfDateTime.UtcNow()) )
-
-
+        
 // Prajna Aggregate functions
 [<AllowNullLiteral>]
 type internal AggregateFunction( func: Object -> Object -> Object ) = 

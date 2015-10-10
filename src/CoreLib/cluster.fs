@@ -140,18 +140,34 @@ type internal CacheFactory<'Key,'T when 'T: null>( comparer:IEqualityComparer<'K
                 retInfo
 
     /// Evict object that hasn't been visited within the specified seconds
-    member x.Evict( elapseSeconds ) = 
+    member x.EvictAndReturnEvictedItems( elapseSeconds ) = 
         let t1 = (PerfADateTime.UtcNowTicks())
         // Usually don't evict much
-        for obj in Factory do
-            let _, refTime = obj.Value
-            let elapse = t1 - !refTime
-            if elapse >= TimeSpan.TicksPerSecond * (int64 elapseSeconds) then 
-                Factory.TryRemove( obj.Key) |> ignore
+        let items =
+            [|
+                for obj in Factory do
+                    let _, refTime = obj.Value
+                    let elapse = t1 - !refTime
+                    if elapse >= TimeSpan.TicksPerSecond * (int64 elapseSeconds) then 
+                        let b, item = Factory.TryRemove( obj.Key )
+                        if b then
+                            yield item |> fst
+            |]
+        items
+        
+    /// Evict object that hasn't been visited within the specified seconds
+    abstract member Evict : int -> unit
+    default x.Evict( elapseSeconds ) = 
+        x.EvictAndReturnEvictedItems(elapseSeconds) |> ignore
+
+    member x.RemoveAndReturnRemovedItem( name ) = 
+        let b, item = Factory.TryRemove( name )
+        if b then item |> fst |> Some else None
 
     /// Remove a certain entry
-    member x.Remove( name ) = 
-        Factory.TryRemove( name ) |> ignore
+    abstract member Remove : 'Key -> unit
+    default x.Remove( name ) = 
+        x.RemoveAndReturnRemovedItem(name) |> ignore
 
     /// Refresh timer entry of an object
     member x.Refresh( name ) = 
@@ -293,13 +309,18 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
         // otherwise no processing
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Attempt to reconnect to %s:%d .... " machineName port ))
 
-            
+    interface IDisposable with
+        member x.Dispose() = 
+            if Utils.IsNotNull x.ConnectionToDaemon then
+                (x.ConnectionToDaemon :> IDisposable).Dispose()
+            x.EvConnectionToDaemon.Dispose()
+            GC.SuppressFinalize(x)
 
 type internal NodeConnectionFactory() = 
     inherit CacheFactory<string*int,NodeConnectionInfo>( StringTComparer<int>(StringComparer.OrdinalIgnoreCase) )
-    static member val Current = NodeConnectionFactory() with get
+    static member val Current = new NodeConnectionFactory() with get
     member x.StoreNodeInfo( machineName, port, jobName, jobVer, info ) = 
-        let machineStore = x.GetOrAdd( (machineName, port), fun _ -> NodeConnectionInfo(machineName, port) )
+        let machineStore = x.GetOrAdd( (machineName, port), fun _ -> new NodeConnectionInfo(machineName, port) )
         if Utils.IsNotNull machineStore && not (Utils.IsNull info) then 
             machineStore.Store( (jobName, jobVer ), info )
     member x.ResolveNodeInfo( machineName, port, jobName, jobVer ) = 
@@ -309,7 +330,7 @@ type internal NodeConnectionFactory() =
         else
             machineStore.Resolve( jobName, jobVer )
     member x.DaemonConnect( machineName, port, recvProc, disconnectProc ) = 
-        let machineStore = x.GetOrAdd( (machineName, port), fun _ -> NodeConnectionInfo(machineName, port) ) 
+        let machineStore = x.GetOrAdd( (machineName, port), fun _ -> new NodeConnectionInfo(machineName, port) ) 
         if Interlocked.CompareExchange( machineStore.FirstConnectTicksRef, (PerfADateTime.UtcNowTicks()), DateTime.MinValue.Ticks ) = DateTime.MinValue.Ticks then 
             /// First time to  connect to a machine port
             machineStore.DaemonConnect( recvProc, disconnectProc ) 
@@ -318,7 +339,23 @@ type internal NodeConnectionFactory() =
             /// If not first connect, at least wait for the queue to be created. 
             machineStore.EvConnectionToDaemon.WaitOne() |> ignore 
         machineStore.ConnectionToDaemon
-        
+    
+    override x.Evict( elapseSeconds ) =
+        let evictedItems = base.EvictAndReturnEvictedItems(elapseSeconds)
+        evictedItems
+        |> Array.iter (fun nodeInfo -> (nodeInfo :> IDisposable).Dispose())
+
+    override x.Remove( name ) =
+        let item = base.RemoveAndReturnRemovedItem( name )
+        match item with
+        | Some v -> (v :> IDisposable).Dispose()
+        | None -> ()
+
+    interface IDisposable with
+        member x.Dispose() = 
+            x.toArray() 
+            |> Array.iter (fun nodeInfo -> (nodeInfo :> IDisposable).Dispose())
+            GC.SuppressFinalize(x)
 
 /// Manage Listening port for the job
 [<AllowNullLiteral>]
@@ -665,13 +702,13 @@ and
  [<AllowNullLiteral>]
  Cluster private ( ) =
     // regular expression to match "local[n]" specification for local cluster
-    let localNRegex = new Regex("^local\[([1-9][0-9]*|)\]$", RegexOptions.Compiled ||| RegexOptions.CultureInvariant)
+    let localNRegex = Regex("^local\[([1-9][0-9]*|)\]$", RegexOptions.Compiled ||| RegexOptions.CultureInvariant)
     let defaultLocalClusterVersion = DateTime.MinValue
 
-    let mutable masterInfo = new ClientMasterConfig()
-    let mutable clusterStatus = new ClusterInfo()
+    let mutable masterInfo = ClientMasterConfig()
+    let mutable clusterStatus = ClusterInfo()
 // disable the feature of period update. 
-//    let clusterUpdateTimer = new Timer( ClusterInfo.PeriodicClusterUpdate, 
+//    let clusterUpdateTimer = Timer( ClusterInfo.PeriodicClusterUpdate, 
 //                                        clusterStatus, Timeout.Infinite, Timeout.Infinite)
     let mutable expectedClusterSize = 0 
     let mutable queues = Array.zeroCreate<NetworkCommandQueue> 0
@@ -685,12 +722,12 @@ and
     // Whether each individual peer has been mapped to end point 
     let mutable bMapped : bool[] = null
     // Mapping: From IP Endpoint to index of peer. 
-    let endpointToPeer = new ConcurrentDictionary<IPEndPoint,int>()
+    let endpointToPeer = ConcurrentDictionary<IPEndPoint,int>()
 
     // Command to call for DSet
-    static let commandCallback = new ConcurrentDictionary<ControllerCommand, ConcurrentDictionary<Guid, (int64 ref) * ConcurrentDictionary<string*int64, Cluster*NetworkCommandCallback>>>()
+    static let commandCallback = ConcurrentDictionary<ControllerCommand, ConcurrentDictionary<Guid, (int64 ref) * ConcurrentDictionary<string*int64, Cluster*NetworkCommandCallback>>>()
     // Parser to try to call when we fails to find a valid callback 
-    static let staticCallback = new ConcurrentDictionary<ControllerCommand, ConcurrentQueue<NetworkCommandCallback>>()
+    static let staticCallback = ConcurrentDictionary<ControllerCommand, ConcurrentQueue<NetworkCommandCallback>>()
     // The factory method to create a local cluster, to be specified by code defined later
     static let mutable createLocalCluster : string * DateTime * int * LocalClusterContainerMode * (string option) * int  * (int * int) -> ILocalCluster = 
         (fun (name, version, numClients, containerMode, clientPath, numJobPortsPerClient, portsRange) -> failwith "not initialized, please call Environment.Init when program starts")
@@ -733,7 +770,7 @@ and
                                           config.PortsRange)
 
     member val internal MsgToHost=List<(ControllerCommand*MemStream)>() with get
-    member val internal PeerIndexFromEndpoint : ConcurrentDictionary<EndPoint, int> = new ConcurrentDictionary<_,_>() with get
+    member val internal PeerIndexFromEndpoint : ConcurrentDictionary<EndPoint, int> = ConcurrentDictionary<_,_>() with get
     member internal x.Queues with get() = queues
                              and set( q ) = queues <- q
     member val internal QueuesInitialized = ref 0 with get
@@ -893,7 +930,7 @@ and
         else
             // More than one clusters
             let nodeLists =List<_>()
-            let sha256 = new System.Security.Cryptography.SHA256Managed() 
+            use sha256 = new System.Security.Cryptography.SHA256Managed() 
             let mutable maxTicks = DateTime.MinValue.Ticks
             let mutable clType = Unchecked.defaultof<_>
             for cl in clusters do 
@@ -1546,7 +1583,7 @@ and internal ClusterFactory() =
         | Some (cl ) -> cl
         | None -> 
             if File.Exists clusterName then 
-                let loadCluster = new Cluster( "" |> Some, clusterName )
+                let loadCluster = Cluster( "" |> Some, clusterName )
                 ClusterFactory.Store( clusterName, loadCluster )
                 loadCluster
             else

@@ -122,9 +122,9 @@ module internal DirUtils =
         if String.IsNullOrEmpty dir then 
             null 
         else
-            let mutable dirInfo = new DirectoryInfo(dir)
+            let mutable dirInfo = DirectoryInfo(dir)
             if not dirInfo.Exists then 
-                let everyoneSid = new SecurityIdentifier( WellKnownSidType.WorldSid, null )
+                let everyoneSid = SecurityIdentifier( WellKnownSidType.WorldSid, null )
                 try 
                     Directory.CreateDirectory(dir) |> ignore
                     if not Runtime.RunningOnMono then

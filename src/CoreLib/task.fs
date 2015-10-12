@@ -354,11 +354,11 @@ and [<AllowNullLiteral>]
                             let proc = x.StartChildProcess(startInfo)
                             if (Utils.IsNull proc) then
                                 Logger.LogF( LogLevel.Error, (fun _ -> sprintf "Unable to start process"))
-                            x.MonStdError <- StreamMonitor( ) 
+                            x.MonStdError <- new StreamMonitor( ) 
                             let errLog = Path.Combine( DeploymentSettings.LogFolder, x.SignatureName + "_stderr_" + VersionToString( DateTime(executeTicks)) + ".log" )
                             x.MonStdError.AddMonitorFile( errLog  )
                             proc.ErrorDataReceived.Add( x.MonStdError.DataReceived )
-                            x.MonStdOutput <- StreamMonitor(  ) 
+                            x.MonStdOutput <- new StreamMonitor(  ) 
                             let stdLog = Path.Combine( DeploymentSettings.LogFolder, x.SignatureName + "_stdout_" + VersionToString( DateTime(executeTicks)) + ".log" )
                             x.MonStdOutput.AddMonitorFile( stdLog )
                             proc.OutputDataReceived.Add( x.MonStdOutput.DataReceived ) 
@@ -410,6 +410,15 @@ and [<AllowNullLiteral>]
                 x.EvTaskLaunched.Set() |> ignore
             else
                 x.EvTaskLaunched.WaitOne() |> ignore
+
+        interface IDisposable with
+             member x.Dispose() = 
+                x.EvLoopbackEstablished.Dispose()
+                x.EvTaskLaunched.Dispose()
+                if Utils.IsNotNull x.JobLoopbackQueue then
+                    (x.JobLoopbackQueue :> IDisposable).Dispose()
+                GC.SuppressFinalize(x)
+
 /// Prajna Task 
 /// A Prajna task is an action to be executed at Prajna Client, 
 /// it usually involes one or more DSet peer parameters, and one or more functions to be executed upon. 
@@ -561,8 +570,8 @@ and [<AllowNullLiteral; Serializable>]
                 if (x.JobEnvVars.Count <> 0) then
                     failwith "Environment variables not allowed in thread/appdomain - only allowed if ApplicationMask is set"
                 x.State <- TaskState.InExecution
-//                let threadStart = new Threading.ParameterizedThreadStart( Task.Start )
-//                let thread = new Threading.Thread( threadStart )
+//                let threadStart = Threading.ParameterizedThreadStart( Task.Start )
+//                let thread = Threading.Thread( threadStart )
 //                thread.IsBackground <- true
 //                x.Thread <- thread
 //                thread.Start( x )
@@ -927,7 +936,7 @@ and [<AllowNullLiteral; Serializable>]
         cur.WaitForCloseAllStreamsViaHandle( x.WaitForCloseAllStreamsHandleCollection, jbInfo, t1 )
 
     member x.ConstructJobInfo( jobID: Guid, dset:DSet, queue:NetworkCommandQueue, endPoint:Net.IPEndPoint, bIsMainProject ) = 
-        let jbInfo = new JobInformation( jobID, bIsMainProject, dset.Name, dset.Version.Ticks, 
+        let jbInfo = JobInformation( jobID, bIsMainProject, dset.Name, dset.Version.Ticks, 
                                         ClustersInfo = x.ClustersInfo, 
                                         ReportClosePartition = x.TaskReportClosePartition, 
                                         HostQueue = queue, 
@@ -1132,7 +1141,7 @@ and [<AllowNullLiteral; Serializable>]
         if (Utils.IsNotNull msRep) then
             (msRep :> IDisposable).Dispose()
 
-    member val JobFinished = new List<WaitHandle>()
+    member val JobFinished = List<WaitHandle>()
 
     member x.SyncJobExecutionAsSeparateApp ( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) 
                 taskName syncAction beginJob endJob= 
@@ -1774,7 +1783,7 @@ and [<AllowNullLiteral; Serializable>]
                 qAdd
         /// Allow exporting to daemon 
         ContractServerQueues.Default.AddQueue( queue )
-        let listener = 
+        use listener = 
             if jobport > 0 then 
                 JobListener.InitializeListenningPort( jobip, jobport )
             else 
@@ -1919,7 +1928,7 @@ and [<AllowNullLiteral; Serializable>]
                 curDSet.ResetForRead( hostQueue :> NetworkCommandQueue )
                 let bAllCancelled = ref false
                 let tasks = List<_>()
-                let cts = new CancellationTokenSource()
+                use cts = new CancellationTokenSource()
                 let jbInfo = JobInformation( x.JobID, true, curDSet.Name, curDSet.Version.Ticks )
                 for parti in x.Partitions do
                     tasks.Add( curDSet.AsyncReadChunk jbInfo parti
@@ -2711,6 +2720,12 @@ and [<AllowNullLiteral; Serializable>]
         else
             Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "!!! The queue to the associated job of task %s:%s is not operational" x.Name x.VersionString) )
 
+    interface IDisposable with
+        member x.Dispose() = 
+            x.EvJobStarted.Dispose()
+            base.DisposeResource()
+            GC.SuppressFinalize(x)
+
 and internal ContainerAppDomainLauncher() = 
     inherit System.MarshalByRefObject() 
     member x.Start(name, ver, bUseAllDrive, ticks, memory_size, ip, port, jobip, jobport, logdir, verbose_level:int, jobdir:string, jobenvvars:List<string*string>,
@@ -2765,7 +2780,7 @@ and [<AllowNullLiteral>]
                     // Make sure that we have unique name, even if the same job is launched again and again
                     AppDomain.CreateDomain( x.Name + "_" + x.Version.ToString("X") + VersionToString(DateTime(x.Ticks)) )
                 else
-                    let ads = new AppDomainSetup()
+                    let ads = AppDomainSetup()
                     ads.ApplicationBase <- x.JobDir
                     // Make sure that we have unique name, even if the same job is launched again and again
                     AppDomain.CreateDomain( x.Name + "_" + x.Version.ToString("X") + VersionToString(DateTime(x.Ticks)), new Security.Policy.Evidence(), ads)
@@ -3179,7 +3194,7 @@ and internal TaskQueue() =
             x.EvEmptyExecutionTable.Reset() |> ignore 
             let refInitialHolder = ref Unchecked.defaultof<_>
             let addFunc key = 
-                refInitialHolder := ExecutedTaskHolder( SignatureName = ta.SignatureName, SignatureVersion = ta.SignatureVersion, TypeOf = ta.TypeOf, JobDirectory = ta.JobDirectory, JobEnvVars = ta.JobEnvVars)
+                refInitialHolder := new ExecutedTaskHolder( SignatureName = ta.SignatureName, SignatureVersion = ta.SignatureVersion, TypeOf = ta.TypeOf, JobDirectory = ta.JobDirectory, JobEnvVars = ta.JobEnvVars)
                 let nodeInfo = x.JobManagement.Use( ta.SignatureName )
                 (!refInitialHolder).CurNodeInfo <- nodeInfo
                 !refInitialHolder
@@ -3710,6 +3725,11 @@ and internal TaskQueue() =
                 let bRemove, _ = jobHolder.JobList.TryRemove( (ta.Name, ta.Version ) )
                 ()
             
+    interface IDisposable with
+        member x.Dispose() = 
+            x.EvEmptyExecutionTable.Dispose()            
+            GC.SuppressFinalize(x)
+
 type internal ContainerLauncher() = 
     static member Main orgargv = 
         let argv = Array.copy orgargv
@@ -3736,7 +3756,7 @@ type internal ContainerLauncher() =
         let rsaKeyStrAuth = parse.ParseString( "-rsakeyauth", "" )
         let rsaKeyStrExch = parse.ParseString( "-rsakeyexch", "" )
         let rsaKeyPwd = parse.ParseString( "-rsapwd", "" )
-        let mutable guid = new Guid()
+        let mutable guid = Guid()
         let mutable rsaKey : byte[]*byte[] = (null, null)
         let clientId = parse.ParseInt( "-clientPid", -1 )
         let clientModuleName = parse.ParseString( "-clientModuleName", "" )

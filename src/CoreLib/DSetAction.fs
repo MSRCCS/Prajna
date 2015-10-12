@@ -307,8 +307,9 @@ type internal DSetAction() =
             x.GetJobInstance(curDSet).ToClose()
             x.GetJobInstance(curDSet).PartitionAnalysis()
             curDSet.Cluster.UnRegisterCallback( x.Job.JobID,  [| ControllerCommand( ControllerVerb.Unknown, ControllerNoun.DSet);
-                                                                                        ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition);
-                                                                                        |] )
+                                                                 ControllerCommand( ControllerVerb.Unknown, ControllerNoun.Service);
+                                                                 ControllerCommand( ControllerVerb.Close, ControllerNoun.Partition);
+                                                              |] )
         for cluster in x.Job.Clusters do 
             // Catch all calls to the GV.
             cluster.UnRegisterCallback( x.Job.JobID, [| ControllerCommand( ControllerVerb.Unknown, ControllerNoun.GV);      // All DSet command

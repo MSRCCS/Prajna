@@ -165,6 +165,12 @@ type BaseQ<'T>() =
     /// Returns count of number of elements in queue
     abstract member Count : int with get
 
+    interface IDisposable with
+        member x.Dispose() = 
+            emptyEvent.Dispose()
+            fullEvent.Dispose()
+            GC.SuppressFinalize(x)
+
     static member internal ClearQ(x : ConcurrentQueue<'T>) =
         let item : 'T ref = ref Unchecked.defaultof<'T>
         while (not x.IsEmpty) do
@@ -172,12 +178,9 @@ type BaseQ<'T>() =
 
     static member internal OnWaitComplete (o : obj) (bTimedOut : bool) =
         let (rwh, callback, state) = o :?> (RegisteredWaitHandle ref)*(obj*bool->unit)*obj
-        //(!rwh).Unregister(emptyEvent) |> ignore // further slow down
         callback(state, bTimedOut)
 
     static member internal Wait(event : ManualResetEvent, callback, state : obj) =
-        //let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
-        //rwh := ThreadPool.RegisterWaitForSingleObject(event, onWaitComplete, (rwh, callback, state), -1, true)
         ThreadPoolWait.WaitForHandle (fun() -> "") event (fun() -> callback(state, false)) null
 
     static member inline internal Enqueue(enq: 'T->unit, item : 'T, cond : unit->bool, ev : ManualResetEvent, waitTime : int) =
@@ -686,7 +689,7 @@ type internal FixedSizeQ<'T>() as x =
 [<AllowNullLiteral>]
 type internal FixedSizeMinSizeQ<'T>() as x =
     inherit BaseQ<'T>()
-    let q = new ConcurrentQueue<'T*int64*int64>()
+    let q = ConcurrentQueue<'T*int64*int64>()
     let emptyEvent = x.Empty
     let fullEvent = x.Full
     // no limits unless specified
@@ -700,7 +703,7 @@ type internal FixedSizeMinSizeQ<'T>() as x =
     let mutable remProcess = 0L
     let elemCount = ref 0
 
-    let stopwatch = new Stopwatch()
+    let stopwatch = Stopwatch()
     do stopwatch.Start()
     let mutable timer : ThreadPoolTimer = null
     let mutable maxQWaitTime = 0L
@@ -829,7 +832,7 @@ type internal FixedSizeMinSizeQ<'T>() as x =
 /// Use stack so same buffer gets used with higher frequency (e.g. to improve caching)
 [<AllowNullLiteral>]
 type internal SharedStack<'T when 'T : (new : unit -> 'T)>(initSize : int, allocObj : 'T -> unit, infoStr : string) =
-    let stack = new ConcurrentStack<'T>()
+    let stack = ConcurrentStack<'T>()
     let infoStr = infoStr
     let mutable size = 0
     let expandStack(newSize : int)() =
@@ -898,3 +901,7 @@ type internal SharedStack<'T when 'T : (new : unit -> 'T)>(initSize : int, alloc
         stack.Push(elem)
         notEmpty.Set() |> ignore
 
+    interface IDisposable with
+        member x.Dispose() = 
+            notEmpty.Dispose()
+            GC.SuppressFinalize(x)

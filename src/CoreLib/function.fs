@@ -82,7 +82,7 @@ type internal MetaFunction() =
     let nullDecode( meta:BlobMetadata, ms:StreamBase<byte> ) =
         ( meta, System.Object() )
     let nullEncode( meta:BlobMetadata, o: Object ) = 
-        let ms = new MemStream() :> StreamBase<byte>
+        use ms = new MemStream() :> StreamBase<byte>
         ms.Serialize( o ) 
         ( meta, ms )
     let nullMap( meta:BlobMetadata, o: Object, mapTo:MapToKind ) = 
@@ -204,7 +204,7 @@ type internal MetaFunction<'U>() as x =
         x.ConstructPartitionCache <- x.GenericConstructionPartitionCache
         x.ValidFunc <- true
     member internal x.GenericConstructionPartitionCache( tuple ) = 
-        PartitionCacheQueue<'U>( tuple ) :> PartitionCacheBase
+        new PartitionCacheQueue<'U>( tuple ) :> PartitionCacheBase
     member x.WrapperPartitionFuncFromObj( meta:BlobMetadata, o:Object , numPartitions ) = 
         let elemArray = o :?> ('U)[]
         let parti = Array.zeroCreate elemArray.Length
@@ -246,6 +246,7 @@ type internal MetaFunction<'U>() as x =
             let msg = sprintf "Error in MetaFunction<'K, 'V>.decodeFunc, most probably fail to cast with %A" e
             Logger.Log( LogLevel.Error, msg )
             failwith msg
+    // caller is responsible for disposing the returned stream
     member x.EncodeFuncFromObj(meta, o:Object ) : BlobMetadata*StreamBase<byte> =
         try
             if Utils.IsNotNull o then 
@@ -258,6 +259,7 @@ type internal MetaFunction<'U>() as x =
             Logger.Log( LogLevel.Error, msg )
             failwith msg
     // Encoding
+    // caller is responsible for disposing the returned stream
     member x.EncodeFunc(meta, elemArray ) : BlobMetadata*StreamBase<byte> =
         // Encode Key Value
         if Utils.IsNotNull elemArray then 

@@ -488,7 +488,7 @@ and /// JobTraverse is used to traverse multiple object hosted in a job to figur
         if not (Utils.IsNull obj) then 
             match obj with 
             | :? DSet as dset -> 
-                let findObject = new Predicate<DSet>( fun o -> Object.ReferenceEquals( o, obj ) )
+                let findObject = Predicate<DSet>( fun o -> Object.ReferenceEquals( o, obj ) )
                 // We use ReferenceEquality here to speed up comparison
                 let bDSetExist = x.SrcDSet.Exists( findObject ) || x.PassthroughDSet.Exists( findObject ) || x.DstDSet.Exists( findObject )
                 if not bDSetExist then 
@@ -512,7 +512,7 @@ and /// JobTraverse is used to traverse multiple object hosted in a job to figur
                     | _ -> 
                         ()
             | :? DStream as stream -> 
-                let findStream = new Predicate<DStream>( fun o -> Object.ReferenceEquals( o, obj ) )
+                let findStream = Predicate<DStream>( fun o -> Object.ReferenceEquals( o, obj ) )
                 let bStreamExist = x.DStreams.Exists( findStream )
                 if not bStreamExist then 
                     x.DStreams.Add( stream ) 
@@ -657,7 +657,7 @@ and
     member val JobDirectory = "" with get, set
     member val RemoteMappingDirectory = "" with get, set
     /// Environment Variables for the job
-    member val JobEnvVars = new List<string*string>() with get
+    member val JobEnvVars = List<string*string>() with get
     /// Assembly bindings for the job
     member val JobAsmBinding : AssemblyBinding option = None with get, set
     /// Start Blob Serial Number that will define this 
@@ -1985,17 +1985,7 @@ and
                                                       sprintf "Job %s, Precoded DSet in %.2f ms"
                                                                x.Name
                                                                (float (t1 - x.JobStartTicks) / float TimeSpan.TicksPerMillisecond) ))
-        if bSuccess then 
-            bSuccess <- 
-        /// Start cluster, if needed 
-//                for cluster in x.Clusters do 
-//                    let tuple = new ManualResetEvent(false), ref true
-//                    let tupleReturn = Job.StartedClusters.GetOrAdd( (cluster.Name, cluster.Version.Ticks), tuple )
-//                    if Object.ReferenceEquals( tuple, tupleReturn ) then 
-//                        // Initialize the cluster
-//                        let startJob = Job( TypeOf=(JobTaskKind.Computation|||JobDependencies.DefaultTypeOfJobMask), Name = "StartContainer", Version = (PerfADateTime.UtcNow()), IsJobHolder = true)
-//                        ()
-                true
+
         if bSuccess then 
             // add job dependencies first as they may already include referenced assemblies
             if not x.IsContainer then 
@@ -2012,7 +2002,7 @@ and
                         x.PopulateLoadedAssems()
                         x.GenerateSignature( null )
                     /// Create a job to launch a container. 
-                    let y = Job.ContainerJobCollection.GetOrAdd( x.AssemblyHash, fun _ -> let containerJob = ContainerJob( )
+                    let y = Job.ContainerJobCollection.GetOrAdd( x.AssemblyHash, fun _ -> let containerJob = new ContainerJob( )
                                                                                           containerJob
                                                                )
                     y.PrepareRemoteExecutionRoster( curJob, x )
@@ -2858,6 +2848,15 @@ and
             for file in x.JobDependencies do
                 yield " " + file.ToString()
         } |> String.concat Environment.NewLine
+
+    member x.DisposeResource() = 
+        x.evCreateRemoteExecutionRoster.Dispose()
+
+    interface IDisposable with
+        /// Close All Active Connection, to be called when the program gets shutdown.
+        member x.Dispose() = 
+            x.DisposeResource()
+            GC.SuppressFinalize(x)
 
 and /// Create a job for remote execution roster
     internal ContainerJob() as thisInstance = 

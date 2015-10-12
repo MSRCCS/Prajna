@@ -117,7 +117,7 @@ type internal ClientLauncher() =
             DeploymentSettings.UseAllDrivesForData()
   
         try
-            let ramCounter = new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes")
+            use ramCounter = new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes")
             // Find usable RAM space, leave 512MB, and use all. 
             let usableRAM =( (int64 (ramCounter.NextValue())) - 512L ) <<< 20
             if usableRAM > 0L then
@@ -215,7 +215,7 @@ type internal ClientLauncher() =
     //    let dataDrive = StringTools.GetDrive( dir )
         let client0 =
             if masterInfo.ReportingServers.Count > 0 then 
-                let client = new HomeInClient( masterInfo.VersionInfo, DeploymentSettings.DataDrive, masterInfo.ReportingServers,  masterInfo.MasterName, masterInfo.MasterPort )
+                let client = HomeInClient( masterInfo.VersionInfo, DeploymentSettings.DataDrive, masterInfo.ReportingServers,  masterInfo.MasterName, masterInfo.MasterPort )
 
                 //Async.StartAsTask(ClientController.ConnectToController(client, masterInfo.ControlPort)) |> ignore
 
@@ -223,10 +223,10 @@ type internal ClientLauncher() =
                     let exe, param = pair.Key, pair.Value
                     Logger.Log( LogLevel.Info, (sprintf "To execute %s with %s" exe param ))
 
-                // let homeInTimer = new Timer( HomeInClient.HomeInClient, client, 0, 10000)  
+                // let homeInTimer = Timer( HomeInClient.HomeInClient, client, 0, 10000)  
                 // ListenerThread
-//                let HomeInThreadStart = new Threading.ParameterizedThreadStart( HomeInClient.HomeInClient )
-//                let HomeInThread = new Threading.Thread( HomeInThreadStart )
+//                let HomeInThreadStart = Threading.ParameterizedThreadStart( HomeInClient.HomeInClient )
+//                let HomeInThread = Threading.Thread( HomeInThreadStart )
 //                HomeInThread.IsBackground <- true
 //                HomeInThread.Start( client )
                 let HomeInThread = ThreadTracking.StartThreadForFunction( fun _ -> "Home in thread") ( fun _ -> HomeInClient.HomeInClient client)
@@ -251,8 +251,8 @@ type internal ClientLauncher() =
         elif (not (pwd.Equals("", StringComparison.Ordinal))) then
             listener.Connects.InitializeAuthentication(pwd)
 
-//        let ListenerThreadStart = new Threading.ParameterizedThreadStart( Listener.StartServer )
-//        let ListenerThread = new Threading.Thread( ListenerThreadStart )
+//        let ListenerThreadStart = Threading.ParameterizedThreadStart( Listener.StartServer )
+//        let ListenerThread = Threading.Thread( ListenerThreadStart )
 //        ListenerThread.IsBackground <- true
 //        ListenerThread.Start( listener )
         let ListenerThread = ThreadTracking.StartThreadForFunction( fun _ -> sprintf "Main Listener thread for daemon, on port %d" DeploymentSettings.ClientPort ) (fun _ -> Listener.StartServer listener)
@@ -322,7 +322,7 @@ type internal ClientLauncher() =
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Start AppDomain for client with name '%s' and args '%s'" name (String.Join(" ", orgargs))))
     
                 let adName = name + "_" + VersionToString(PerfADateTime.UtcNow()) + Guid.NewGuid().ToString("D")
-                let ads = new AppDomainSetup()
+                let ads = AppDomainSetup()
                 ads.ApplicationBase <- Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) 
 
                 let ad = AppDomain.CreateDomain(adName, new Security.Policy.Evidence(), ads)

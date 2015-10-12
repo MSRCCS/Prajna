@@ -134,6 +134,7 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
     interface IDisposable with
         member x.Dispose() = 
             x.Close()
+            base.DisposeResource()
             GC.SuppressFinalize(x)
 
 type internal ClientConnections() = 

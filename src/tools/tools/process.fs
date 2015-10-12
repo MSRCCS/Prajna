@@ -136,60 +136,17 @@ type internal SpinLockSlim =
             x.LockValue := 0
     end 
 
-/// ExecuteOnceWrapper garantee that the function wrapped is executed only once when the wrapper action is called. 
-/// Also, each execution only completes when the instance of execution has been completed. 
-/// The syntax is similar to Lazy, though no result is required. 
-type internal ExecuteOnceWrapper<'T> private (func:'T -> unit) = 
-    let nExecuted = ref 0 
-    let evExecuted = new ManualResetEvent(false)
-    member private x.Execute inp = 
-        if Interlocked.CompareExchange( nExecuted, 1, 0)=0 then 
-            func inp
-            evExecuted.Set() |> ignore 
-        evExecuted.WaitOne() |> ignore
-    /// Warp a function, garantee that it is executed only once when the wrapped function is called. Also, each function 
-    /// only completes when the instance of execution has been completed. 
-    static member Wrap (f) = 
-        let x = ExecuteOnceWrapper(f)
-        x.Execute
-    /// Warp a action, garantee that it is executed only once when the wrapped action is called. Also, each action 
-    /// only completes when the instance of execution has been completed. 
-    static member WrapAction(f: Action<'T>) = 
-        let x = ExecuteOnceWrapper<'T>( f.Invoke )
-        Action<'T>( fun inp -> x.Execute inp )
-
-/// ExecuteOnceUnit garantee that the function wrapped is executed only once when the wrapper action is called. 
-/// Also, each execution only completes when the instance of execution has been completed. 
-/// The syntax is similar to Lazy, though no result is required. 
-type internal ExecuteOnceUnit private (func) = 
-    let nExecuted = ref 0 
-    let evExecuted = new ManualResetEvent(false)
-    member private x.Execute() = 
-        if Interlocked.CompareExchange( nExecuted, 1, 0)=0 then 
-            func()
-            evExecuted.Set() |> ignore 
-        evExecuted.WaitOne() |> ignore
-    /// Warp a function, garantee that it is executed only once when the wrapped function is called. Also, each function 
-    /// only completes when the instance of execution has been completed. 
-    static member Wrap (f) = 
-        let x = ExecuteOnceUnit(f)
-        x.Execute
-    /// Warp a action, garantee that it is executed only once when the wrapped action is called. Also, each action 
-    /// only completes when the instance of execution has been completed. 
-    static member WrapAction(f: Action) = 
-        let x = ExecuteOnceUnit( f.Invoke )
-        Action( x.Execute )
-
 /// Structure associated with CleanUp, only used if the class need to clean up the class early. 
 /// If that is the case, call CleanUpThisOnly()
 [<AllowNullLiteral>]
 type internal OneCleanUp ( o:Object, infoFunc, f, earlyCleanUp: unit -> unit ) =
-    let wrappedCleanUp() = 
+    let wrappedCleanUp = lazy(       
         Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "==== CleanUp %s ==== " (infoFunc()) ))
-        f()
+        f())
     member val InfoFunc = infoFunc with get
     /// Providing information of the cleanup object
-    member val CleanUpFunc = ExecuteOnceUnit.Wrap( wrappedCleanUp ) with get
+    // member val CleanUpFunc = ExecuteOnceUnit.Wrap( wrappedCleanUp ) with get
+    member val CleanUpFunc = wrappedCleanUp.Force with get
     member val CleanUpObject = o with get
     /// CleanUpThisOnly() should be called if the object o needs to be disposed early 
     member val CleanUpThisOnly = earlyCleanUp with get
@@ -353,7 +310,7 @@ module internal Process =
 
     let CopyAllFiles srcDir dstDir =
         try
-            let srcDirInfo = new DirectoryInfo(srcDir)
+            let srcDirInfo = DirectoryInfo(srcDir)
             if srcDirInfo.Exists then 
                 let files = srcDirInfo.GetFiles()
                 let dstDirInfo = DirectoryInfoCreateIfNotExists( dstDir )
@@ -508,7 +465,7 @@ type internal ConcurrentArray<'T>() =
 
 type internal SingleThreadExec() =
     let counter = ref 0
-    let q = new ConcurrentQueue<unit->unit>()
+    let q = ConcurrentQueue<unit->unit>()
 
     // execute function only on one thread - "counter" number of times
     member x.Exec(f : unit->unit) =
@@ -545,13 +502,13 @@ type internal SingleThreadExec() =
 type private TimerPool<'K>() as x =
     static let instanceCount = ref -1
     let timer = new Timer(x.OnFire, null, int64 Timeout.Infinite, int64 Timeout.Infinite)
-    let todo = new ConcurrentDictionary<'K, int64*(unit->int64)>()
-    let timeQ = new ConcurrentQueue<int64>()
+    let todo = ConcurrentDictionary<'K, int64*(unit->int64)>()
+    let timeQ = ConcurrentQueue<int64>()
     let count = ref -1L
-    let toEnqueue = new SingleThreadExec()
-    let toFire = new SingleThreadExec()
+    let toEnqueue = SingleThreadExec()
+    let toFire = SingleThreadExec()
     let instance = Interlocked.Increment(instanceCount)
-    let stopwatch = new Stopwatch()
+    let stopwatch = Stopwatch()
     let mutable firingTime = Int64.MaxValue
     do stopwatch.Start()
 
@@ -623,7 +580,15 @@ type private TimerPool<'K>() as x =
     member x.OnFire(o) =
         toFire.ExecOnce(x.Fire)
 
+    interface IDisposable with
+        member x.Dispose() = 
+            if Utils.IsNotNull timer then
+                timer.Dispose()
+            GC.SuppressFinalize(x);
+
 type internal PoolTimer() =
+    // TimerPoolInt is IDisposable. However, it's a static variable thus cannot be disposed mnaully. 
+    // It should be OK, it will be disposed when appdomain unloads
     static member val private TimerPoolInt = new TimerPool<int64>() with get
 
     static member GetTimerKey() =
@@ -688,8 +653,8 @@ type internal ThreadTracking private () as this =
     /// </summary>
     static member StartThreadForActionWithCancelationAndApartment (apartmentState:ApartmentState) (threadAffinity:IntPtr) (cancelFunc:unit->unit) (nameFunc:unit -> string) (action:Action<unit>) = 
         if (!ThreadTracking.nCloseAllCalled)=0 then 
-            let threadStart = new Threading.ParameterizedThreadStart( ThreadTracking.ExecuteAction )
-            let thread = new Threading.Thread( threadStart )
+            let threadStart = Threading.ParameterizedThreadStart( ThreadTracking.ExecuteAction )
+            let thread = Threading.Thread( threadStart )
             thread.SetApartmentState( apartmentState )
             thread.IsBackground <- true
             thread.Name <- "PrajnaTrackedThread"
@@ -846,7 +811,7 @@ type internal CommonThread(evWakeUp:ManualResetEvent, threadAffinity:IntPtr, tas
 /// Customized thread pool.  
 /// </summary>
 type internal ThreadPoolWithAffinityMask() =
-    static member val Current = new ThreadPoolWithAffinityMask() with get
+    static member val Current = ThreadPoolWithAffinityMask() with get
     /// # of thread launched per affinity
     static member val NumThreadsPerAffinity = 1 with get
     member val CommonThreadPool = ConcurrentDictionary<_,_>() with get
@@ -937,7 +902,8 @@ type internal ThreadPoolWait internal (id:int) as this =
         // Clear Up Structure. 
         let refValue = ref Unchecked.defaultof<_>
         while ThreadPoolWait.WaitingThreads.TryDequeue( refValue ) do 
-            ()
+            let tp, _ = !refValue;
+            (tp :> IDisposable).Dispose()
         ThreadPoolWait.nTerminate := 0
     /// <summary>
     /// ThreadPoolWait.WaitForHandle schedule a continuation function to be executed when handle fires. 
@@ -1185,6 +1151,7 @@ type internal ThreadPoolWait internal (id:int) as this =
                     let handle0 = pool.WaitingHandles.[0] :?> ManualResetEvent
                     // Unblocked
                     handle0.Set() |> ignore 
+                    (pool :> IDisposable).Dispose()
             else // arr.Length = 0 
                 ThreadPoolWait.nTerminate := 0
             ThreadPoolWait.evTerminate.Set() |> ignore 
@@ -1193,11 +1160,7 @@ type internal ThreadPoolWait internal (id:int) as this =
     static member TerminateAll() = 
         // Wait for the thread to end. 
         ThreadPoolWait.TryTerminateAll()
-// Is done through thread tracking
-//        let arr = ThreadPoolWait.WaitingThreads.ToArray()
-//        for i = 0 to arr.Length - 1 do 
-//            let pool, th = arr.[i]
-//            th.Join()    
+
     override x.Finalize() =
         /// Close All Active Connection, to be called when the program gets shutdown.
         CleanUp.Current.CleanUpAll()
@@ -1251,7 +1214,8 @@ type internal WaitHandleCollection(collectionName:string, initialCapacity:int)  
             for pair in x.Collecton do 
                 let handle, _ = pair.Key
                 let bRemoved = ThreadPoolWait.TryRemove handle
-                ()
+                if bRemoved then
+                    handle.Dispose()
             let bEmptyCollection = x.Collecton.IsEmpty
             x.Collecton.Clear()
             bEmptyCollection
@@ -1314,6 +1278,7 @@ type internal WaitHandleCollection(collectionName:string, initialCapacity:int)  
                 let bRemoved = ThreadPoolWait.TryRemove handle 
                 if bRemoved then 
                     let infoFunc, lastMonitor = pair.Value
+                    handle.Dispose()
                     Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "!!! Removed !!! remove handle %s .............." (infoFunc()) ))
             // Unblock everything that is waiting 
             // Waiting all threads to unblock and shutdown. 
@@ -1323,6 +1288,7 @@ type internal WaitHandleCollection(collectionName:string, initialCapacity:int)  
     interface IDisposable with
         member x.Dispose() = 
             x.CloseAll()
+            x.AllDone.Dispose()
             GC.SuppressFinalize(x)
 
 
@@ -1642,8 +1608,6 @@ and [<AllowNullLiteral>]
 //                                            ))
                                             x.AffinityWaitingJobs.AddOrUpdate( affinityMask, 1, fun _ v -> v + 1 ) |> ignore
                                             ThreadPoolWait.WaitForHandle wrappedInfo handle (x.Continue cts key action affinityMask) x.HandleWaitForMoreJob
-                                            //let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
-                                            //rwh := ThreadPool.RegisterWaitForSingleObject(handle, x.continueDel, (rwh, handle, wrappedInfo, cts, key, action, affinityMask), -1, true)
                         else 
                             x.Finished affinityMask cts key action threadID
                             let nTasksRem = ref 0
@@ -1687,12 +1651,6 @@ and [<AllowNullLiteral>]
         ThreadPoolWaitHandles.UnRegisterThread ( )
         Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, ( fun _ -> sprintf "ThreadPoolWithWaitHandles:%s, terminating thread %d surviving threads %d" x.ThreadPoolName threadID curThreads ))
 
-    member x.continueDel (o : obj) (bTimeOut : bool) =
-        let (rwh, handle, wrappedInfo, cts, key, action, affinityMask) = o :?> RegisteredWaitHandle ref*ManualResetEvent*(unit->string)*CancellationToken*'K*(unit->ManualResetEvent*bool)*IntPtr
-        //Console.WriteLine("Release {0}", wrappedInfo())
-        if (not bTimeOut && Utils.IsNotNull !rwh) then
-            (!rwh).Unregister(handle) |> ignore
-        x.Continue cts key action affinityMask ()
     /// The continuetion 
     member x.Continue cts key action affinityMask () = 
 //        Logger.Do(ThreadPoolWithWaitHandles<'K>.TrackTaskTraceLevel, ( fun _ -> 
@@ -1859,6 +1817,9 @@ and [<AllowNullLiteral>]
         member x.Dispose() = 
             x.CloseAllThreadPool()
             x.InLaunchingEvent.Dispose()
+            x.HandleDoneExecution.Dispose()
+            x.HandleWaitForMoreJob.Dispose()
+            x.CancelThis.Dispose()
             GC.SuppressFinalize( x ) 
 
 
@@ -2008,7 +1969,7 @@ and [<AllowNullLiteral>]
     /// <param name="period"> Periodic firing interval in milliseconds. If period is zero (0) or Timeout.Infinite, and dueTime is not Timeout.Infinite, the callback method is invoked once; 
     /// the periodic behavior of the timer is disabled, but can be re-enabled by calling Change and specifying a positive value for period. </param>
     static member TimerWait (infoFunc) (callback) dueTimeInMilliSeconds periodInMilliSeconds = 
-        let timer = new ThreadPoolTimer( infoFunc, callback, dueTimeInMilliSeconds, periodInMilliSeconds ) 
+        let timer = ThreadPoolTimer( infoFunc, callback, dueTimeInMilliSeconds, periodInMilliSeconds ) 
         ThreadPoolTimerCollections.Current.EnqueueTimer( timer )     
         timer
 
@@ -2136,26 +2097,32 @@ type internal StreamMonitorToFile( filename: string ) =
                     x.WriteStream.Flush() 
                 x.WriteStream.Close()
 
+     interface IDisposable with
+         member x.Dispose() = 
+            if Utils.IsNotNull x.WriteStream then
+                x.WriteStream.Dispose()
+            GC.SuppressFinalize(x);
+
 /// <summary>
 /// class StreamMonitor is usually used to monitor a output stream (such as stderr, stdout), and perform one or more callback operation on new output observed. 
 /// </summary>
 [<AllowNullLiteral>]
 type internal StreamMonitor( ) =
     // member val MonitorStream: StreamReader = monitorStream with get
-    member val Callback = List<StreamMonitorAction>() with get
+    member val private Callback = List<StreamMonitorToFile*StreamMonitorAction>() with get
     member val internal LastReceived = ref DateTime.MinValue.Ticks with get
     member val internal CheckInternvalInMS = 1000 with get, set
     /// <summary> 
     /// Add a file in which the output of the stream content will be written to
     /// </summary> 
     member x.AddMonitorFile( filename ) = 
-        let mon = StreamMonitorToFile( filename ) 
-        x.Callback.Add( new StreamMonitorAction( mon.Write ) )    
+        let mon = new StreamMonitorToFile( filename ) 
+        x.Callback.Add( mon, StreamMonitorAction( mon.Write ) )    
     member x.DataReceived (outLine:DataReceivedEventArgs ) = 
         try 
             let line = outLine.Data
             if ( not (StringTools.IsNullOrEmpty( line )) ) then 
-                for callback in x.Callback do 
+                for _ , callback in x.Callback do 
                     try
                         callback.Invoke( line + Environment.NewLine, false )
                     with 
@@ -2164,15 +2131,22 @@ type internal StreamMonitor( ) =
         with 
         | e -> 
             Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "StreamMonitor, exception in reading monitor stream of %A" e ))
-            for callback in x.Callback do 
+            for _, callback in x.Callback do 
                 callback.Invoke( null, true )
     member x.Close() = 
-        for callback in x.Callback do 
+        for _, callback in x.Callback do 
                     try
                         callback.Invoke( null, true )
                     with 
                     | e -> 
                         Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "StreamMonitor.Close exception %A" e ))
+
+    interface IDisposable with
+        member x.Dispose() = 
+            x.Close()
+            for mon,_ in x.Callback do 
+                (mon :> IDisposable).Dispose()
+            GC.SuppressFinalize(x);
 
 /// <summary> 
 /// ExecuteUponOnce holds a collection of delegate, each of the delegate will be garanteed to be called once after Trigger() is called. 

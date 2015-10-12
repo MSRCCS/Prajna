@@ -39,17 +39,17 @@ type internal ClientInfoType =
     
 type internal AssemblyPack() =                               // for information regarding assemblies
     member val Name = "" with get,set
-    member val date = new DateTime() with get,set
+    member val date = DateTime() with get,set
     member val size = new int64() with get,set
 
 type internal DependencyPack() =                             // for information regarding dependencies                           // "Packs" are flexible for future needs
     member val Name = "" with get,set
-    member val date = new DateTime() with get,set
+    member val date = DateTime() with get,set
     member val size = new int64() with get,set
 
 type internal StoragePack() =                                    // for DSets
      member val Name = "" with get,set
-     member val date = new DateTime() with get,set
+     member val date = DateTime() with get,set
      member val vers = [|""|] with get,set
 
 type internal SocketEx() =
@@ -107,22 +107,22 @@ type internal ClientStatusEx() =
     // properties
     // to interface with network
     member val SendEvent = new Threading.AutoResetEvent(false)
-    member val SendQ = new ConcurrentQueue<byte[]>() with get
+    member val SendQ = ConcurrentQueue<byte[]>() with get
     member val Connected = false with get, set
     member val ConnectionTo = "" with get, set
 
     // Client Info to interface with controllerk
     member val ClientRefresh = ClientInfoType.All with get, set
-    member val DSetName = new List<string>()
+    member val DSetName = List<string>()
     member val MaxOutstandingRequests = 10
     member val name = System.Environment.GetEnvironmentVariable("computername")
 
-    member val AssemblyList = new List<AssemblyPack>()
+    member val AssemblyList = List<AssemblyPack>()
     //Dependency declarations
-    member val DependencyList = new List<DependencyPack>()
-    member val StorageList = new List<StoragePack>()
-    member val metadict = new Dictionary<String,byte[]>() with get,set
-    member val clusterFiles = new Dictionary<String,byte[]>() //List<String>() with get,set
+    member val DependencyList = List<DependencyPack>()
+    member val StorageList = List<StoragePack>()
+    member val metadict = Dictionary<String,byte[]>() with get,set
+    member val clusterFiles = Dictionary<String,byte[]>() //List<String>() with get,set
 
     // methods
     // to interface with network
@@ -216,7 +216,7 @@ type internal ClientStatusEx() =
             DeploymentSettings.StorageDrives
             |> Array.collect (fun d -> 
                                 try
-                                    let dir = new DirectoryInfo(d)
+                                    let dir = DirectoryInfo(d)
                                     let dirs = ( (dir.GetFiles("*.*", SearchOption.AllDirectories)) |> Array.filter (fun item ->  Regex.IsMatch(item.Name, "[a-z,1-9]*.dat" )) |> Array.map ( fun item -> item.Directory ) |> Array.map (fun item -> item.Parent) )
                                     dirs
                                 with
@@ -230,7 +230,7 @@ type internal ClientStatusEx() =
                                                                                     ) |> Seq.toArray                    // filter for unique DSets
 
         for dircs in uniqueArray do
-            let pack = new StoragePack()
+            let pack = StoragePack()
             pack.Name <- dircs.FullName
             pack.date <- dircs.LastWriteTime
             pack.vers <- (dircs.GetDirectories() |> Array.map ( fun item -> 
@@ -242,10 +242,10 @@ type internal ClientStatusEx() =
     
     member x.GetAssemblyStatus() =
         x.AssemblyList.Clear()
-        let dir = new DirectoryInfo(DeploymentSettings.AssemblyFolder)          // gets assembly files
+        let dir = DirectoryInfo(DeploymentSettings.AssemblyFolder)          // gets assembly files
         let AssemblyFiles = dir.GetFiles()
         for file in AssemblyFiles do
-            let mutable info = new AssemblyPack() 
+            let mutable info = AssemblyPack() 
             info.Name <- file.Name
             info.size <- file.Length
             info.date <- file.LastWriteTime
@@ -254,10 +254,10 @@ type internal ClientStatusEx() =
 
     member x.GetDependencyStatus() =
         x.DependencyList.Clear()
-        let dir = new DirectoryInfo(DeploymentSettings.JobDependencyFolder)         // gets dependenct files
+        let dir = DirectoryInfo(DeploymentSettings.JobDependencyFolder)         // gets dependenct files
         let DependencyFiles = dir.GetFiles()
         for file in DependencyFiles do
-            let mutable info = new DependencyPack() 
+            let mutable info = DependencyPack() 
             info.Name <- file.Name
             info.size <- file.Length
             info.date <- file.LastWriteTime
@@ -288,7 +288,7 @@ type internal ClientStatusEx() =
                     let metafile = ( collection |> Array.sort )
                     let file = metafile.[metafile.Length - 1] // get metafile which is lexographically greatest
                     let stream = File.ReadAllBytes(file)
-               // let dict = new Dictionary<String,byte[]>
+               // let dict = Dictionary<String,byte[]>
                     x.metadict.Add(path,stream)
 
         Directory.GetFiles(ClusterInfo.ClusterInfoFolder(),"*.inf") |> Array.map ( fun item -> (x.clusterFiles.Add((item.Substring(18),File.ReadAllBytes(item))))) |> ignore
@@ -337,7 +337,7 @@ type internal ClientStatusEx() =
             let num = ms.ReadInt32()
             let packs = (ms.Deserialize() :?> List<StoragePack>)
             for file in packs do
-                let info = new StoragePack() 
+                let info = StoragePack() 
                 info.Name <- file.Name
                 info.date <- file.date 
                 info.vers <- file.vers
@@ -348,7 +348,7 @@ type internal ClientStatusEx() =
             let num = ms.ReadInt32()
             let packs = (ms.Deserialize() :?> List<AssemblyPack>)
             for file in packs do
-                let info = new AssemblyPack() 
+                let info = AssemblyPack() 
                 info.Name <- file.Name
                 info.size <- file.size
                 info.date <- file.date 
@@ -359,7 +359,7 @@ type internal ClientStatusEx() =
             let num = ms.ReadInt32()
             let packs = (ms.Deserialize() :?> List<DependencyPack>)
             for file in packs do
-                let info = new DependencyPack() 
+                let info = DependencyPack() 
                 info.Name <- file.Name
                 info.size <- file.size
                 info.date <- file.date 
@@ -385,23 +385,23 @@ type internal ClientStatusEx() =
         if (target.Chars(0) <> '*' ) then
             if (target.Contains("_")) then
                 let path = Path.Combine(DeploymentSettings.AssemblyFolder, target) 
-                let fi = new FileInfo(path)
+                let fi = FileInfo(path)
                 fi.Delete()
             else
-                let dirc = new DirectoryInfo(DeploymentSettings.AssemblyFolder)
+                let dirc = DirectoryInfo(DeploymentSettings.AssemblyFolder)
                 let targetList = dirc.GetFiles("*.*", SearchOption.AllDirectories) |> Array.filter ( fun elem -> Regex.IsMatch( elem.Name, target + "_" + "*"))
                 for mem in targetList do
                     mem.Delete()
         else
             let date = Convert.ToDateTime(target.Split('*').[1])
-            let dirc = new DirectoryInfo(DeploymentSettings.AssemblyFolder)
+            let dirc = DirectoryInfo(DeploymentSettings.AssemblyFolder)
             let targetList = dirc.GetFiles("*.*", SearchOption.AllDirectories) |> Array.filter ( fun elem -> (elem.LastWriteTime.CompareTo(date)<0))
             for mem in targetList do
                     mem.Delete()
 
     member x.DelDependency (target:string) =
         if (target.Chars(0) <> '*' ) then
-            let dirc = new DirectoryInfo(DeploymentSettings.JobDependencyFolder)
+            let dirc = DirectoryInfo(DeploymentSettings.JobDependencyFolder)
             if (target.Contains("_")) then
                 let files = dirc.GetFiles(target,SearchOption.AllDirectories)
                 for file in files do
@@ -412,7 +412,7 @@ type internal ClientStatusEx() =
                     mem.Delete()
         else
             let date = Convert.ToDateTime(target.Split('*').[1])
-            let dirc = new DirectoryInfo(DeploymentSettings.JobDependencyFolder)
+            let dirc = DirectoryInfo(DeploymentSettings.JobDependencyFolder)
             let targetList = dirc.GetFiles("*.*", SearchOption.AllDirectories) |> Array.filter ( fun elem -> (elem.LastWriteTime.CompareTo(date)<0))
             for mem in targetList do
                     mem.Delete()    
@@ -424,7 +424,7 @@ type internal ClientStatusEx() =
         if(target.Chars(0) <> '*' ) then
             drives |> Array.iter (fun d -> 
                                    try 
-                                     let fullTarget = new DirectoryInfo(Path.Combine(d, target))
+                                     let fullTarget = DirectoryInfo(Path.Combine(d, target))
                                      fullTarget.Delete(true)
                                    with
                                      |_ -> ()
@@ -434,17 +434,23 @@ type internal ClientStatusEx() =
 
             drives |> Array.iter ( fun d -> 
                                     try
-                                        let dir = new DirectoryInfo(Path.Combine(d, DeploymentSettings.DataFolder))
+                                        let dir = DirectoryInfo(Path.Combine(d, DeploymentSettings.DataFolder))
                                         let targets = dir.GetDirectories("*.*", SearchOption.AllDirectories) |> Array.filter ( fun item -> item.LastWriteTime.CompareTo(date)<0) 
                                         targets |> Array.iter ( fun item -> item.Delete(true) ) |>ignore
                                     with
                                         |_ -> ()
                                )
 
+    interface IDisposable with
+        member x.Dispose() = 
+            x.SendEvent.Dispose()
+            GC.SuppressFinalize(x)
+
+
 /// Networking between Client Nodes and Controller
 type internal ClientController() =
     static member val ClientInfoDesired = ClientInfoType.Basic with get, set
-    static member val ListOfClients = new SortedDictionary<string, ClientStatusEx>() with get
+    static member val ListOfClients = SortedDictionary<string, ClientStatusEx>() with get
 
     // lightweight "thread", should only contain non-blocking or async operations so as to not block thread in thread-pool
     // note: Begin** are non-blocling, and Async.** are all async
@@ -473,11 +479,11 @@ type internal ClientController() =
                     try
                         let tcpClient = new TcpClient( AddressFamily.InterNetwork )
                         tcpClient.Connect(ipv4Addr, controlPort)
-                        let socket = new NetworkSocket(tcpClient)
+                        use socket = new NetworkSocket(tcpClient)
                         statusEx.Connected <- true
                         statusEx.ConnectionTo <- servername+":"+controlPort.ToString()
-                        Async.StartAsTask(ClientController.ClientControllerRecv(socket, statusEx)) |> ignore
-                        Async.StartAsTask(ClientController.ClientControllerSend(socket, statusEx)) |> ignore
+                        do! ClientController.ClientControllerRecv(socket, statusEx)
+                        do! ClientController.ClientControllerSend(socket, statusEx)
                         statusEx.StartReq(name)
                     with
                         e -> ()
@@ -487,7 +493,7 @@ type internal ClientController() =
     static member ControllerHomeIn( o: Object ) = async {
         try
             let tcpClient = o :?> TcpClient
-            let socket = new NetworkSocket( tcpClient )
+            use socket = new NetworkSocket( tcpClient )
             try
                 let rcvdInfo = socket.Rcvd()
                 use ms = new MemStream(rcvdInfo)
@@ -513,8 +519,8 @@ type internal ClientController() =
                         let statusEx = ClientController.ListOfClients.[name]
                         statusEx.ConnectionTo <- name+":"+tcpClient.Client.RemoteEndPoint.ToString()
                         statusEx.Connected <- true
-                        Async.StartAsTask(ClientController.ClientControllerSend(socket, statusEx)) |> ignore
-                        Async.StartAsTask(ClientController.ClientControllerRecv(socket, statusEx)) |> ignore
+                        do! ClientController.ClientControllerSend(socket, statusEx)
+                        do! ClientController.ClientControllerRecv(socket, statusEx)
                         // make initial request for info
                         statusEx.ReqInfo(ClientController.ClientInfoDesired)
                     | _ ->
@@ -529,7 +535,7 @@ type internal ClientController() =
 
     static member StartController( o: Object ) =
         let x = o :?> HomeInServer
-        let listener = new TcpListener( x.IpAddress, x.cPort )
+        let listener = TcpListener( x.IpAddress, x.cPort )
         listener.Start()
         Logger.Log( LogLevel.MildVerbose, (sprintf "Listening on port %d" x.cPort ))
         try
@@ -553,7 +559,6 @@ type internal ClientController() =
         with e ->
             statusEx.Connected <- false
             Logger.Log( LogLevel.Info, (sprintf "Connection to %s broken" statusEx.ConnectionTo))
-            return ()
     }
 
     // send "thread"
@@ -573,7 +578,6 @@ type internal ClientController() =
         with e ->
             statusEx.Connected <- false
             Logger.Log( LogLevel.Info, (sprintf "Connection to %s broken" statusEx.ConnectionTo))
-            return ()
     }
 
     /// Set DSet refresh

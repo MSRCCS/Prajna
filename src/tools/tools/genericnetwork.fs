@@ -122,6 +122,19 @@ type [<AllowNullLiteral>] GenericNetwork(bStartSendPool, numNetThreads) =
         if (Utils.IsNotNull x.sendPool) then
             x.sendPool.CloseAllThreadPool()
 
+    member x.DisposeResource() = 
+        x.Close()
+        cts.Dispose()
+        (x.netPool :> IDisposable).Dispose()
+        (x.BufStackRecvComp :> IDisposable).Dispose()
+        base.CloseConns()
+
+    interface IDisposable with
+        /// Releases all resources used by the current instance.
+        member x.Dispose() = 
+            x.DisposeResource()
+            GC.SuppressFinalize(x)
+
     static member internal AllocBuf (cb : SocketAsyncEventArgs->unit) (rcbe : RefCntBufSA) =
         rcbe.SA.Completed.Add(cb)
 
@@ -664,3 +677,15 @@ and [<AllowNullLiteral>] GenericConn() as x =
         if (Utils.IsNotNull event) then
             bDone <- false
         (bDone, event)
+
+    interface IDisposable with
+        /// Releases all resources used by the current instance.
+        member x.Dispose() = 
+            (xSendC :> IDisposable).Dispose()
+            (xRecvC :> IDisposable).Dispose()
+            cts.Dispose()
+            tokenTimer.Dispose()
+            tokenWaitHandle.Dispose()
+            eSendStackWait.Dispose()
+            eSendFinished.Dispose()
+            GC.SuppressFinalize(x)

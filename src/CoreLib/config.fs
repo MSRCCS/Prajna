@@ -110,12 +110,12 @@ type internal ClientMasterConfig internal ()=
     // Reporting Server List
     member val ReportingServers = List<_>() with get, set
     // Configuration file, no much contention, OK to use Dictionary.
-    member val Executables = new Dictionary<string, string>() with get
+    member val Executables = Dictionary<string, string>() with get
     member val RootDeployPath = "" with get, set
     member val CurPath = Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location) with get
 
     static member Parse( name:string ) =
-        let x = new ClientMasterConfig()
+        let x = ClientMasterConfig()
         if Utils.IsNotNull name && name.Length > 0 then 
             let path = x.CurPath
             let fname = BuildFName path name
@@ -150,7 +150,7 @@ type internal ClientMasterConfig internal ()=
                             x.Executables.Add( line.Substring(0, pos), line.Substring( pos+1, line.Length-pos-1).TrimStart() )
         x
     static member internal ToParse( parse: ArgumentParser) = 
-        let x = new ClientMasterConfig()
+        let x = ClientMasterConfig()
         let mutable bFurtherReport = true
         let mutable mport = DeploymentSettings.MasterPort
         let mutable cport = DeploymentSettings.ControlPort

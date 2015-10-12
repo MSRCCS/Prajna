@@ -62,7 +62,7 @@ type internal RemoteConfig() =
                 let oms = System.Management.ManagementScope( srvNameSpace )
                 let oQuery = System.Management.ObjectQuery( "select FreeSpace, Size, Name from Win32_LogicalDisk where DriveType=3" )       
                 use oSearch = new System.Management.ManagementObjectSearcher( oms, oQuery )
-                let result = new System.Management.ManagementOperationObserver()
+                let result = System.Management.ManagementOperationObserver()
                 result.ObjectReady.Add ( fun obj ->  let oRet = obj.NewObject
                                                      let freeSpace:uint64 = unbox(oRet.GetPropertyValue("FreeSpace"))
                                                      let size:uint64 =  unbox(oRet.GetPropertyValue("FreeSpace"))
@@ -215,7 +215,7 @@ type internal Listener =
             ip = listenIP
             port = listenerPort;
             connects = 
-                let c = new ClientConnections()
+                let c = ClientConnections()
                 c.Initialize()
                 c
             listener =
@@ -229,7 +229,7 @@ type internal Listener =
             InListeningState = false
             Activity = false
             callback = Dictionary<Object, ( Object -> bool) >()
-            taskqueue = TaskQueue()
+            taskqueue = new TaskQueue()
         }
     member x.Port with get() = x.port
     member x.ConnectsClient with get() = x.connects
@@ -806,5 +806,9 @@ type internal Listener =
         | _ ->
             failwith "Incorrect logic, Listener.EndAccept should always be called with Listener as an object"
 
-
+    interface IDisposable with
+        member x.Dispose() = 
+           if Utils.IsNotNull x.taskqueue then
+              (x.taskqueue :> IDisposable).Dispose()
+           GC.SuppressFinalize(x)
 

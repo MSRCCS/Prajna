@@ -48,7 +48,8 @@ type TestEnvironment private () =
         Logger.Log( LogLevel.Info, sprintf "Current AppDomain: %s" (AppDomain.CurrentDomain.FriendlyName))
     
     let reportProcessStatistics msg = 
-        // GC.Collect()
+        GC.Collect()
+        GC.WaitForPendingFinalizers()
         let proc = Process.GetCurrentProcess()
         Logger.Log(LogLevel.Info, 
                    sprintf "%s -- # of TH: %i, GC Heap: %f MB, Private Memory: %f MB" 

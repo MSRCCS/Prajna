@@ -139,17 +139,18 @@ type internal NetworkSocket(socket:TcpClient) =
             bCloseCalled <- true    
             x.NetStream.Close()
             x.Socket.Close()
-            x.NetStream.Dispose()          
     override x.Finalize() =
         x.Close()
     interface IDisposable with
         member x.Dispose() = 
             x.Close()
+            x.NetStream.Dispose()
+            (x.Socket :> IDisposable).Dispose()
             GC.SuppressFinalize(x)
 
 [<Serializable>]
 type internal ClientStatus() =
-    member val internal CurConfig = new DetailedConfig() with get, set
+    member val internal CurConfig = DetailedConfig() with get, set
     member val CurDrive = "" with get, set
     member val Name = "" with get, set
     member val InternalPort = 0 with get, set
@@ -174,7 +175,7 @@ type internal ClientStatus() =
         new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes")
     member val CpuUsage = "" with get, set
     member x.GetCpuUsageByCounter() =
-        let cpuCounter = new System.Diagnostics.PerformanceCounter("Process", "% Processor Time", "_Total" )
+        use cpuCounter = new System.Diagnostics.PerformanceCounter("Process", "% Processor Time", "_Total" )
         cpuCounter.NextValue() |> ignore
         Threading.Thread.Sleep(200)
         let readOut = cpuCounter.NextValue()
@@ -182,13 +183,13 @@ type internal ClientStatus() =
         x.CpuUsage <- avgCpuUsage.ToString("F2")
         x.CpuUsage
     member x.GetCpuUsage() =
-        let processor = new Management.ManagementObject("Win32_PerfFormattedData_PerfOS_Processor.Name='_Total'");
+        use processor = new Management.ManagementObject("Win32_PerfFormattedData_PerfOS_Processor.Name='_Total'");
         processor.Get()
         let wmi = processor.GetPropertyValue( "PercentProcessorTime" ) :?> UInt64 
         x.CpuUsage <- wmi.ToString()
         x.CpuUsage
     member x.GetRamUsage() =
-        let ramCounter = new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes")
+        use ramCounter = new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes")
         x.MemorySpace <- (int (ramCounter.NextValue()))
         x.MemorySpace
     member x.GetRamCapacity() = 
@@ -241,7 +242,7 @@ type internal ClientStatus() =
             DriveSpace = int (config.DriveSpace( "" ) / 1024L / 1024L / 1024L), 
             MAC = config.MAC.Item(0).ToString() )
     static member Parse(s:string) =
-        let x = new ClientStatus()
+        let x = ClientStatus()
         try
             if s.Length>0 then 
                 let arr = s.Split('\t')
@@ -280,7 +281,7 @@ type internal ClientStatus() =
         // # of external port: 0
         ms.WriteVInt32( 0 ) 
     static member Unpack( ms:MemStream ) = 
-        let x = new ClientStatus()
+        let x = ClientStatus()
         x.Name <- ms.ReadString(  )
         x.ClientVersionInfo <- ms.ReadString(  )
         x.ProcessorCount <- ms.ReadVInt32(  ) 
@@ -325,7 +326,7 @@ type internal HomeInClient( versionInfo, datadrive, reportingServer:List<string*
         let x = s :?> HomeInClient
 
         // Otherwise, other thread is already executing home in, no need to do again. 
-        let config = new DetailedConfig()
+        let config = DetailedConfig()
         let clientStatus = ClientStatus.Create( config, x.VersionInfo, x.Datadrive)
         x.Config <- config
 
@@ -347,7 +348,7 @@ type internal HomeInClient( versionInfo, datadrive, reportingServer:List<string*
                         use tcpClient = new TcpClient( AddressFamily.InterNetwork )
                         do! tcpClient.ConnectAsync( ipv4Addr, port ) |> Async.AwaitIAsyncResult |> Async.Ignore
                         if tcpClient.Connected then 
-                            let socket = new NetworkSocket(tcpClient)
+                            use socket = new NetworkSocket(tcpClient)
                             let sendInfo = clientStatus.ToString()
                             Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Home in server at %s:%d with %s" servername port sendInfo))
                             use sendStream = new MemStream( 1024 )
@@ -828,7 +829,7 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
             match Guid(guid) with 
             | a when a.CompareTo( DeploymentSettings.ClusterInfoPlainGuid ) = 0 ->
                 let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
-                let ret = new ClusterInfo( fmt.Deserialize( stream ) :?> ClusterInfoBase ) 
+                let ret = ClusterInfo( fmt.Deserialize( stream ) :?> ClusterInfoBase ) 
                 Some( ret )
             | _ ->
                 Logger.Log( LogLevel.Error, ( sprintf "The file %s has Guid %A that is not ClusterInfo file (normally with .inf extension)" name (Guid(guid)) ))
@@ -845,11 +846,11 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
             match Guid(guid) with 
             | a when a.CompareTo( DeploymentSettings.ClusterInfoPlainGuid ) = 0 ->
                 let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
-                let ret = new ClusterInfo( fmt.Deserialize( ms ) :?> ClusterInfoBase ) 
+                let ret = ClusterInfo( fmt.Deserialize( ms ) :?> ClusterInfoBase ) 
                 failwith "Cluster with V1 ClusterInfo, no longer supported"
                 Some( ret )
             | b when b.CompareTo( DeploymentSettings.ClusterInfoPlainV2Guid ) = 0 ->
-                let x = new ClusterInfo()
+                let x = ClusterInfo()
                 try
                     x.Name <- ms.ReadString()
                     x.ClusterType <- enum<_> ( ms.ReadVInt32( ) )
@@ -1059,15 +1060,15 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
 
 type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
     // Don't expect contention for home in server. OK to use Dictionary
-    static member val ExcludeList = new Dictionary<string,bool>() with get, set
-    static member val OnlyList = new Dictionary<string,int>() with get, set
+    static member val ExcludeList = Dictionary<string,bool>() with get, set
+    static member val OnlyList = Dictionary<string,int>() with get, set
     static member val ListOfClusters = Array.zeroCreate<string*ClusterInfo*int> 0  with get, set
-    static member val CurrentCluster = new ClusterInfo() with get, set
-    static member val ListOfClients = new SortedDictionary<string, ClientStatus>() with get, set
+    static member val CurrentCluster = ClusterInfo() with get, set
+    static member val ListOfClients = SortedDictionary<string, ClientStatus>() with get, set
     static member val Updated = true with get, set
     static member LoadAllClusters() = 
         let path = ClusterInfo.ClusterInfoFolder()
-        let sortlist = new Dictionary< string, ClusterInfo > ()
+        let sortlist = Dictionary< string, ClusterInfo > ()
         let mutable useCluster : ClusterInfo = null
         let mutable useClusterTime = DateTime.MinValue
         try
@@ -1121,8 +1122,8 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
     //                HomeInServer.ListOfClients.CopyTo( newArray, 0 )
     //                newArray )
             // Create Exclude List and Only List
-            let newExcludeList = new Dictionary<string,bool>()
-            let newOnlyList = new Dictionary<string,int>() 
+            let newExcludeList = Dictionary<string,bool>()
+            let newOnlyList = Dictionary<string,int>() 
             for clusterEntry in HomeInServer.ListOfClusters do
                 let cname, cl, status = clusterEntry
                 if status = 2 then 
@@ -1140,8 +1141,8 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
             HomeInServer.ExcludeList <- newExcludeList
             HomeInServer.OnlyList <- newOnlyList
 
-            let workListOfClients = new Dictionary<_,_>( ) 
-            let workListName = new Dictionary<string,bool>()
+            let workListOfClients = Dictionary<_,_>( ) 
+            let workListName = Dictionary<string,bool>()
             HomeInServer.ListOfClients
             |> Seq.iter( fun pair -> 
                 if HomeInServer.OnlyList.Count<=0 || HomeInServer.OnlyList.ContainsKey( pair.Key.ToUpper() ) then 
@@ -1182,7 +1183,7 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
 //                    if not ( HomeInServer.OnlyList.ContainsKey( name ) ) then 
 //                        workListOfClients.Remove( name ) |> ignore 
                       
-            let resortListOfClients = new SortedDictionary<_, _> (workListOfClients)
+            let resortListOfClients = SortedDictionary<_, _> (workListOfClients)
             HomeInServer.ListOfClients <- resortListOfClients
             if numOnly = 1 then 
                 HomeInServer.CurrentCluster <- useCluster
@@ -1221,8 +1222,9 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
 
     static member ControllerHomeIn( o: Object ) = 
         try
-            let tcpClient = o :?> TcpClient
-            let socket = new NetworkSocket( tcpClient )
+            // Note: "ControllerHomeIn" was invoked as an async task, it is responsible for releasing the passed in tcpClient
+            use tcpClient = o :?> TcpClient 
+            use socket = new NetworkSocket( tcpClient )
             try
                 let rcvdInfo = socket.Rcvd()
                 let o = Deserialize rcvdInfo
@@ -1247,15 +1249,15 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
 
     static member StartController( o: Object ) =
         let x = o :?> HomeInServer
-        let listener = new TcpListener( x.IpAddress, x.cPort )
+        let listener = TcpListener( x.IpAddress, x.cPort )
         listener.Start()
         Logger.Log( LogLevel.MildVerbose, (sprintf "Listening on port %d" x.cPort ))
         try
             while true do
                 Logger.Log( LogLevel.MildVerbose, "Waiting for request ..." )
                 let tcpClient = listener.AcceptTcpClient()
-//                let ControllerHomeInStart = new Threading.ParameterizedThreadStart( HomeInServer.ControllerHomeIn )
-//                let ControllerHomeInThread = new Threading.Thread( ControllerHomeInStart )
+//                let ControllerHomeInStart = Threading.ParameterizedThreadStart( HomeInServer.ControllerHomeIn )
+//                let ControllerHomeInThread = Threading.Thread( ControllerHomeInStart )
 //                // IsBackground Flag true: thread will abort when main thread is killed. 
 //                ControllerHomeInThread.IsBackground <- true
 //                ControllerHomeInThread.Start( tcpClient )

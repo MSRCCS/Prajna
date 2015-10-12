@@ -191,7 +191,7 @@ module  StringTools =
         |]
 
     let private GetHashCodeUInt64( s:string ) = 
-        let sha = new SHA256Managed()
+        use sha = new SHA256Managed()
         let data = System.Text.UTF8Encoding().GetBytes( s )
         let result = sha.ComputeHash( data )
         BitConverter.ToUInt64( result, 0 )
@@ -201,7 +201,7 @@ module  StringTools =
 
 
     let inline internal HashString( s:string ) = 
-        let sha256 = new SHA256Managed()
+        use sha256 = new SHA256Managed()
         let result = sha256.ComputeHash( System.Text.UTF8Encoding().GetBytes( s ) )
         UInt128( result )
 
@@ -209,7 +209,7 @@ module  StringTools =
     /// Hash a string via SHA256 hash, and then use the first 16B of hash to form a GUID 
     /// </summary>
     let inline HashStringToGuid( s:string ) = 
-        let sha256 = new SHA256Managed()
+        use sha256 = new SHA256Managed()
         let result = sha256.ComputeHash( System.Text.UTF8Encoding().GetBytes( s ) )
         System.Guid( Array.sub result 0 16 )        
 

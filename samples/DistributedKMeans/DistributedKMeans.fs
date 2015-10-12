@@ -449,13 +449,12 @@ let main orgargs =
                 let cumArray = Array.sub(cumArrayPre) 1 ( cumArrayPre.Length - 1 ) |> Array.map ( fun x -> x/cumValue ) 
                 
                 if Utils.IsNotNull localdir && localdir.Length>0 then 
-                    let writeFile = FileTools.CreateFileStreamForWrite( localdir ) 
+                    use writeFile = FileTools.CreateFileStreamForWrite( localdir ) 
                     let fmt = Formatters.Binary.BinaryFormatter()
                     fmt.Serialize( writeFile, meanArray ) 
                     fmt.Serialize( writeFile, varArray )
                     fmt.Serialize( writeFile, cumArray )
                     writeFile.Flush()
-                    writeFile.Close()
 
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "done generating local data." ))
 

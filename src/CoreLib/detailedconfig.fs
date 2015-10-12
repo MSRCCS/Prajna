@@ -76,7 +76,7 @@ type internal DetailedConfig() =
             | _ -> ()
             totalCapacity
         else
-            let pc = new PerformanceCounter ("Mono Memory", "Total Physical Memory");
+            use pc = new PerformanceCounter ("Mono Memory", "Total Physical Memory");
             uint64 (pc.RawValue)
 
     static let storageCapacity = 
@@ -99,7 +99,7 @@ type internal DetailedConfig() =
 
     static let generatedMachineId = lazy (
         let mutable machineId = 0L
-        let sha = new SHA256Managed()
+        use sha = new SHA256Managed()
         let nics = NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
         //    Array.Sort( nics, { new IComparer<NetworkInformation.NetworkInterface> with member this.Compare(x, y) = x.GetPhysicalAddress.ToString().CompareTo( y.GetPhysicalAddress.ToString()) } )
         for nic in nics do
@@ -112,7 +112,7 @@ type internal DetailedConfig() =
         machineId <- BitConverter.ToInt64( result, 0 )
         if not DeploymentSettings.RunningOnMono then
             if machineId = 0L then 
-                let mc = new System.Management.ManagementClass("win32_processor")
+                use mc = new System.Management.ManagementClass("win32_processor")
                 let moc = mc.GetInstances()
                 for mo in moc do
                     if machineId = 0L then 

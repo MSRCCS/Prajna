@@ -167,7 +167,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     let mutable epInfo = ""
     let mutable connectionStatus = ConnectionStatus.NotInitialized
 
-    let xgBuf = GenericBuf(xgc, 2048) // generic buffer reader/writer allows max buffersize of 2048
+    let xgBuf = new GenericBuf(xgc, 2048) // generic buffer reader/writer allows max buffersize of 2048
     let headerRecv = Array.zeroCreate<byte>(8)
     let headerSend = Array.zeroCreate<byte>(8)
     let mutable body : StreamBase<byte> = null
@@ -233,6 +233,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     let mutable curRecvCmd : NetworkCommand = null
 
     // the queues
+    // Note: the dispose of the NetworkCommand in the following queues are handled by corresponding Component object
     let mutable sendCmdQ : FixedSizeQ<NetworkCommand> = null
     let mutable sendSAQ : FixedLenQ<RBufPart<byte>> = null
     let mutable recvSAQ : FixedSizeQ<RBufPart<byte>> = null
@@ -250,10 +251,10 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             x.MyExchangeRSA <- onet.MyExchangeRSA
             // receiver q is fixed size to limit # of unprocessed commands (not taken out by ToReceive)
             let xcRecv : Component<NetworkCommand> = x.CompRecv
-            xcRecv.Q <- FixedLenQ(DeploymentSettings.NetworkCmdRecvQSize, DeploymentSettings.NetworkCmdRecvQSize)
+            xcRecv.Q <- new FixedLenQ<_>(DeploymentSettings.NetworkCmdRecvQSize, DeploymentSettings.NetworkCmdRecvQSize)
             x.RecvCmdQ <- xcRecv.Q :?> FixedLenQ<NetworkCommand>
             let xcSend : Component<NetworkCommand> = x.CompSend
-            xcSend.Q <- FixedSizeQ(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
+            xcSend.Q <- new FixedSizeQ<_>(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
             x.SendCmdQ <- xcSend.Q :?> FixedSizeQ<NetworkCommand>
             let cmdQ : FixedSizeQ<NetworkCommand> = x.SendCmdQ
             x.SendCmdQ.MaxLen <- DeploymentSettings.NetworkCmdSendQSize
@@ -297,39 +298,48 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             x.ConnectionStatusSet <- ConnectionStatus.BeginConnect
             x.BeginConnect(addr, port)
     //instead of overloading, use static member for clarity
-    /// 4. Constructor for loopback connect
+    // 4. Constructor for loopback connect
+    // caller needs to be responsible for disposing the returned NetworkCommandQueue
     static member LoopbackConnect(port : int, onet : NetworkConnections, requireAuth : bool, myguid : Guid, rsaParam : byte[]*byte[], pwd : string) =
-        let x = new NetworkCommandQueue(onet)
-        // overwrite auth info
-        x.RequireAuth <- requireAuth
-        x.MyGuid <- myguid
-        if (requireAuth) then
-            x.MyAuthRSA <- Crypt.RSAFromPrivateKey(fst rsaParam, pwd)
-            x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(snd rsaParam, pwd)
-            let connList : ConcurrentDictionary<Guid, byte[]*byte[]> = x.ONet.AllowedConnections
-            connList.[myguid] <- (x.MyAuthRSA |> Crypt.RSAToPublicKey, x.MyExchangeRSA |> Crypt.RSAToPublicKey)
-        x.MachineName <- "Loopback"
-        x.Port <- port
-        let socket = new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
-        if not (x.ONet.IpAddr.Equals("")) then
-            socket.Bind(new IPEndPoint(IPAddress.Parse(x.ONet.IpAddr), 0))
-        // set loopback option
-        try 
-            let OptionInValue = BitConverter.GetBytes(1)
-            socket.IOControl( DeploymentSettings.SIO_LOOPBACK_FAST_PATH, OptionInValue, null ) |> ignore
-        with 
-        | e ->
-            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Fail to set loopback fast path... " ))
-        // connect
+        let mutable x = null
+        let mutable socket = null
+        let mutable success = false
         try
-            socket.Connect( Net.IPAddress.Loopback, port)
-            x.InitConnection(socket)
-            x
-        with
-        | e ->
-            x.MarkFail()
-            reraise()
-//             null
+            x <- new NetworkCommandQueue(onet)
+            // overwrite auth info
+            x.RequireAuth <- requireAuth
+            x.MyGuid <- myguid
+            if (requireAuth) then
+                x.MyAuthRSA <- Crypt.RSAFromPrivateKey(fst rsaParam, pwd)
+                x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(snd rsaParam, pwd)
+                let connList : ConcurrentDictionary<Guid, byte[]*byte[]> = x.ONet.AllowedConnections
+                connList.[myguid] <- (x.MyAuthRSA |> Crypt.RSAToPublicKey, x.MyExchangeRSA |> Crypt.RSAToPublicKey)
+            x.MachineName <- "Loopback"
+            x.Port <- port
+            socket <- new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
+            if not (x.ONet.IpAddr.Equals("")) then
+                socket.Bind(new IPEndPoint(IPAddress.Parse(x.ONet.IpAddr), 0))
+            // set loopback option
+            try 
+                let OptionInValue = BitConverter.GetBytes(1)
+                socket.IOControl( DeploymentSettings.SIO_LOOPBACK_FAST_PATH, OptionInValue, null ) |> ignore
+            with 
+            | e ->
+                Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Fail to set loopback fast path... " ))
+            // connect
+            try
+                socket.Connect( Net.IPAddress.Loopback, port)
+                x.InitConnection(socket)
+                success <- true
+                x
+            with
+            | e ->
+                x.MarkFail()
+                reraise()
+        finally
+            if not success then
+                if Utils.IsNotNull x then (x :> IDisposable).Dispose()
+                if Utils.IsNotNull socket then socket.Dispose()
 
     member x.AddLoopbackProps(requireAuth : bool, myguid : Guid, rsaParam : byte[]*byte[], pwd : string) =
         x.RequireAuth <- requireAuth
@@ -447,7 +457,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// Tells if event initialized has been set
     member x.Initialized with get() = bInitialized
     /// A stopwatch which starts when connection established
-    member val Stopwatch = new Stopwatch() with get
+    member val Stopwatch = Stopwatch() with get
     /// The maximum size of sending token bucket
     member x.MaxTokenSize with get() = xgc.MaxTokenSize and set(v) = xgc.MaxTokenSize <- v
 
@@ -463,14 +473,14 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// Whether authentication is required or not - if authentication required other side has AES key for sending encrypted messages here
     member val RequireAuth = false with get, set
     /// GUID of this connection
-    member val MyGuid = new Guid() with get, set
+    member val MyGuid = Guid() with get, set
     /// A RSA Crypto service provider for authentication
     member val MyAuthRSA : RSACryptoServiceProvider = null with get, set
     /// A RSA Cryto service provider for key exchange
     member val MyExchangeRSA : RSACryptoServiceProvider = null with get, set
 
     // flow control
-    member val private CommandSizeQ = new ConcurrentQueue<int>() with get
+    member val private CommandSizeQ = ConcurrentQueue<int>() with get
     member val flowcontrol_lastRcvdCommandSerial = ref -1L
     member val flowcontrol_lock = ref 0
     member val flowcontrol_lastack = ref (PerfDateTime.UtcNow())
@@ -504,7 +514,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// The pending command which has not yet been processed
     member val PendingCommand : (Option<ControllerCommand*StreamBase<byte>>*DateTime) = (None, (PerfDateTime.UtcNow())) with get, set
     member val private PendingCommandTimerEvent = new ManualResetEvent(false)
-    //member val PendingCommandTimer = new Timer(x.SetPendingCommandEventO, null, Timeout.Infinite, Timeout.Infinite)
+    //member val PendingCommandTimer = Timer(x.SetPendingCommandEventO, null, Timeout.Infinite, Timeout.Infinite)
     member val private PendingCommandTimerKey = PoolTimer.GetTimerKey()
     member private x.SetPendingCommandEvent() =
         x.PendingCommandTimerEvent.Set() |> ignore
@@ -708,7 +718,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                     bRemoteVerified <- true
                     let decryptBuf = Crypt.DecryptWithParams(Array.sub recvBuf sentBufHash.Length (recvBuf.Length-sentBufHash.Length), x.ONet.Password)
                     use ms = new MemStream(decryptBuf)
-                    let guid = new Guid(ms.ReadBytes(sizeof<Guid>))
+                    let guid = Guid(ms.ReadBytes(sizeof<Guid>))
                     let publicKey = ms.ReadBytesWLen()
                     let exchangePublicKey = ms.ReadBytesWLen()
                     Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connection verification from %s succeeds using password - adding %s to allowed connection list" x.EPInfo (guid.ToString("N"))))
@@ -728,12 +738,12 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             Logger.LogF( LogLevel.Error, (fun _ -> sprintf "Fail - initial buffer received is too small"))
             x.MarkFail()
         else
-            let guid = new Guid(Array.sub buf bufOffset MagicNumberBuf.Length)
+            let guid = Guid(Array.sub buf bufOffset MagicNumberBuf.Length)
             if (guid.CompareTo(MagicNumber) <> 0) then
                 Logger.LogF( LogLevel.Error, (fun _ -> sprintf "Fail - magic number not correct"))
                 x.MarkFail()
             else
-                let remoteGuid = new Guid(Array.sub buf MagicNumberBuf.Length sizeof<Guid>)
+                let remoteGuid = Guid(Array.sub buf MagicNumberBuf.Length sizeof<Guid>)
                 bLocalVerified <- not (BitConverter.ToBoolean(buf, MagicNumberBuf.Length+sizeof<Guid>))
                 // generate AES key for encryption / decryption
                 if (x.RequireAuth) then
@@ -803,11 +813,12 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     /// <param name="addr">The IPAddress to connect to</param>
     /// <param name="port">The port to connect to</param>
     member x.BeginConnect( addr:IPAddress, port ) = 
+        let mutable soc = null
         try 
             x.Port <- port  
             remoteEndPoint <- IPEndPoint( addr, port )
             remoteEndPointSignature <- LocalDNS.IPEndPointToInt64( x.RemoteEndPoint :?> IPEndPoint ) 
-            let soc = new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
+            soc <- new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
             if not (x.ONet.IpAddr.Equals("")) then
                 Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Local bind to %A" x.ONet.IpAddr)
                 soc.Bind(new IPEndPoint(IPAddress.Parse(x.ONet.IpAddr), 0))
@@ -818,8 +829,9 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         with 
         | e ->
             x.MarkFail() 
+            if Utils.IsNotNull soc then soc.Dispose()
             Logger.Log( LogLevel.Error, (sprintf "NetworkCommandQueue.BeginConnect failed with exception %A" e ))
-
+            
     static member private EndConnect( ar ) =
         let (x, soc) = ar.AsyncState :?> (NetworkCommandQueue*Socket)
         if not x.Shutdown then 
@@ -830,6 +842,8 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             with
             | e ->
                 x.MarkFail()
+                (x :> IDisposable).Dispose()
+                soc.Dispose()                
                 Logger.Log( LogLevel.Error, (sprintf "NetworkCommandQueue.BEndConnect failed with exception %A" e ))
 
     /// Initialize the NetworkCommandQueue - Only call after AddRecvProc are all done
@@ -845,7 +859,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     abstract Close : unit -> unit
     default x.Close() =
         if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
-            Logger.LogStackTrace(LogLevel.MildVerbose)
+            // Logger.LogStackTrace(LogLevel.MildVerbose)
             Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo))
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
@@ -931,7 +945,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
 //        Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "Receive command from %s of len: %d ack: %d prev: %d" x.EPInfo (body.Length+4) iLastSeq iLastRecvdSeqNo )
 //        let diff = int (Operators.uint16(iLastSeq - iLastRecvdSeqNo)) // unchecked for overflow
 //        x.UpdateFlowControl(diff, iLastSeq)
-        let command = new ControllerCommand(enum<ControllerVerb>(int headerRecv.[4]), enum<ControllerNoun>(int headerRecv.[5]))
+        let command = ControllerCommand(enum<ControllerVerb>(int headerRecv.[4]), enum<ControllerNoun>(int headerRecv.[5]))
         if (command.Verb = ControllerVerb.Decrypt) then
             // decrypt the body
             use decryptMs = Crypt.DecryptStream(x.AESRecv, body)
@@ -939,7 +953,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             decryptMs.ReadInt32() |> ignore
             let verb = enum<ControllerVerb>(int (decryptMs.ReadByte()))
             let noun = enum<ControllerNoun>(int (decryptMs.ReadByte()))
-            let command = new ControllerCommand(verb, noun)
+            let command = ControllerCommand(verb, noun)
             let ms = decryptMs.Replicate(decryptMs.Position, decryptMs.Length-decryptMs.Position)
             ms.Info <- sprintf "Cmd:%A:" command
             curRecvCmd <- new NetworkCommand(command, ms)
@@ -1281,6 +1295,21 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         sendStream.InsertBefore( forwardHeader ) |> ignore
         x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), forwardHeader, bExpediate )
 
+    member x.DisposeResource() = 
+        x.OnDisconnect.Trigger()
+        (xgc :> IDisposable).Dispose()
+        (xCRecv :> IDisposable).Dispose()
+        (xCSend :> IDisposable).Dispose()
+        (xgBuf :> IDisposable).Dispose()
+        eInitialized.Dispose()
+        eVerified.Dispose()
+        x.PendingCommandTimerEvent.Dispose()        
+
+    interface IDisposable with
+        member x.Dispose() = 
+            x.DisposeResource()
+            GC.SuppressFinalize(x);
+
 // can add following to timer routine:
 // - garbage collect, monitor, keep alive (all timer based, but all timers currently removed)
 /// A set of NetworkCommandQueue that are established via the Connect call
@@ -1288,7 +1317,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
 and [<AllowNullLiteral>] NetworkConnections() as x = 
     inherit GenericNetwork(true, DeploymentSettings.NumNetworkThreads)
 
-    //let monitorTimer = new Timer((fun o -> x.MonitorChannels(x.GetAllChannels())), null, Timeout.Infinite, Timeout.Infinite)
+    //let monitorTimer = Timer((fun o -> x.MonitorChannels(x.GetAllChannels())), null, Timeout.Infinite, Timeout.Infinite)
     let channelsCollection = ConcurrentDictionary<int64, NetworkCommandQueue>() 
     do
         CleanUp.Current.Register( 1000, x, x.Close, fun _ -> "NetworkConnections" ) |> ignore 
@@ -1309,8 +1338,8 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     member val private KeyFile = "" with get, set
     member val private KeyFilePassword = "" with get, set
     // contains keys as (authentication key, encryption key)
-    member val internal AllowedConnections = new ConcurrentDictionary<Guid, byte[]*byte[]>() with get
-    member val internal MyGuid : Guid = new Guid() with get, set
+    member val internal AllowedConnections = ConcurrentDictionary<Guid, byte[]*byte[]>() with get
+    member val internal MyGuid : Guid = Guid() with get, set
     member val internal MyAuthRSA : RSACryptoServiceProvider = null with get, set
     member val internal MyExchangeRSA : RSACryptoServiceProvider = null with get, set
 
@@ -1414,7 +1443,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             let guidStr = f.Substring(keyfile.Length+1, f.Length-keyfile.Length-5)
             if not (guidStr.Equals("mykey", StringComparison.OrdinalIgnoreCase)) then
                 try
-                    let guid = new Guid(guidStr)
+                    let guid = Guid(guidStr)
                     ms.WriteBytes(guid.ToByteArray())
                     ms.WriteBytes(File.ReadAllBytes(f))
                 with e -> ()
@@ -1450,7 +1479,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
         let mutable bContinue = true
         while (bContinue) do
             try
-                let guid = new Guid(ms.ReadBytes(sizeof<Guid>))
+                let guid = Guid(ms.ReadBytes(sizeof<Guid>))
                 let keySign = ms.ReadBytesWLen()
                 let keyExchange = ms.ReadBytesWLen()
                 x.AllowedConnections.[guid] <- (keySign, keyExchange)
@@ -1484,15 +1513,15 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             else
                 (false, (null, null))
 
-    //member val internal CmdProcPoolRecv = new ThreadPoolWithWaitHandles<string>("Cmd Process Recv") with get
+    //member val internal CmdProcPoolRecv = ThreadPoolWithWaitHandles<string>("Cmd Process Recv") with get
     member internal x.CmdProcPoolRecv with get() = x.netPool
-    //member val internal CmdProcPoolSend = new ThreadPoolWithWaitHandles<string>("Cmd Process Send") with get
+    //member val internal CmdProcPoolSend = ThreadPoolWithWaitHandles<string>("Cmd Process Send") with get
     member internal x.CmdProcPoolSend with get() = x.netPool
 
     // Current speed limit on outgoing interface - for all channels
     member val private SendSpeed = Config.CurrentNetworkSpeed with get, set
     // set send speed per channel
-    member val private AdjustSpeed = new SingleThreadExec()
+    member val private AdjustSpeed = SingleThreadExec()
     member internal x.AdjustSendSpeeds() =
         let adjustSendSpeeds() =
             let channelLists = x.GetAllChannels()
@@ -1666,9 +1695,10 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                 if Object.ReferenceEquals( channel, pair.Value ) then 
                     channelsCollection.TryRemove( pair.Key ) |> ignore
                     Logger.LogF( LogLevel.Warning, (fun _ -> sprintf "remove channel to machine %A, but remote signature of the channel cannot be found" channel.EPInfo ))
+                    pair.Value.OnDisconnect.Trigger()
         else
             Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "remove channel of RemoteEndPoint %s." (LocalDNS.GetShowInfo( channel.RemoteEndPoint ) ) ))
-        channel.OnDisconnect.Trigger() 
+            channel.OnDisconnect.Trigger() 
 
     // Some optimization to avoid repeated memory allocation
     member val private CurChannelList = Array.zeroCreate<_> 0 with get, set
@@ -1740,5 +1770,7 @@ UnprocessedCmD:%d bytes Status:%A"
     interface IDisposable with
         /// Close All Active Connection, to be called when the program gets shutdown.
         member x.Dispose() = 
+            x.EvCloseExecuted.Dispose()
+            base.DisposeResource()
             CleanUp.Current.CleanUpAll()
             GC.SuppressFinalize(x)

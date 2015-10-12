@@ -60,7 +60,7 @@ type JobListener() =
         | e ->
             Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Fail to set loopback fast path...." ))
         soc
-    member val internal ConnectsClient = new ClientConnections() with get
+    member val internal ConnectsClient = ClientConnections() with get
     member val internal Listener:Socket = null with get, set
     member val internal Activity = false with get, set
     member val internal ListeningThread = null with get, set
@@ -100,8 +100,8 @@ type JobListener() =
             x.ConnectsClient.Initialize()
             ClusterJobInfo.JobListenningPortCollection.GetOrAdd( jobport, true) |> ignore 
 
-//            let ListenerThreadStart = new Threading.ParameterizedThreadStart( JobListener.StartListenning )
-//            let ListenerThread = new Threading.Thread( ListenerThreadStart )
+//            let ListenerThreadStart = Threading.ParameterizedThreadStart( JobListener.StartListenning )
+//            let ListenerThread = Threading.Thread( ListenerThreadStart )
 //            ListenerThread.IsBackground <- true
 //            ListenerThread.Start( x )
 //            x.ListeningThread <- ListenerThread // Tasks.Task.Run( fun _ -> x.InitializeListenningTask( ) ) 
@@ -139,7 +139,7 @@ type JobListener() =
             else
                 soc.Bind( IPEndPoint( IPAddress.Parse(jobip), jobport ) )
             soc.Listen( 30 )
-            let x = JobListener( Listener = soc )
+            let x = new JobListener( Listener = soc )
             let ar = x.Listener.BeginAccept( AsyncCallback( JobListener.EndAccept ), x)
             Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Listening on port %d" jobport ))
             x
@@ -330,4 +330,7 @@ type JobListener() =
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "add command parser for backend server %s." (LocalDNS.GetShowInfo( queuePeer.RemoteEndPoint )) ))
 
 
-
+    interface IDisposable with
+        member x.Dispose() = 
+            if Utils.IsNotNull x.Listener then
+                x.Listener.Dispose()

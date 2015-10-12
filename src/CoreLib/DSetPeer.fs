@@ -472,7 +472,7 @@ and [<AllowNullLiteral>]
                         if Utils.IsNotNull x.Password && x.Password.Length>0 then 
                             // Encryption content when save to disk
                             let tdes = x.GetAesAlg parti
-                            let enc = new System.Text.UTF8Encoding( true, true )
+                            let enc = System.Text.UTF8Encoding( true, true )
                             let bytePassword = enc.GetBytes( x.Password )
                             let hashPassword = 
                                 x.GetHashProvider( parti ).ComputeHash( bytePassword )
@@ -482,11 +482,9 @@ and [<AllowNullLiteral>]
                             tdes.IV <- BitConverter.GetBytes( x.Version.Ticks )
                             let msCrypt = new MemStream( bufRcvdLen )
                             let cStream = new CryptoStream( msCrypt, tdes.CreateEncryptor(tdes.Key,tdes.IV), CryptoStreamMode.Write)
-                            let sWriter = new BinaryWriter( cStream ) 
+                            use sWriter = new BinaryWriter( cStream ) // will dispose cStream when it's disposed
                             sWriter.Write( ms.GetBuffer(), curBufPos, (bufRcvdLen - curBufPos) )
                             (ms :> IDisposable).Dispose()
-                            sWriter.Close()
-                            cStream.Close()
                             ( msCrypt :> StreamBase<byte>, 0, int msCrypt.Length )
                         else
                             ( ms, curBufPos, bufRcvdLen - curBufPos )

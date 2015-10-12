@@ -556,13 +556,12 @@ module PrajnaCopy =
                     let cumValue = cumArrayPre.[ cumArrayPre.Length - 1 ]
                     let cumArray = Array.sub(cumArrayPre) 1 ( cumArrayPre.Length - 1 ) |> Array.map ( fun x -> x/cumValue ) 
                     if Utils.IsNotNull localdir && localdir.Length>0 then 
-                        let writeFile = FileTools.CreateFileStreamForWrite( localdir ) 
+                        use writeFile = FileTools.CreateFileStreamForWrite( localdir ) 
                         let fmt = Formatters.Binary.BinaryFormatter()
                         fmt.Serialize( writeFile, meanArray ) 
                         fmt.Serialize( writeFile, varArray )
                         fmt.Serialize( writeFile, cumArray )
                         writeFile.Flush()
-                        writeFile.Close()
                     for i = 0 to meanArray.Length - 1 do
                         Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Mean of class %d : %A" i meanArray.[i]  ))
                         let distArray = Array.map ( fun mean -> ArrayFunc.Distance mean meanArray.[i] ) meanArray 
@@ -632,93 +631,6 @@ module PrajnaCopy =
                     Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Generate %d gaussian vector of dimension %d with %f secs, class distribution %A, cumulative prob %A" !nTotal dim elapse.TotalSeconds nClassCount cumArray))
                     bExecute <- true
                     ()
-    //            elif bGen && bIn && bMapReduce then 
-    //                let t1 = (DateTime.UtcNow)
-    //                let startDKV = DSet<_>( Name = "VectorGen", NumReplications = nrep, 
-    //                                        Version = ver, SerializationLimit = slimit, 
-    //                                        Password = password, 
-    //                                        TypeOfLoadBalancer = typeOf, 
-    //                                        PeerRcvdSpeedLimit = rcvdSpeedLimit )
-    //                let numPartitions = if nump > 0 then startDKV.NumPartitions <- nump 
-    //                                                     nump 
-    //                                                else startDKV.SetupPartitionMapping()
-    //                                                     startDKV.NumPartitions
-    //                let partitionSizeFunc( parti ) = 
-    //                    let ba = num / numPartitions
-    //                    if parti < ( num % numPartitions ) then ba + 1 else ba
-    //                let rnd = Random()
-    //                let meanArray = Array.init nClasses ( fun _ -> UniformFunc.Random rnd dim )
-    //                let varArray = Array.create nClasses var
-    //                let probArray = LaplacianFunc.Random rnd nClasses
-    //                let cumArrayPre = probArray |> Array.scan ( fun sum x -> sum + x ) 0.0 
-    //                let cumValue = cumArrayPre.[ cumArrayPre.Length - 1 ]
-    //                let cumArray = Array.sub(cumArrayPre) 1 ( cumArrayPre.Length - 1 ) |> Array.map ( fun x -> x/cumValue ) 
-    //                if Utils.IsNotNull localdir && localdir.Length>0 then 
-    //                    let writeFile = FileTools.CreateFileStreamForWrite( localdir ) 
-    //                    let fmt = Formatters.Binary.BinaryFormatter()
-    //                    fmt.Serialize( writeFile, meanArray ) 
-    //                    fmt.Serialize( writeFile, varArray )
-    //                    fmt.Serialize( writeFile, cumArray )
-    //                    writeFile.Flush()
-    //                    writeFile.Close()
-    //                for i = 0 to meanArray.Length - 1 do
-    //                    Logger.LogF( LogLevel.ExtremeVerbose,  fun _ -> sprintf "Mean of class %d : %A" i meanArray.[i]   )
-    //                    let distArray = Array.map ( fun mean -> ArrayFunc.Distance mean meanArray.[i] ) meanArray 
-    //                    if nClasses < 10 then 
-    //                        Logger.LogF( LogLevel.Info,  fun _ -> sprintf "Mean of class %d distance matrix:%A " i distArray  )
-    //                    else
-    //                        Logger.LogF( LogLevel.ExtremeVerbose,  fun _ -> sprintf "Mean of class %d distance matrix:%A " i distArray  )
-    //
-    //                let initFunc( parti, serial ) = 
-    //                    // each generated vector is with a different random seed
-    //                    let seed = serial * numPartitions + parti
-    //                    let rnd = Random( serial * numPartitions + parti )
-    //                    let v = rnd.NextDouble() 
-    //                    let idx = ref 0
-    //                    for i = 0 to cumArray.Length - 1 do
-    //                        if v > cumArray.[i] then 
-    //                            idx := i + 1 
-    //                    let genV = GaussianFunc.RandomMV2 rnd meanArray.[!idx] varArray.[!idx]
-    //                    seed, genV   
-    //                let findClosestFunc( genV, meanArray ) = 
-    //                    let distArray = meanArray |> Array.map( fun cl -> ArrayFunc.Distance genV cl ) 
-    //                    let smalli = ref -1 
-    //                    let smalld = ref Double.MaxValue
-    //                    distArray |> Array.iteri( fun i d -> if !smalli<0 || d < !smalld then 
-    //                                                            smalli:=i
-    //                                                            smalld:=d
-    //                                                         )
-    //                    !smalli                                        
-    //                let dkvGen0 = startDKV |> DSet.init initFunc partitionSizeFunc 
-    //                let dkvGen = dkvGen0 |> DSet.rowsReorg ( 55 )
-    //                let reportDKV = 
-    //                    if Utils.IsNotNull remoteDKVname && remoteDKVname.Length>0 then 
-    //                        let rDKV, s1 = dkvGen |> DSet.split2 ( fun (seed, genV) -> (seed, findClosestFunc( genV, meanArray) ) )
-    //                                                              ( fun tuple -> tuple )
-    //                        let mapReduce = s1 |> DKV.mapreduce ( fun (seed, genV) -> Seq.singleton (findClosestFunc( genV, meanArray), genV) )
-    //                                                ( fun (cl, vecList) -> (cl, vecList.ToArray() ) ) 
-    //                        mapReduce |> DKV.saveToName (remoteDKVname+"_MapReduce") |> ignore
-    ////                        rDKV.NumParallelExecution <- 1
-    //                        rDKV
-    //                    else
-    //                        dkvGen |> DSet.map( fun (seed, genV) -> (seed, findClosestFunc( genV, meanArray) ) )
-    //                // Ease debugging by allow only one execution. 
-    ////                reportDKV.NumParallelExecution <- 1
-    //                let msgSeq = reportDKV.ToSeq()
-    //                let nTotal = ref 0
-    //                let nClassCount = Array.zeroCreate<_> meanArray.Length
-    //                msgSeq 
-    //                |> Seq.iter ( 
-    //                    fun (seed, classi ) -> 
-    //                        nTotal := !nTotal + 1 
-    //                        nClassCount.[classi] <- nClassCount.[classi] + 1 
-    //                        Logger.LogF( LogLevel.ExtremeVerbose,  fun _ -> sprintf "Seed %d -> class %d" seed classi  )
-    //                    )
-    //                let t2 = (DateTime.UtcNow)
-    //                let elapse = t2.Subtract(t1)
-    //                Logger.LogF( LogLevel.Info,  fun _ -> sprintf "Generate %d gaussian vector of dimension %d with %f secs, class distribution %A, cumulative prob %A" !nTotal dim elapse.TotalSeconds nClassCount cumArray )
-    //                bExecute <- true
-
                 elif bGen && bOut && Utils.IsNotNull localdir && localdir.Length>0 then 
                     let t1 = (DateTime.UtcNow)
                     let startDKV = DSet<int*float[]>( Name = remoteDKVname, PeerRcvdSpeedLimit = rcvdSpeedLimit ) |> DSet.loadSource

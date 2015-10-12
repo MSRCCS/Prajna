@@ -273,7 +273,7 @@ type StreamExtension =
     /// If the string is null, the bytestream is written to indicate that is a string of length 0. 
     [<Extension>]
     static member WriteStringV( x: Stream, s: string ) =
-        let enc = new System.Text.UTF8Encoding()
+        let enc = System.Text.UTF8Encoding()
         if Utils.IsNotNull s then 
             StreamExtension.WriteBytesWVLen( x, enc.GetBytes( s ) )
         else
@@ -283,13 +283,13 @@ type StreamExtension =
     [<Extension>]
     static member ReadStringV( x: Stream ) = 
         let buf = StreamExtension.ReadBytesWVLen( x )
-        let enc = new System.Text.UTF8Encoding()
+        let enc = System.Text.UTF8Encoding()
         enc.GetString( buf )
     /// Write a string (UTF8Encoded) to bytestream and prefix with a length of the bytearray. 
     /// If the string is null, the bytestream is written to indicate that is a string of length 0. 
     [<Extension>]
     static member WriteString( x: Stream, s: string ) =
-        let enc = new System.Text.UTF8Encoding()
+        let enc = System.Text.UTF8Encoding()
         if Utils.IsNotNull s then 
             StreamExtension.WriteBytesWLen( x, enc.GetBytes( s ) )
         else
@@ -299,7 +299,7 @@ type StreamExtension =
     [<Extension>]
     static member ReadString( x: Stream ) = 
         let buf = StreamExtension.ReadBytesWLen( x )
-        let enc = new System.Text.UTF8Encoding()
+        let enc = System.Text.UTF8Encoding()
         enc.GetString( buf )
 
     /// Write IPEndPoint to bytestream 
@@ -331,13 +331,13 @@ type StreamExtension =
     /// Write a json object to bytestream
     [<Extension>]
     static member WriteJson( x: Stream, data: 'T ) = 
-        let json = new DataContractJsonSerializer(typedefof<'T>)
+        let json = DataContractJsonSerializer(typedefof<'T>)
         json.WriteObject(x, data)
 
     /// Read a json object from bytestream
     [<Extension>]
     static member ReadJson( x: Stream ): 'T = 
-        let json = new DataContractJsonSerializer(typedefof<'T>)
+        let json = DataContractJsonSerializer(typedefof<'T>)
         json.ReadObject(x) :?> 'T
 
 /// Extension Methods for System.String

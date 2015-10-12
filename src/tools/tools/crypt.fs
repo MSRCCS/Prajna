@@ -34,7 +34,7 @@ type internal Crypt() =
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
     static member Encrypt(clearBuf : byte[], pwd : string, keySize : int, blkSize : int) =
-        let rjndn = new AesCryptoServiceProvider()
+        use rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
@@ -44,7 +44,7 @@ type internal Crypt() =
 
         // use random salt to generate key
         let salt = Array.zeroCreate<byte>(Crypt.SaltBytes)
-        let rnd = new Random()
+        let rnd = Random()
         rnd.NextBytes(salt)
         let mutable nPadding = blkBytes - byte (clearBuf.Length % int blkBytes)
         let clearBuf =
@@ -56,13 +56,13 @@ type internal Crypt() =
                 rnd.NextBytes(padding)
                 Array.concat([clearBuf; padding])
         salt.[0] <- nPadding // overwrite first byte of salt with padding
-        let keygen = new Rfc2898DeriveBytes(pwd, salt, Crypt.DeriveByteIter)
+        use keygen = new Rfc2898DeriveBytes(pwd, salt, Crypt.DeriveByteIter)
         rjndn.Key <- keygen.GetBytes(rjndn.KeySize/8)
         rjndn.IV <- keygen.GetBytes(int blkBytes)
         ms.Write(salt, 0, Crypt.SaltBytes)
 
         // write out
-        let cs = new CryptoStream(ms, rjndn.CreateEncryptor(), CryptoStreamMode.Write)
+        use cs = new CryptoStream(ms, rjndn.CreateEncryptor(), CryptoStreamMode.Write)
         cs.Write(clearBuf, 0, clearBuf.Length)
         cs.Flush() // should flush underlying MemStream
         let outBuf = Array.sub (ms.GetBuffer()) 0 (int ms.Length)
@@ -70,7 +70,7 @@ type internal Crypt() =
 
     // symmetric key rjnd encrypt/decrypt byte[] -> byte[]
     static member EncryptWithParams(clearBuf : byte[], pwd : string, ?keySize : int, ?blkSize : int) =
-        let rjndn = new AesCryptoServiceProvider()
+        use rjndn = new AesCryptoServiceProvider()
         let keySize = defaultArg keySize Crypt.DefaultKeySize
         let blkSize = defaultArg blkSize Crypt.DefaultBlkSize
         rjndn.BlockSize <- blkSize
@@ -82,7 +82,7 @@ type internal Crypt() =
 
         // use random salt to generate key
         let salt = Array.zeroCreate<byte>(Crypt.SaltBytes)
-        let rnd = new Random()
+        let rnd = Random()
         rnd.NextBytes(salt)
         let mutable nPadding = blkBytes - byte (clearBuf.Length % int blkBytes)
         let clearBuf =
@@ -93,7 +93,7 @@ type internal Crypt() =
                 let padding = Array.zeroCreate<byte>(int nPadding)
                 rnd.NextBytes(padding)
                 Array.concat([clearBuf; padding])
-        let keygen = new Rfc2898DeriveBytes(pwd, salt, Crypt.DeriveByteIter)
+        use keygen = new Rfc2898DeriveBytes(pwd, salt, Crypt.DeriveByteIter)
         rjndn.Key <- keygen.GetBytes(rjndn.KeySize/8)
         rjndn.IV <- keygen.GetBytes(int blkBytes)
         // write parameters used
@@ -105,14 +105,14 @@ type internal Crypt() =
         ms.WriteBytes(salt)
 
         // write out clear buf using encryption - attach to ms
-        let cs = new CryptoStream(ms, rjndn.CreateEncryptor(), CryptoStreamMode.Write)
+        use cs = new CryptoStream(ms, rjndn.CreateEncryptor(), CryptoStreamMode.Write)
         cs.Write(clearBuf, 0, clearBuf.Length)
         cs.Flush() // should flush underlying MemStream
         let outBuf = Array.sub (ms.GetBuffer()) 0 (int ms.Length)
         outBuf
 
     static member Decrypt(cipherBuf : byte[], pwd : string, keySize : int, blkSize : int) =
-        let rjndn = new AesCryptoServiceProvider()
+        use rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
@@ -124,12 +124,12 @@ type internal Crypt() =
         let salt = Array.zeroCreate<byte>(Crypt.SaltBytes)
         ms.Read(salt, 0, Crypt.SaltBytes) |> ignore
         let nPadding = salt.[0]
-        let keygen = new Rfc2898DeriveBytes(pwd, salt, Crypt.DeriveByteIter)
+        use keygen = new Rfc2898DeriveBytes(pwd, salt, Crypt.DeriveByteIter)
         rjndn.Key <- keygen.GetBytes(rjndn.KeySize/8)
         rjndn.IV <- keygen.GetBytes(int blkBytes)
 
         // read
-        let cs = new CryptoStream(ms, rjndn.CreateDecryptor(), CryptoStreamMode.Read)
+        use cs = new CryptoStream(ms, rjndn.CreateDecryptor(), CryptoStreamMode.Read)
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-Crypt.SaltBytes)
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         let outBuf = Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
@@ -147,19 +147,19 @@ type internal Crypt() =
         let salt = Array.zeroCreate<byte>(saltBytes)
         ms.ReadBytes(salt) |> ignore
 
-        let rjndn = new AesCryptoServiceProvider()
+        use rjndn = new AesCryptoServiceProvider()
         rjndn.BlockSize <- blkSize
         rjndn.KeySize <- keySize
         rjndn.Padding <- PaddingMode.None
         assert(rjndn.BlockSize/8 < 256)
         let blkBytes = byte (rjndn.BlockSize / 8)
 
-        let keygen = new Rfc2898DeriveBytes(pwd, salt, deriveByteIter)
+        use keygen = new Rfc2898DeriveBytes(pwd, salt, deriveByteIter)
         rjndn.Key <- keygen.GetBytes(rjndn.KeySize/8)
         rjndn.IV <- keygen.GetBytes(int blkBytes)
 
         // read
-        let cs = new CryptoStream(ms, rjndn.CreateDecryptor(), CryptoStreamMode.Read)
+        use cs = new CryptoStream(ms, rjndn.CreateDecryptor(), CryptoStreamMode.Read)
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-(int ms.Position))
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         let outBuf = Array.sub clearBuf 0 (clearBuf.Length - int nPadding)
@@ -202,21 +202,21 @@ type internal Crypt() =
         Crypt.DecryptWithParams(buf, pwd)
 
     static member SHAStr(str : string) =
-        let sha = new SHA256Managed()
+        use sha = new SHA256Managed()
         let strBuf = Text.Encoding.UTF8.GetBytes(str)
         let sha = sha.ComputeHash(strBuf)
         System.Convert.ToBase64String(sha)
 
     static member SHABufStr(buf : byte[]) =
-        let sha = new SHA256Managed()
+        use sha = new SHA256Managed()
         System.Convert.ToBase64String(sha.ComputeHash(buf))
 
     static member RSAGetNewKey(keyNumber : KeyNumber) : byte[]*byte[] =
-        let csp = new CspParameters()
+        let csp = CspParameters()
         csp.ProviderType <- 1 // RSA_FULL
         csp.ProviderName <- "Microsoft Strong Cryptographic Provider" // MS_STRONG_PROV
         csp.KeyNumber <- int keyNumber
-        let rsa = new RSACryptoServiceProvider(csp)
+        use rsa = new RSACryptoServiceProvider(csp)
         (rsa.ExportCspBlob(true), rsa.ExportCspBlob(false))
 
     static member RSAGetNewKeysStr(password : string, keyNumber : KeyNumber) : string*string =
@@ -241,7 +241,7 @@ type internal Crypt() =
         Crypt.EncryptWithParams(rsa.ExportCspBlob(true), password, Crypt.DefaultKeySize, Crypt.DefaultBlkSize)
 
     static member RSAFromKey(keyBlob : byte[]) =
-        let rsa = new RSACryptoServiceProvider()
+        use rsa = new RSACryptoServiceProvider()
         rsa.ImportCspBlob(keyBlob)
         rsa
 
@@ -272,7 +272,7 @@ type internal Crypt() =
         let ms = new MemStream()
         ms.WriteByte(nPadding)
         ms.WriteBytesWLen(rjnd.IV)
-        let cs = new CryptoStream(ms, rjnd.CreateEncryptor(), CryptoStreamMode.Write)
+        use cs = new CryptoStream(ms, rjnd.CreateEncryptor(), CryptoStreamMode.Write)
         cs.Write(buf, 0, buf.Length)
         cs.Flush()
         ms
@@ -287,7 +287,7 @@ type internal Crypt() =
         let ms = msOrig.GetNew()
         ms.WriteByte(nPadding)
         ms.WriteBytesWLen(rjnd.IV)
-        let cs = new CryptoStream(ms, rjnd.CreateEncryptor(), CryptoStreamMode.Write)
+        use cs = new CryptoStream(ms, rjnd.CreateEncryptor(), CryptoStreamMode.Write)
         use sr = new Prajna.Tools.StreamReader<byte>(msOrig, 0L)
         sr.ApplyFnToBuffers(fun (buf, offset, cnt) -> cs.Write(buf, offset, cnt))
         if (nPadding <> 0uy) then
@@ -303,7 +303,7 @@ type internal Crypt() =
 //            rjnd.Padding <- PaddingMode.None
 //        else
 //            rjnd.Padding <- PaddingMode.PKCS7
-        let cs = new CryptoStream(ms, rjnd.CreateDecryptor(), CryptoStreamMode.Read)
+        use cs = new CryptoStream(ms, rjnd.CreateDecryptor(), CryptoStreamMode.Read)
         let clearBuf = Array.zeroCreate<byte>((int ms.Length)-(int ms.Position))
         cs.Read(clearBuf, 0, clearBuf.Length) |> ignore
         (clearBuf, clearBuf.Length-nPadding)
@@ -312,7 +312,7 @@ type internal Crypt() =
         let nPadding = ms.ReadByte()
         rjnd.IV <- ms.ReadBytesWLen()
         rjnd.Padding <- PaddingMode.None
-        let cs = new CryptoStream(ms, rjnd.CreateDecryptor(), CryptoStreamMode.Read)
+        use cs = new CryptoStream(ms, rjnd.CreateDecryptor(), CryptoStreamMode.Read)
         use clearStream = ms.GetNew()
         clearStream.WriteFromStream(cs, ms.Length-ms.Position)
         let clearStreamNoPad = clearStream.Replicate(0L, clearStream.Length - (int64 nPadding))

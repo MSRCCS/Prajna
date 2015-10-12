@@ -88,7 +88,7 @@ module internal Serialize =
             box(BitConverter.ToBoolean(buffer, 0)) :?> 'T
         else
             // deserialize
-            let ms = new MemoryStream(buffer)
+            use ms = new MemoryStream(buffer)
             let fmt = BinaryFormatter()
             fmt.Deserialize(ms) :?> 'T
 
@@ -118,7 +118,7 @@ module internal Serialize =
             BitConverter.GetBytes(unbox<System.Double>(x))
         else
             // serialize
-            let ms = new MemoryStream()
+            use ms = new MemoryStream()
             let fmt = BinaryFormatter()
             fmt.Serialize(ms, x)
             ms.GetBuffer()
@@ -177,7 +177,7 @@ module internal Serialize =
             Unchecked.defaultof<'T>
 
     let memo (f: 'a -> 'b) =
-        let cache = new Dictionary<'a, 'b>()
+        let cache = Dictionary<'a, 'b>()
         fun x -> 
             match cache.TryGetValue(x) with
                 | true, y -> y
@@ -438,14 +438,14 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
             this.WriteObject(entry.Value)
 
     member private this.WriteCustomSerializedObject(objType: Type, obj: ISerializable) : unit =
-        let serInfo = new SerializationInfo(objType, Serialize.theConverter)
+        let serInfo = SerializationInfo(objType, Serialize.theConverter)
         obj.GetObjectData(serInfo, Serialize.theContext)
         this.WriteObject serInfo.ObjectType
         marked.Add(obj, marked.Count)
         this.WriteMembers serInfo
 
     member this.WriteSurrogateSerializedObject(surrogate: ISerializationSurrogate, objType: Type, obj: obj) =
-        let serInfo = new SerializationInfo(objType, Serialize.theConverter)
+        let serInfo = SerializationInfo(objType, Serialize.theConverter)
         surrogate.GetObjectData(obj, serInfo, Serialize.theContext)
         this.WriteMembers serInfo
 
@@ -495,7 +495,7 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
 
 type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializer: TypeSerializer, surrogateSelector: ISurrogateSelector) as self =
 
-    let onDeserializationList = new List<IDeserializationCallback>()
+    let onDeserializationList = List<IDeserializationCallback>()
 
     let readPrimitive (objType: Type) : obj = 
         match Type.GetTypeCode(objType) with
@@ -599,7 +599,7 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                 field.SetValue(obj, newValue)
 
     member private this.ReadSerializationInfo(deserType: Type) : SerializationInfo =
-        let deserInfo = new SerializationInfo(deserType, Serialize.theConverter)
+        let deserInfo = SerializationInfo(deserType, Serialize.theConverter)
         let numFields = reader.ReadInt32()
         for _ in 1..numFields do
             let name = this.ReadObject(reader, marked) :?> string
@@ -731,15 +731,15 @@ type internal BinarySerializer() =
         
         member x.Deserialize (stream: Stream) : obj = 
     //        assert (this.SurrogateSelector <> null)
-            let reader = new BinaryReader(stream, Text.UTF8Encoding.UTF8)
-            let marked = new List<obj>()
-            let deser = new Deserializer(reader, marked, new TypeSerializer(), (x :> IFormatter).SurrogateSelector)
+            use reader = new BinaryReader(stream, Text.UTF8Encoding.UTF8, true)
+            let marked = List<obj>()
+            let deser = Deserializer(reader, marked, new TypeSerializer(), (x :> IFormatter).SurrogateSelector)
             let ret = deser.ReadObject()
             ret
         
         member x.Serialize(stream: Stream, graph: obj): unit = 
     //        assert (this.SurrogateSelector <> null)
-            let writer = new BinaryWriter(stream, Text.UTF8Encoding.UTF8)
-            let marked = new Dictionary<obj, int>(ReferenceComparer())
-            let ser = new Serializer(writer, marked, new TypeSerializer(), (x :> IFormatter).SurrogateSelector)
+            use writer = new BinaryWriter(stream, Text.UTF8Encoding.UTF8, true)
+            let marked = Dictionary<obj, int>(ReferenceComparer())
+            let ser = Serializer(writer, marked, new TypeSerializer(), (x :> IFormatter).SurrogateSelector)
             do ser.WriteObject(graph)

@@ -45,9 +45,9 @@ module Hash =
         inherit HashAlgorithm()
 
 #if VERIFY_HASH
-        static let sha256s = new HashSet<Guid>()
-        static let f64s = new HashSet<Guid>()
-        let inner = new SHA256Managed()
+        static let sha256s = HashSet<Guid>()
+        static let f64s = HashSet<Guid>()
+        let inner = SHA256Managed()
 #endif
 
         // We use uint64s storage for speed and convenience, but before we return,

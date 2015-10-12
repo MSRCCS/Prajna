@@ -409,7 +409,7 @@ and [<AllowNullLiteral>]
     /// Setup Crytography provider if not there. 
     member internal x.GetCryptoProvider parti password = 
         let tdes = x.GetAesAlg parti
-        let enc = new System.Text.UTF8Encoding( true, true )
+        let enc = System.Text.UTF8Encoding( true, true )
         let bytePassword = enc.GetBytes( x.Password )
         let hashPassword = 
             x.GetHashProvider(parti).ComputeHash( bytePassword )
@@ -425,7 +425,7 @@ and [<AllowNullLiteral>]
             tdes.IV <- BitConverter.GetBytes( x.Version.Ticks )
             let msCrypt = new MemStream( bufRcvdLen )
             let cStream = new CryptoStream( msCrypt, tdes.CreateEncryptor(tdes.Key,tdes.IV), CryptoStreamMode.Write)
-            let sWriter = new BinaryWriter( cStream ) 
+            use sWriter = new BinaryWriter( cStream ) // it will dispose 'cStream' when it was disposed
             sWriter.Write( msRcvd.GetBuffer(), curBufPos, (bufRcvdLen - curBufPos) )
             sWriter.Close()
             cStream.Close()
@@ -551,9 +551,6 @@ and [<AllowNullLiteral>]
                 let meta = BlobMetadata.Unpack( ms )
                 Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Rcvd %s command %A from peer %d with %dB" (meta.ToString()) cmd peeri (ms.Length-ms.Position) ))
                 let bRet = x.SyncReceiveFromPeer meta ms peeri 
-//                let ev = new ManualResetEvent(false)
-//                ev.Reset() |> ignore
-//                ev.WaitOne() |> ignore
                 if bRet && (DateTime.UtcNow - queuePeer.LastSendTicks).TotalMilliseconds > 5000. then 
 //                if bRet then 
                     use msEcho = new MemStream( 128 )
@@ -1104,6 +1101,7 @@ and [<AllowNullLiteral>]
     static member internal sendAcrossNetwork (x:DStream ) = 
         x.SendAcrossNetwork()
     member internal x.MulticastAcrossNetwork() = 
+        // caller needs to be responsible for diposing the returned DStream
         let sendStream = DStream( x ) 
         x.DependencyDownstream <- MulticastToNetwork (DependentDStream(sendStream) )
         sendStream.Dependency <- MulticastFromNetwork ( DependentDStream(x) )
@@ -1111,3 +1109,10 @@ and [<AllowNullLiteral>]
         sendStream
     static member internal generate (x:DStream ) = 
         ()
+
+//    Note: to do dispose properly, needs to traverse dependency tree
+//          rely on finalizer for now
+//    interface IDisposable with
+//        member x.Dispose() = 
+//            x.AllPeerCloseRcvdEvent.Dispose()
+//            base.DisposeResource()

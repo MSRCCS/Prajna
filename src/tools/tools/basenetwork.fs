@@ -54,7 +54,7 @@ type IConn =
 //module NetUtils =
 /// Abstract Class with static members for network utility functions
 type [<AbstractClass>] NetUtils() =
-    static let randGen = new System.Random()
+    static let randGen = System.Random()
     static member internal RandGen with get() = randGen
 
     /// Get a TCP Listener which listens on a port
@@ -253,11 +253,17 @@ type GenericVal<'V>(conn : IConn) as x =
         eSendVal.SetBuffer(0, sizeof<'V>) // reset
         NetUtils.SendOrClose(xConn, x.AsyncSendValueCb, eSendVal)
 
+    interface IDisposable with
+        /// Releases all resources used by the current instance.
+        member x.Dispose() = 
+            eSendVal.Dispose()
+            eRecvVal.Dispose()
+            GC.SuppressFinalize(x)
 // ====================================================================================
 
 /// A class capable of reading/writing a buffer asynchronously using an underlying connection
 type GenericBuf(conn : IConn, maxBufferSize : int) as x =
-    let xgInt = GenericVal<int>(conn)
+    let xgInt = new GenericVal<int>(conn)
     let xConn = conn
     let eSendBuf = new SocketAsyncEventArgs()
     do eSendBuf.Completed.Add(x.AsyncSendBufCb)
@@ -416,6 +422,14 @@ type GenericBuf(conn : IConn, maxBufferSize : int) as x =
     member internal x.AsyncSendBufWithSize(buf : byte[], bufferOffset : int, bufferSize : int) =
         x.AsyncSendBufWithSize(None, null, buf, bufferOffset, bufferSize)
 
+    interface IDisposable with
+        /// Releases all resources used by the current instance.
+        member x.Dispose() = 
+            (xgInt :> IDisposable).Dispose()
+            eSendBuf.Dispose()
+            eRecvBuf.Dispose()
+            eSendComplete.Dispose()
+            GC.SuppressFinalize(x);
 // =================================================================================
 
 /// maintains multiple network connections
@@ -423,7 +437,7 @@ type GenericBuf(conn : IConn, maxBufferSize : int) as x =
 [<AbstractClass>]
 type Network() =
     let mutable listen : TcpListener = null
-    let networkQ = new ConcurrentDictionary<string, IConn>()
+    let networkQ = ConcurrentDictionary<string, IConn>()
     let numConn = ref 0
     let localAddr = Dns.GetHostAddresses("")
     let localAddrV4 = localAddr |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
@@ -446,6 +460,7 @@ type Network() =
         for conn in (networkQ) do
             let iconn = conn.Value
             iconn.Close()
+            iconn.Socket.Dispose()
 
     member private x.AfterAccept(ar : IAsyncResult) =
         let (listen, newFn, state) = ar.AsyncState :?> (TcpListener*(unit->IConn)*obj)
@@ -518,7 +533,7 @@ type Network() =
     member x.Connect<'T when 'T :> IConn and  'T : (new: unit->'T)>(addr : IPAddress, port : int, state : obj) =
         let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
         let conn = new 'T() :> IConn
-        let ep = new IPEndPoint(addr, port)
+        let ep = IPEndPoint(addr, port)
         try
             sock.Connect(ep)
             x.InitConn(conn, sock, state)
@@ -535,29 +550,38 @@ type Network() =
     /// The state passed into connection initialization.  When connection is created, conn.Init(socket, state) is called.
     /// </param>
     member x.Connect<'T when 'T :> IConn and  'T : (new: unit->'T)>(addrStr : string, port : int, state : obj) =
-        let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
-        let conn = new 'T() :> IConn
+        let mutable success = false
+        let mutable sock =null 
         try
-            // use IP v4 address, randomly pick one for local, use 0 for port since don't care
-            let index = NetUtils.RandGen.Next(0, localAddrV4.Length)
-            sock.Bind(IPEndPoint(localAddrV4.[index], 0))
-            Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Bind to local %d out of %d - %A" index localAddrV4.Length localAddrV4.[index]))
-            // use IP v4 address, randomly pick one for remote
-            let addrs = Dns.GetHostAddresses(addrStr)
-            let addrsv4 = addrs |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
-            let index = NetUtils.RandGen.Next(0, addrsv4.Length)
-            Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %d - %A" index addrsv4.[index]))
-            sock.Connect(addrsv4.[index], port)
-            x.InitConn(conn, sock, state)
-            conn
-        with e ->
+            sock <- new Socket(SocketType.Stream, ProtocolType.Tcp)
+            let conn = new 'T() :> IConn
             try
-                let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
-                sock.Connect(addrStr, port)
+                // use IP v4 address, randomly pick one for local, use 0 for port since don't care
+                let index = NetUtils.RandGen.Next(0, localAddrV4.Length)
+                sock.Bind(IPEndPoint(localAddrV4.[index], 0))
+                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Bind to local %d out of %d - %A" index localAddrV4.Length localAddrV4.[index]))
+                // use IP v4 address, randomly pick one for remote
+                let addrs = Dns.GetHostAddresses(addrStr)
+                let addrsv4 = addrs |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
+                let index = NetUtils.RandGen.Next(0, addrsv4.Length)
+                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %d - %A" index addrsv4.[index]))
+                sock.Connect(addrsv4.[index], port)
                 x.InitConn(conn, sock, state)
+                success <- true
                 conn
-            with e->
-                null 
+            with e ->
+                try
+                    sock <- new Socket(SocketType.Stream, ProtocolType.Tcp)
+                    sock.Connect(addrStr, port)
+                    x.InitConn(conn, sock, state)
+                    success <- true
+                    conn
+                with e->
+                    null 
+        finally
+            // if success is true, "sock" will be recorded in networkQ (as a member of IConn), and will be diposed there
+            if not success && Utils.IsNotNull sock then
+                sock.Dispose()
 
     /// Generic function to connect to given address string
     /// Each conn can be different class so long as interface IConn is implemented
@@ -571,29 +595,44 @@ type Network() =
         if (bind.Equals("")) then
             x.Connect<'T>(addrStr, port, state)
         else
-            let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
-            let conn = new 'T() :> IConn
-            let addr = (Dns.GetHostAddresses(bind)).[0]
+            let mutable success = false
+            let mutable sock = null
             try
-                sock.Bind(IPEndPoint(addr, 0))
-                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Bind to local %A" addr))
-                // use IP v4 address, randomly pick one for remote
-                let addrs = Dns.GetHostAddresses(addrStr)
-                let addrsv4 = addrs |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
-                let index = NetUtils.RandGen.Next(0, addrsv4.Length)
-                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %d - %A" index addrsv4.[index]))
-                sock.Connect(addrsv4.[index], port)
-                x.InitConn(conn, sock, state)
-                conn
-            with e->
+                sock <- new Socket(SocketType.Stream, ProtocolType.Tcp)
+                let conn = new 'T() :> IConn
+                let addr = (Dns.GetHostAddresses(bind)).[0]
                 try
-                    let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
                     sock.Bind(IPEndPoint(addr, 0))
-                    sock.Connect(addrStr, port)
+                    Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Bind to local %A" addr))
+                    // use IP v4 address, randomly pick one for remote
+                    let addrs = Dns.GetHostAddresses(addrStr)
+                    let addrsv4 = addrs |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
+                    let index = NetUtils.RandGen.Next(0, addrsv4.Length)
+                    Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %d - %A" index addrsv4.[index]))
+                    sock.Connect(addrsv4.[index], port)
                     x.InitConn(conn, sock, state)
+                    success <- true
                     conn
                 with e->
-                    null 
+                    try
+                        sock <- new Socket(SocketType.Stream, ProtocolType.Tcp)
+                        sock.Bind(IPEndPoint(addr, 0))
+                        sock.Connect(addrStr, port)
+                        x.InitConn(conn, sock, state)
+                        success <- true
+                        conn
+                    with e->
+                        null 
+            finally
+                // if success is true, "sock" will be recorded in networkQ (as a member of IConn), and will be diposed there
+                if not success && Utils.IsNotNull sock then
+                    sock.Dispose()
+
+    interface IDisposable with
+        /// Releases all resources used by the current instance.
+        member x.Dispose() = 
+            x.CloseConns()
+            GC.SuppressFinalize(x);
                                     
     static member internal SrcDstBlkCopy(src : byte[], srcOffset : int byref, srcLen : int byref,
                                          dst : byte[], dstOffset : int byref, dstLen : int byref) =
@@ -677,8 +716,8 @@ type [<AllowNullLiteral>] internal ComponentBase() =
     member x.SharedStateObj with get() = sharedStateObj and set(v) = sharedStateObj <- v
 
 and [<AllowNullLiteral>] internal SharedComponentState() =
-    let items = new ConcurrentDictionary<int, ComponentBase>()
-    let notify = new SingleThreadExec()
+    let items = ConcurrentDictionary<int, ComponentBase>()
+    let notify = SingleThreadExec()
 
     member x.Notify() =
         for item in items do
@@ -699,7 +738,7 @@ and [<AllowNullLiteral>] internal SharedComponentState() =
     member val AllowClose = false with get, set
 
     // static add
-    static member val SharedState = new Dictionary<obj, SharedComponentState>() with get
+    static member val SharedState = Dictionary<obj, SharedComponentState>() with get
     static member Add(id : int, c : ComponentBase, o : obj) =
         let sc : SharedComponentState ref = ref null
         lock (SharedComponentState.SharedState) (fun _ ->
@@ -742,7 +781,7 @@ and [<AllowNullLiteral>] internal SharedComponentState() =
 /// - If processing is occuring on own thread, then that thread blocks for event to fire
 /// There is also support for multiple processing steps to take place in a single item
 type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
-    let compBase = new ComponentBase()
+    let compBase = ComponentBase()
     let bRelease = ref 0
     let item : 'T ref = ref null
     let mutable q : BaseQ<'T> = null
@@ -752,11 +791,11 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     let mutable proc = Unchecked.defaultof<unit->ManualResetEvent*bool>
     let bCloseDone = ref -1
     let bTerminateDone = ref -1
-    let processors = new ConcurrentDictionary<string, ('T->ManualResetEvent)*bool>(StringComparer.Ordinal)
+    let processors = ConcurrentDictionary<string, ('T->ManualResetEvent)*bool>(StringComparer.Ordinal)
     let count = ref -1
     let waitTimeMs = 0
     let mutable bMultipleInit = false
-    let lockObj = new Object()
+    let lockObj = Object()
     let [<VolatileField>] mutable isTerminated = false
     let [<VolatileField>] mutable bInProcessing = false
     let [<VolatileField>] mutable procCount = 0
@@ -767,7 +806,9 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     interface IDisposable with
         /// Close All Active Connection, to be called when the program gets shutdown.
         member x.Dispose() = 
-            x.Finalize()
+            x.ReleaseAllItems()
+            if Utils.IsNotNull q then
+                (q :> IDisposable).Dispose()
             GC.SuppressFinalize(x)
 
     // accessors
@@ -950,8 +991,8 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         let thread = ThreadTracking.StartThreadForAction ( fun _ -> infoFunc tpKey ) (Action<_>( fun _ -> Component<'T>.ProcessOnOwnThread(proc) (fnCb)))
         thread.IsBackground <- false
         ()
-//        let threadStart = new ParameterizedThreadStart(Component<'T>.ProcessOnOwnThread)
-//        let thread = new Thread(threadStart)
+//        let threadStart = ParameterizedThreadStart(Component<'T>.ProcessOnOwnThread)
+//        let thread = Thread(threadStart)
 //        // main thread must wait for this thread to stop
 //        thread.IsBackground <- false
 //        thread.Start(proc)
@@ -968,17 +1009,22 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     // thread pool using system thread pool
     static member internal StartOnSystemThreadPool(processFunc : unit->ManualResetEvent*bool) (finishCb : Option<unit->unit>) =
         let waitAndContinue (o : obj) (bTimeOut : bool) =
-            let (rwh, handle, func) = o :?> RegisteredWaitHandle ref*ManualResetEvent*WaitCallback
+            let (rwh, handle, registrationCompleted, func) = o :?> RegisteredWaitHandle ref*ManualResetEvent*ManualResetEventSlim*WaitCallback
             if (not bTimeOut) then
-                //(!rwh).Unregister(handle) |> ignore
                 System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
+                registrationCompleted.Wait()
+                (!rwh).Unregister(null) |> ignore
+                registrationCompleted.Dispose()
+
         let wrappedFunc (o : obj) : unit =
             let func = o :?> WaitCallback
             let (event, finish) = processFunc()
             if (not finish) then
                 if (Utils.IsNotNull event) then
                     let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
-                    rwh := ThreadPool.RegisterWaitForSingleObject(event, waitAndContinue, (rwh, event, func), -1, true)
+                    let registrationCompleted = new ManualResetEventSlim(false)
+                    rwh := ThreadPool.RegisterWaitForSingleObject(event, waitAndContinue, (rwh, event, registrationCompleted, func), -1, true)
+                    registrationCompleted.Set()
                 else
                     // queue again if not finished
                     System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
@@ -996,11 +1042,11 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// <param name="tpKey">A key to identify the processing component</param>
     /// <param name="infoFunc">A function which returns information about the processing component</param>
     static member internal AddWorkItem(func : unit->ManualResetEvent*bool)
-                                      (threadPool : ThreadPoolWithWaitHandles<'TP>)
-                                      (cts : CancellationToken)
-                                      (tpKey : 'TP)
+                                        (threadPool : ThreadPoolWithWaitHandles<'TP>)
+                                        (cts : CancellationToken)
+                                        (tpKey : 'TP)
                                       (infoFunc : 'TP -> string) =
-        let compBase = new ComponentBase()
+        let compBase = ComponentBase()
         compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
         let finishCb : Option<unit->unit> =
             if (Utils.IsNull threadPool) then
@@ -1232,7 +1278,7 @@ type internal ComponentThr<'T when 'T:null and 'T:equality>(desiredMaxSize : int
                                                             desiredMinSize : int64, minSize : int64,
                                                             maxQWaitTime : int64) as x =
     inherit Component<'T>()
-    do x.Q <- FixedSizeMinSizeQ<'T>(desiredMaxSize, maxSize, desiredMinSize, minSize)
+    do x.Q <- new FixedSizeMinSizeQ<'T>(desiredMaxSize, maxSize, desiredMinSize, minSize)
     let q = x.Q :?> FixedSizeMinSizeQ<'T>
 
     member x.QThr with get() = q

@@ -51,7 +51,7 @@ type internal LocalCluster (name, version, numClients, containerMode, clientPath
     let clients =
         [| 
           for i in 0..(numClients-1) do
-              let status = new ClientStatus()
+              let status = ClientStatus()
               status.Name <- sprintf "localhost"
               status.ClientVersionInfo <- "v1"
               status.ProcessorCount <- 1
@@ -64,7 +64,7 @@ type internal LocalCluster (name, version, numClients, containerMode, clientPath
         |]
 
     let clusterInfo =
-        let c = new ClusterInfo()
+        let c = ClusterInfo()
         c.Version <- version
         c.Name <- "LocalCluster-" + name
         c.ListOfClients <- clients

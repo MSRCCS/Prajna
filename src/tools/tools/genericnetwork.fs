@@ -122,14 +122,17 @@ type [<AllowNullLiteral>] GenericNetwork(bStartSendPool, numNetThreads) =
         if (Utils.IsNotNull x.sendPool) then
             x.sendPool.CloseAllThreadPool()
 
+    member x.DisposeResource() = 
+        x.Close()
+        cts.Dispose()
+        (x.netPool :> IDisposable).Dispose()
+        (x.BufStackRecvComp :> IDisposable).Dispose()
+        base.CloseConns()
+
     interface IDisposable with
         /// Releases all resources used by the current instance.
         member x.Dispose() = 
-            x.Close()
-            cts.Dispose()
-            (x.netPool :> IDisposable).Dispose()
-            (x.BufStackRecvComp :> IDisposable).Dispose()
-            base.CloseConns()
+            x.DisposeResource()
             GC.SuppressFinalize(x)
 
     static member internal AllocBuf (cb : SocketAsyncEventArgs->unit) (rcbe : RefCntBufSA) =

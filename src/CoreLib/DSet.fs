@@ -3063,6 +3063,7 @@ and [<Serializable; AllowNullLiteral>]
 //            x.MappingInfoUpdatedEvent.Dispose()
 //            // dispose remaining items in deliveryQueue
 //            // walk the dependence graph to dispose DStreams
+//            base.DisposeResource()
 
 // Data structure related to an instance of the job 
 // E.g., what partition has been read, remapped, etc.. 

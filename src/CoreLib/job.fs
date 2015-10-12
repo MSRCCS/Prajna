@@ -2849,10 +2849,13 @@ and
                 yield " " + file.ToString()
         } |> String.concat Environment.NewLine
 
+    member x.DisposeResource() = 
+        x.evCreateRemoteExecutionRoster.Dispose()
+
     interface IDisposable with
         /// Close All Active Connection, to be called when the program gets shutdown.
         member x.Dispose() = 
-            x.evCreateRemoteExecutionRoster.Dispose()
+            x.DisposeResource()
             GC.SuppressFinalize(x)
 
 and /// Create a job for remote execution roster

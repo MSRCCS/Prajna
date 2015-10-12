@@ -2723,6 +2723,7 @@ and [<AllowNullLiteral; Serializable>]
     interface IDisposable with
         member x.Dispose() = 
             x.EvJobStarted.Dispose()
+            base.DisposeResource()
             GC.SuppressFinalize(x)
 
 and internal ContainerAppDomainLauncher() = 

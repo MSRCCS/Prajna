@@ -1704,7 +1704,7 @@ and [<AllowNullLiteral>]
     member private x.NetworkReadyImpl( jbInfo ) = 
         x.BaseNetworkReady( jbInfo ) |> ignore
 
-    member internal x.DisposeNativeResource() = 
+    member internal x.DisposeResource() = 
          x.CanCloseDownstreamEvent.Dispose()
          x.AllPeerClosedEvent.Dispose()
 
@@ -1714,8 +1714,7 @@ and [<AllowNullLiteral>]
 //        member x.Dispose() = 
 //            if Utils.IsNotNull x.ThreadPool then
 //                (x.ThreadPool :> IDisposable).Dispose()
-//            x.CanCloseDownstreamEvent.Dispose()
-//            x.AllPeerClosedEvent.Dispose()
+//            x.DisposeResource()
 //            GC.SuppressFinalize(x)
 
 // A global variable in Prajna

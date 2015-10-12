@@ -859,7 +859,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     abstract Close : unit -> unit
     default x.Close() =
         if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
-            Logger.LogStackTrace(LogLevel.MildVerbose)
+            // Logger.LogStackTrace(LogLevel.MildVerbose)
             Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo))
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
@@ -1295,16 +1295,19 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         sendStream.InsertBefore( forwardHeader ) |> ignore
         x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), forwardHeader, bExpediate )
 
+    member x.DisposeResource() = 
+        x.OnDisconnect.Trigger()
+        (xgc :> IDisposable).Dispose()
+        (xCRecv :> IDisposable).Dispose()
+        (xCSend :> IDisposable).Dispose()
+        (xgBuf :> IDisposable).Dispose()
+        eInitialized.Dispose()
+        eVerified.Dispose()
+        x.PendingCommandTimerEvent.Dispose()        
+
     interface IDisposable with
         member x.Dispose() = 
-            x.OnDisconnect.Trigger()
-            (xgc :> IDisposable).Dispose()
-            (xCRecv :> IDisposable).Dispose()
-            (xCSend :> IDisposable).Dispose()
-            (xgBuf :> IDisposable).Dispose()
-            eInitialized.Dispose()
-            eVerified.Dispose()
-            x.PendingCommandTimerEvent.Dispose()
+            x.DisposeResource()
             GC.SuppressFinalize(x);
 
 // can add following to timer routine:
@@ -1693,11 +1696,9 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                     channelsCollection.TryRemove( pair.Key ) |> ignore
                     Logger.LogF( LogLevel.Warning, (fun _ -> sprintf "remove channel to machine %A, but remote signature of the channel cannot be found" channel.EPInfo ))
                     pair.Value.OnDisconnect.Trigger()
-                    (pair.Value :> IDisposable).Dispose()
         else
             Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "remove channel of RemoteEndPoint %s." (LocalDNS.GetShowInfo( channel.RemoteEndPoint ) ) ))
             channel.OnDisconnect.Trigger() 
-            (channel :> IDisposable).Dispose()
 
     // Some optimization to avoid repeated memory allocation
     member val private CurChannelList = Array.zeroCreate<_> 0 with get, set
@@ -1769,7 +1770,7 @@ UnprocessedCmD:%d bytes Status:%A"
     interface IDisposable with
         /// Close All Active Connection, to be called when the program gets shutdown.
         member x.Dispose() = 
-            base.CloseConns()
             x.EvCloseExecuted.Dispose()
+            base.DisposeResource()
             CleanUp.Current.CleanUpAll()
             GC.SuppressFinalize(x)

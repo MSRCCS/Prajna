@@ -784,6 +784,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     let compBase = ComponentBase()
     let bRelease = ref 0
     let item : 'T ref = ref null
+    let mutable bItemRelease = 0
     let mutable q : BaseQ<'T> = null
     let mutable bIsClosed = false
     let isClosed() =
@@ -870,12 +871,16 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     member private x.ProcCount with get() = procCount and set(v) = procCount <- v
     member private x.CompBase with get() = compBase
 
-    member x.ReleaseAllItems() =
-        if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
-            let itemDQ : 'T ref = ref Unchecked.defaultof<'T>
+    member x.ReleaseAndClearItem() =
+        if Interlocked.CompareExchange(&bItemRelease, 1, 0) = 0 then
             if (Utils.IsNotNull !item) then
                 x.ReleaseItem(item)
                 item := null
+
+    member x.ReleaseAllItems() =
+        if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
+            let itemDQ : 'T ref = ref Unchecked.defaultof<'T>
+            x.ReleaseAndClearItem()
             if (Utils.IsNotNull x.Q) then
                 while (not x.Q.IsEmpty) do
                     let (success, event) = x.Q.DequeueWait(itemDQ)
@@ -1082,7 +1087,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                   (cts : CancellationToken)
                                   (tpKey : 'TP)
                                   (infoFunc : 'TP -> string) : unit =
-        proc <- Component.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
+        proc <- Component.Process x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
         compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
         Component<'T>.StartOnSystemThreadPool proc None
         //Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
@@ -1182,8 +1187,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     // However, there may be some cases (e.g. SendAsync on network) where this may not be true
     // The only case where processAction should return complete=true and "Utils.IsNotNull eventProc" is the folllowing:
     //     if complete=true happens by the time the event fires.
-    static member internal Process (item : 'T ref) 
-                                   (dequeueAction : 'T ref -> bool*ManualResetEvent) 
+    static member internal Process (dequeueAction : 'T ref -> bool*ManualResetEvent) 
                                    (processAction : 'T -> bool*ManualResetEvent) 
                                    (isClosed : unit -> bool)
                                    (closeAction : unit -> unit)
@@ -1202,23 +1206,21 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                 x.ProcWaitHandle <- null
                 x.InProcessing <- false
                 (null, true)
-            else if (Utils.IsNotNull !item) then
+            else if (Utils.IsNotNull !x.Item) then
                 // continue to process remaining work item
-                let (complete, eventProc) = processAction(!item)
+                let (complete, eventProc) = processAction(!x.Item)
                 if (complete) then
-                    x.ReleaseItem(item)
-                    item := null
+                    x.ReleaseAndClearItem()
                 x.ProcWaitHandle <- eventProc
                 x.InProcessing <- false
                 (eventProc, false)
             else
                 // get new item from queue
-                let (ret, eventDQ) = dequeueAction item
+                let (ret, eventDQ) = dequeueAction x.Item
                 if ret then
-                    let (complete, eventProc) = processAction(!item)
+                    let (complete, eventProc) = processAction(!x.Item)
                     if (complete) then
-                        x.ReleaseItem(item)
-                        item := null
+                        x.ReleaseAndClearItem()
                     x.ProcWaitHandle <- eventProc
                     x.InProcessing <- false
                     (eventProc, false)
@@ -1239,31 +1241,6 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
             x.InProcessing <- false
             Logger.LogF( LogLevel.Error, (fun () -> sprintf "Exception in Component.Process:%A" e))
             (null, true)
-
-    // processing with internal wait if desired
-    static member private ProcessW (item : 'T ref) 
-                                   (dequeueAction : 'T ref -> bool*ManualResetEvent) 
-                                   (processAction : 'T -> bool*ManualResetEvent) 
-                                   (isClosed : unit -> bool)
-                                   (closeAction : unit -> unit)
-                                   (tpKey : 'TP)
-                                   (infoFunc : 'TP -> string)
-                                   (x : Component<'T>)  () : 
-                                   ManualResetEvent * bool =
-        let mutable count = 0
-        let mutable ev : ManualResetEvent = null
-        let mutable closed : bool = false
-        while (count < 2) do
-            let (ev1, closed1) = Component.Process item dequeueAction processAction isClosed closeAction tpKey infoFunc x ()
-            ev <- ev1
-            closed <- closed1
-            if Utils.IsNull ev || closed then
-                count <- 2
-            else
-                if count < 1 then
-                    ev.WaitOne(x.WaitTimeMs) |> ignore
-                count <- count + 1
-        (ev, closed)
 
     // process Component of obj which is unit->ManualResetEvent functions - can be used as Proc action
     static member internal ProcessFn (fn : obj) : bool*ManualResetEvent =
@@ -1295,7 +1272,7 @@ type internal ComponentThr<'T when 'T:null and 'T:equality>(desiredMaxSize : int
                          (infoFunc : 'TP -> string) 
                          (infoFuncTimer : unit -> string) : unit =
         q.InitTimer infoFuncTimer maxQWaitTime
-        let proc = Component.Process x.Item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
+        let proc = Component.Process x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
         Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
 
     abstract Start : ThreadPoolWithWaitHandles<'TP>->CancellationToken->'TP->('TP->string)->(unit->string)->unit

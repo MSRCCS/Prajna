@@ -427,6 +427,11 @@ type JobDependencies() =
     member val internal SerializerCollection = ConcurrentDictionary<Guid,_>() with get
     /// Collection of Customized Deserializer by Guid
     member val internal DeserializerCollection = ConcurrentDictionary<Guid,_>() with get
+    /// Collection of native serializer function, to avoid reinstall same serializer 
+    member val internal NativeSerializerCollection = ConcurrentDictionary<Guid,Object>() with get
+    /// Collection of native deserializer function, to avoid reinstall same deserializer
+    member val internal NativeDeserializerCollection = ConcurrentDictionary<Guid,Object>() with get
+
     /// <summary>
     /// Install a customized Memory Manager. 
     /// </summary>
@@ -466,15 +471,22 @@ type JobDependencies() =
     /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
     /// run a customized deserializer function to deserialize the object. </param>
     /// <param name="encodeFunc"> Customized Serialization function that encodes the 'Type to a bytestream.  </param>
-    member x.InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*Stream->unit, bAllowReplicate ) =  
-        let wrappedEncodeFunc (o:Object, ms ) = 
-            encodeFunc ( o :?> 'Type, ms )    
-        x.InstallWrappedSerializer( id, typeof<'Type>.FullName, wrappedEncodeFunc, bAllowReplicate)
+    /// <param name="bAllowReplicate"> should be false, does not allow multiple serializer with same Guid.  </param>
+    member x.InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*Stream->unit, bAllowReplicate ) =
+        let bNewFunc = ref false
+        let retObj = x.NativeSerializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
+                                                                                encodeFunc ),
+                                                                     ( fun id oldObj -> oldObj ) )
+        if !bNewFunc && Object.ReferenceEquals( retObj, encodeFunc ) then 
+            // A new function is to be installed 
+            let wrappedEncodeFunc (o:Object, ms ) = 
+                encodeFunc ( o :?> 'Type, ms ) 
+            x.InstallWrappedSerializer( id, typeof<'Type>.FullName, wrappedEncodeFunc, bAllowReplicate)
     member internal x.InstallWrappedSerializer(id, fullname, wrappedEncodeFunc , bAllowReplicate) =
         let tuple = fullname, wrappedEncodeFunc
         let oldTuple = x.SerializerCollection.GetOrAdd( id, tuple )
         if not (Object.ReferenceEquals( oldTuple, tuple )) then 
-            let oldName, _ = oldTuple
+            let oldName, oldFunc = oldTuple
             if String.Compare( oldName, fullname, StringComparison.Ordinal )<>0 then 
                 if not bAllowReplicate then 
                     failwith (sprintf "Slot %A, a customized serializer of type %s has already been installed, fail to install another for type %s"
@@ -487,8 +499,17 @@ type JobDependencies() =
                                                                    id oldName fullname ))
 
             else
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Slot %A, a duplicated customized serializer of type %s has already been installed"
-                                                               id oldName ))
+                // Try to install a serializer with the same Guid 
+                if Object.ReferenceEquals( oldFunc, wrappedEncodeFunc) then 
+                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Slot %A, a duplicated customized serializer of type %s has already been installed"
+                                                                    id oldName ))
+                else
+                    // oldName = fullname, but a different serializer function
+                    x.SerializerCollection.Item( id ) <- tuple 
+                    CustomizedSerialization.InstallSerializer( id, fullname, wrappedEncodeFunc )
+                    System.Threading.Interlocked.Increment ( x.nDependencyChanged ) |> ignore
+                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Slot %A, reinstall a different customized serializer of type %s"
+                                                                   id oldName ))                    
         else
             CustomizedSerialization.InstallSerializer( id, fullname, wrappedEncodeFunc )
             System.Threading.Interlocked.Increment ( x.nDependencyChanged ) |> ignore
@@ -500,6 +521,7 @@ type JobDependencies() =
     ///         please note that the customized serializer/deserializer will not be triggered on the derivative type. You may need to install additional 
     ///         serializer if multiple derivative type share the same customzied serializer/deserializer. </param>
     /// <param name="del"> An action delegate that perform the serialization function. </param>
+    /// <param name="bAllowReplicate"> should be false, does not allow multiple serializer with same Guid.  </param>
     member x.InstallSerializerDelegate( id: Guid, fulltypename, del: CustomizedSerializerAction, bAllowReplicate ) = 
         let wrappedEncodeFunc = del.Invoke
         x.InstallWrappedSerializer( id, fulltypename, wrappedEncodeFunc, bAllowReplicate)
@@ -508,15 +530,22 @@ type JobDependencies() =
     /// </summary>
     /// <param name="id"> Guid that uniquely identified the deserializer in the bytestream. </param>
     /// <param name="decodeFunc"> Customized Deserialization function that decodes bytestream to 'Type.  </param>
+    /// <param name="bAllowReplicate"> should be false, does not allow multiple serializer with same Guid.  </param>
     member x.InstallDeserializer<'Type>( id: Guid, decodeFunc: Stream -> 'Type, bAllowReplicate ) = 
-        let wrappedDecodeFunc (ms) = 
-            decodeFunc ( ms ) :> Object
-        x.InstallWrappedDeserializer( id, typeof<'Type>.FullName, wrappedDecodeFunc, bAllowReplicate)
+        let bNewFunc = ref false
+        let retObj = x.NativeDeserializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
+                                                                                  decodeFunc ),
+                                                                     ( fun id oldObj -> oldObj ) )
+        if !bNewFunc && Object.ReferenceEquals( retObj, decodeFunc ) then 
+            // A new function is to be installed 
+            let wrappedDecodeFunc (ms) = 
+                decodeFunc ( ms ) :> Object
+            x.InstallWrappedDeserializer( id, typeof<'Type>.FullName, wrappedDecodeFunc, bAllowReplicate)
     member internal x.InstallWrappedDeserializer( id, fullname, wrappedDecodeFunc, bAllowReplicate) =
         let tuple = fullname, wrappedDecodeFunc
         let oldTuple = x.DeserializerCollection.GetOrAdd( id, tuple )
         if not (Object.ReferenceEquals( oldTuple, tuple )) then 
-            let oldName, _ = oldTuple
+            let oldName, oldFunc = oldTuple
             if String.Compare( oldName, fullname, StringComparison.Ordinal )<>0 then 
                 if not bAllowReplicate then 
                     failwith (sprintf "Slot %A, a customized deserializer of type %s has already been installed, fail to install another for type %s"
@@ -530,8 +559,17 @@ type JobDependencies() =
 
 
             else
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Slot %A, a duplicated customized deserializer of type %s has already been installed"
-                                                               id oldName ))
+                // Try to install a serializer with the same Guid 
+                if Object.ReferenceEquals( oldFunc, wrappedDecodeFunc) then 
+                    Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Slot %A, a duplicated customized deserializer of type %s has already been installed"
+                                                                   id oldName ))
+                else
+                    x.DeserializerCollection.Item( id ) <- tuple 
+                    CustomizedSerialization.InstallDeserializer( id, fullname, wrappedDecodeFunc )
+                    System.Threading.Interlocked.Increment ( x.nDependencyChanged ) |> ignore
+                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Slot %A, reinstall a customized deserializer of type %s with different implementation "
+                                                                           id oldName))
+
         else
             CustomizedSerialization.InstallDeserializer( id, fullname, wrappedDecodeFunc )
             System.Threading.Interlocked.Increment ( x.nDependencyChanged ) |> ignore

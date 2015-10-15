@@ -70,6 +70,7 @@
     <Compile Include="setup.fs" />
     <Compile Include="DSet.fs" />
     <Compile Include="DKV.fs" />
+    <Compile Include="distributedfunction.fs" />
     <Compile Include="service.fs" />
     <None Include="paket.references" />
   </ItemGroup>

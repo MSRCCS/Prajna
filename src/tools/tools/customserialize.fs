@@ -107,6 +107,29 @@ and internal CustomizedSerialization() =
     static member InstallSerializer( id: Guid, fullname, wrappedEncodeFunc ) = 
         CustomizedSerialization.EncoderCollectionByName.Item( fullname ) <- id 
         CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
+    /// A schema has been requested, the deserializer of the particular schema hasn't been installed, 
+    /// However, the developer has claimed that an alternative deserializer (of a different schema) will be able to handle the deserialization of the object. 
+    static member AlternateDeserializerID (id: Guid ) = 
+        // Currently, we haven't install alternate serializer/deserializer 
+        id
+    /// A schema has been requested, the deserializer of the particular schema hasn't been installed, 
+    /// However, the developer has claimed that an alternative deserializer (of a different schema) will be able to handle the deserialization of the object. 
+    static member AlternateSerializerID (id: Guid ) = 
+        // Currently, we haven't install alternate serializer/deserializer 
+        id
+
+
+    /// Get the Installed Serializer SchemaID of a certain type 
+    static member GetInstalledSchemaID( fullname ) = 
+        let bExist, id = CustomizedSerialization.EncoderCollectionByName.TryGetValue( fullname )
+        if bExist then 
+            id
+        else
+            Guid.Empty
+    /// Get the Installed Serializer SchemaID of a certain type 
+    static member GetInstalledSchemaID<'Type>( ) = 
+        CustomizedSerialization.GetInstalledSchemaID( typeof<'Type>.FullName )
+
     /// <summary>
     /// Install a customized deserializer, with a unique GUID that identified the use of the deserializer in the bytestream. 
     /// </summary>
@@ -121,6 +144,7 @@ and internal CustomizedSerialization() =
                 decodeFunc ( ms ) :> Object
             CustomizedSerialization.DecoderCollectionByName.Item( fullname ) <- id 
             CustomizedSerialization.DecoderCollectionByGuid.Item( id ) <- wrappedDecodeFunc
+
     /// <summary>
     /// Install a customized serializer, in raw format of storage and no checking
     /// </summary>

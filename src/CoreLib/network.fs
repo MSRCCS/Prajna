@@ -134,6 +134,93 @@ type [<AllowNullLiteral>] NetworkCommand() =
     override x.Finalize() =
         x.Release()
 
+/// Statistics of network performance
+/// Used by distributed functions
+type internal NetworkPerformance() = 
+    let startTime = (PerfADateTime.UtcNow())
+    /// Number of Rtt samples to statistics
+    static member val RTTSamples = 32 with get, set
+    /// Threshold above which the RTT value is deemed unreliable, and will not be used
+    static member val RTTFilterThreshold = 100000. with get, set
+    // Guid written at the end to make sure that the entire blob is currently formatted 
+    static member val internal BlobIntegrityGuid = System.Guid("D1742033-5D26-4982-8459-3617C2FF13C4") with get
+    member val internal RttArray = Array.zeroCreate<_> NetworkPerformance.RTTSamples with get
+    /// Filter out 1st RTT value, as it contains initialization cost, which is not part of network RTT
+    member val internal RttCount = ref -2L with get
+    /// Last RTT from the remote node. 
+    member val LastRtt = 0. with get, set
+    member val internal nInitialized = ref 0 with get
+    /// Last ticks that the content is sent from this queue
+    member val LastSendTicks = DateTime.MinValue with get, set
+    member val internal LastRcvdSendTicks = 0L with get, set
+    member val internal TickDiffsInReceive = 0L with get, set
+    member internal x.RTT with get() = 0
+    member internal x.FirstTime() = 
+        Interlocked.CompareExchange( x.nInitialized, 1, 0 ) = 0
+    member internal x.PacketReport( tickDIffsInReceive:int64, sendTicks ) = 
+        x.LastRcvdSendTicks <- sendTicks
+        let ticksCur = (PerfADateTime.UtcNowTicks())
+        x.TickDiffsInReceive <- ticksCur - sendTicks
+        if tickDIffsInReceive<>0L then 
+            // Valid ticks 
+            let rttTicks = ticksCur - sendTicks + tickDIffsInReceive
+            let rtt = TimeSpan( rttTicks ).TotalMilliseconds
+            Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Packet Received, send = %s, diff = %d, diffrcvd: %d"                                                                         
+                                                                       (VersionToString(DateTime(sendTicks)))
+                                                                       x.TickDiffsInReceive
+                                                                       tickDIffsInReceive ) )
+            if rtt >= 0. && rtt < NetworkPerformance.RTTFilterThreshold then 
+                x.LastRtt <- rtt
+                let idx = int (Interlocked.Increment( x.RttCount ))
+                if idx >= 0 then 
+                    x.RttArray.[idx % NetworkPerformance.RTTSamples ] <- rtt
+            else
+                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "receive packet with unreasonable rtt of %f ms, cur %d, send %d, diff %d thrown away..."
+                                                                rtt 
+                                                                ticksCur sendTicks tickDIffsInReceive ) )
+        else
+            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "receive packet, unable to calculate RTT as TicksDiff is 0, send = %s, diff = %d" 
+                                                                       (VersionToString(DateTime(sendTicks)))
+                                                                       x.TickDiffsInReceive
+                                                                        ) )
+    /// Whether connection receives some valid data
+    member x.ConnectionReady() = 
+        (!x.RttCount)>=0L
+    /// Get the RTT of the connection
+    member x.GetRtt() = 
+        let sumRtt = Array.sum x.RttArray
+        let numRtt = Math.Min( (!x.RttCount)+1L, int64 NetworkPerformance.RTTSamples )
+        if numRtt<=0L then 
+            1000.
+        else
+            sumRtt / float numRtt
+    member internal x.SendPacket() = 
+        x.LastSendTicks <- (PerfADateTime.UtcNow())
+    /// The ticks that the connection is initialized. 
+    member x.StartTime with get() = startTime
+    /// Wrap header for RTT estimation 
+    member x.WriteHeader( ms: Stream) = 
+        let diff = x.TickDiffsInReceive
+        ms.WriteInt64( diff )
+        let curTicks = (PerfADateTime.UtcNowTicks())
+        ms.WriteInt64( curTicks )
+        Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "to send packet, diff = %d" 
+                                                                   diff ))
+    /// Validate header for RTT estimation 
+    member x.ReadHeader( ms: Stream ) = 
+        let tickDIffsInReceive = ms.ReadInt64( ) 
+        let sendTicks = ms.ReadInt64()
+        x.PacketReport( tickDIffsInReceive, sendTicks )
+    /// Write end marker 
+    member x.WriteEndMark( ms: Stream ) = 
+        ms.WriteGuid( NetworkPerformance.BlobIntegrityGuid )
+        x.SendPacket()
+    /// Validate end marker
+    member x.ReadEndMark( ms: Stream ) = 
+        let guid = ms.ReadGuid()
+        guid = NetworkPerformance.BlobIntegrityGuid
+
+
 /// An extension to GenericConn to process NetworkCommand
 /// GenericConn is an internal object which contains Send/Recv Components to process SocketAsyncEventArgs objects
 /// NetworkCommandQueue contains Send/Recv Components to process NetworkCommand objects

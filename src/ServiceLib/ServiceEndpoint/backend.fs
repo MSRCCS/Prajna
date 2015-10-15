@@ -403,7 +403,7 @@ type BackEndInstance< 'StartParamType
     /// Blocking DNS Resolution thread
     member val internal EvBlockDNSThread = new ManualResetEvent(false) with get
     /// Data collection of the health of all frontend nodes attached 
-    member val FrontEndHealth = ConcurrentDictionary<_, NetworkPerformance >() with get, set
+    member val internal FrontEndHealth = ConcurrentDictionary<_, NetworkPerformance >() with get, set
     member internal x.AddFrontEndEntries(param) = 
         for entry in param.FrontEndCollection do 
             match entry with 
@@ -636,7 +636,7 @@ type BackEndInstance< 'StartParamType
             | e -> 
                 Logger.LogF( LogLevel.Error, ( fun _ -> sprintf "Exception in ParseFrontEndRequest, %A" e ))
     /// Processing Request object
-    member x.ProcessRequest( queue, health, reqID, serviceID, requestObject ) =
+    member internal x.ProcessRequest( queue, health, reqID, serviceID, requestObject ) =
         let bExist, jobQueue = x.SecondaryServiceQueue.TryGetValue( serviceID ) 
         if bExist then 
             let remoteSignature = queue.RemoteEndPointSignature

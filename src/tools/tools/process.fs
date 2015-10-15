@@ -153,6 +153,8 @@ type internal OneCleanUp ( o:Object, infoFunc, f, earlyCleanUp: unit -> unit ) =
 
 // In Prajna, the order of clean up is 
 // ThreadPoolTimerCollection:       300
+// ContainerJobCollection:          500
+// DistributedFunctionStore:        700
 // Cluster:                   1000
 // ThreadPoolWithWaitHandles:       1500
 // ThreadPoolWait:                  2000
@@ -1343,6 +1345,17 @@ and internal ThreadPoolWaitHandles() =
             x.WaitOne(ev, millisecondsTimeout)
         else
             bStatus
+    member private x.WaitAny(ev, millisecondsTimeout:int) =
+        x.EnterBlock() 
+        let bWaitStatus = WaitHandle.WaitAny( ev, millisecondsTimeout) 
+        x.LeaveBlock() 
+        bWaitStatus         
+    member private x.SafeWaitAny( ev, millisecondsTimeout:int ) = 
+        let nStatus =  WaitHandle.WaitAny(ev,0)
+        if nStatus=WaitHandle.WaitTimeout then 
+            x.WaitAny(ev, millisecondsTimeout)
+        else
+            nStatus
     member private x.SafeWaitOne( ev: ManualResetEvent, millisecondsTimeout:int, shouldReset : bool ) = 
         let bStatus = ev.WaitOne(0)
         let ret =
@@ -1359,6 +1372,10 @@ and internal ThreadPoolWaitHandles() =
         ThreadPoolWaitHandles.Current.SafeWaitOne( ev, Timeout.Infinite, shouldReset )
     static member safeWaitOne ( ev,  millisecondsTimeout, shouldReset) =
         ThreadPoolWaitHandles.Current.SafeWaitOne( ev, millisecondsTimeout, shouldReset )
+    static member safeWaitAny ( ev ) = 
+        ThreadPoolWaitHandles.Current.SafeWaitAny( ev, Timeout.Infinite )
+    static member safeWaitAny ( ev,  millisecondsTimeout ) = 
+        ThreadPoolWaitHandles.Current.SafeWaitAny( ev, millisecondsTimeout )
     static member RegisterThread(y: ThreadPoolWithWaitHandlesBase ) = 
         ThreadPoolWaitHandles.Current.RegisterThread(y)
     static member UnRegisterThread() = 

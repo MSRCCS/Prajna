@@ -590,7 +590,27 @@ and
     let mutable bReady = false
     // Parameter Set of PrajnaDSets
     let jobParams = List<FunctionParam>()
-    static member val ContainerJobCollection = ConcurrentDictionary<_,ContainerJob>(BytesCompare()) with get
+    /// ContainerJobCollection contains a list of DLLs signature of the current job. 
+    /// Each signature is the signature of a collection of DLLs that is used by the current program. 
+    /// It is used to track DLLs being loaded into the current AppDomain, and will usually only increase. 
+    /// They will be released by Cleanup
+    do 
+        CleanUp.Current.Register( 500, Job.ContainerJobCollection, Job.CleanUpContainerJobCollection, fun _ -> "ContainerJobCollection" ) |> ignore 
+    static member val ContainerJobCollection = ConcurrentDictionary<byte[],ContainerJob>(BytesCompare()) with get
+    static member val ContainerJobWarningThreshold = 5 with get, set 
+    static member CleanUpContainerJobCollection() = 
+        let nJobs = Job.ContainerJobCollection.Count
+        if nJobs >= Job.ContainerJobWarningThreshold then 
+            Logger.LogF( LogLevel.Warning, fun _ -> sprintf "Abnormal number of container variation at %d" nJobs )
+            let cnt = ref 0 
+            for pair in Job.ContainerJobCollection do 
+                Logger.LogF( LogLevel.Info, fun _ -> sprintf "Container %d, signature = %A, # of assemblies = %d " !cnt (BytesTools.BytesToHex( pair.Key )) (pair.Value.NumberOfAssemblies) )
+                cnt := !cnt + 1 
+        for pair in Job.ContainerJobCollection do 
+            pair.Value.EndContainerJob()
+            Job.ContainerJobCollection.TryRemove( pair.Key ) |> ignore 
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "All job container released (%d)" nJobs )
+        ()
     member val JobStartTicks = (PerfADateTime.UtcNowTicks()) with get, set
     /// A Job Holder contains Assembly & dependent files, a non job holder doesn't have those components. 
     member val internal IsJobHolder = false with get, set
@@ -650,6 +670,8 @@ and
     member val DStreams = List<DStream>() with get, set
     /// Assemblies 
     member val internal Assemblies = List<AssemblyEx>() with get, set
+    /// Number of Assemblies
+    member x.NumberOfAssemblies with get() = x.Assemblies.Count
     /// Job File Dependencies
     member val internal JobDependencies = List<JobDependency>() with get
     member val internal UseGlobalJobDependencies = true with get, set

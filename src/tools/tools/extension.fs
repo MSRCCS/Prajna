@@ -65,7 +65,15 @@ type StreamExtension =
     /// </returns>
     [<Extension>]
     static member ReadBytes( x:Stream, buf ) = 
-        x.Read( buf, 0, buf.Length ) 
+        let mutable startpos = 0 
+        let mutable nRead = 0 
+        let mutable nCurRead = 1 
+        while nCurRead > 0 do 
+            nCurRead <- x.Read( buf, startpos, buf.Length - startpos ) 
+            if nCurRead > 0 then 
+                startpos <- startpos + nCurRead
+                nRead <- nRead + nCurRead 
+        nRead 
     /// <summary>
     /// Read a bytearray of len bytes to the current stream. The function always return a bytearray of size len even if the number of bytes that is currently available is less (or even zero if the end of the stream is reached before any bytes are read). 
     /// In such a case, the remainder of the bytearray is filled with zero. 
@@ -92,10 +100,25 @@ type StreamExtension =
     /// Attempt to read the remainder of the bytestream as a single bytearray. 
     [<Extension>]
     static member ReadBytesToEnd( x:Stream ) = 
-        let buf = Array.zeroCreate<byte> (int ( x.Length - x.Position ))
-        if buf.Length>0 then 
-            x.Read( buf, 0, buf.Length ) |> ignore
-        buf
+        if x.CanSeek then 
+            let buf = Array.zeroCreate<byte> (int ( x.Length - x.Position ))
+            if buf.Length>0 then 
+                x.Read( buf, 0, buf.Length ) |> ignore
+            buf
+        else
+            let ms = new MemoryStream()
+            let buf = Array.zeroCreate<byte> 102400
+            let mutable nCurRead = 1 
+            while nCurRead > 0 do 
+                nCurRead <- x.Read( buf, 0, buf.Length )
+                if nCurRead > 0 then 
+                    ms.Write( buf, 0, nCurRead )
+            let srcBuf = ms.GetBuffer() 
+            let srcLen = int ms.Position
+            let dstBuf = Array.zeroCreate<byte> srcLen
+            Buffer.BlockCopy( srcBuf, 0, dstBuf, 0, srcLen )
+            dstBuf 
+
     /// Write a uint16 to bytestream.  
     [<Extension>]
     static member WriteUInt16( x:Stream, b:uint16 ) = 

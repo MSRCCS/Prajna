@@ -205,10 +205,27 @@ type internal SchemaBinaryFormatterHelper<'T>() =
         let o = fmt.Deserialize( ms ) 
         if Utils.IsNotNull o then o :?> 'T else Unchecked.defaultof<_>
 
+/// Helper class to generate schema ID
+type internal SchemaPrajnaFormatterHelper<'T>() = 
+    /// Get a GUID that representing the coding of a type. Note that this binds to the 
+    /// fullname of the type with assembly (AssemblyQualifiedName) so if the assembly 
+    /// of the type changes, the schemaID will change. 
+    static member SchemaID() = 
+        let schemaStr = "Prajna.Tools.BinarySerializer:" + typeof<'T>.AssemblyQualifiedName
+        let hash = HashStringToGuid(schemaStr)
+        hash
+    static member Encoder(o:'T, ms:Stream) = 
+        let fmt = Prajna.Tools.BinarySerializer() :> IFormatter
+        fmt.Serialize( ms, o )
+    static member Decoder(ms:Stream) = 
+        let fmt = Prajna.Tools.BinarySerializer() :> IFormatter
+        let o = fmt.Deserialize( ms ) 
+        if Utils.IsNotNull o then o :?> 'T else Unchecked.defaultof<_>
+
 /// Govern the behavior of the default serialization to be used 
 type DefaultSerializerForDistributedFunction =
     /// Default Serializer implementation in Prajna
-    | DefaultSerializer = 0
+    | PrajnaSerializer = 0
     /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
     | BinarySerializer = 1
     /// System.Runtime.Serialization.Json.DataContractJsonSerializer
@@ -356,11 +373,15 @@ type DistributedFunctionStore internal () as thisStore =
         JobDependencies.InstallDeserializer<'T>( typeID, deserializeFunc )
     /// Install Default Serializer
     static member InstallDefaultSerializer<'T>() = 
+        let typeIDPrajna = SchemaPrajnaFormatterHelper<'T>.SchemaID()
         let typeIDBinary = SchemaBinaryFormatterHelper<'T>.SchemaID()
         let typeIDJSon = SchemaBinaryFormatterHelper<'T>.SchemaID()
-        let mutable schemas = [| typeIDBinary; typeIDJSon |]     
+        let mutable schemas = [| typeIDPrajna; typeIDBinary; typeIDJSon |]
         let schemaID = 
             match DistributedFunctionStore.DefaultSerializerTag with 
+            | DefaultSerializerForDistributedFunction.PrajnaSerializer ->
+                JobDependencies.InstallSerializer<'T>( typeIDPrajna, SchemaPrajnaFormatterHelper<'T>.Encoder )
+                typeIDPrajna
             | DefaultSerializerForDistributedFunction.BinarySerializer -> 
                 JobDependencies.InstallSerializer<'T>( typeIDBinary, SchemaBinaryFormatterHelper<'T>.Encoder )
                 typeIDBinary

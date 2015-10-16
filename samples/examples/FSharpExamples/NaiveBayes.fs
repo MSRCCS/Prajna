@@ -146,10 +146,10 @@ type NaiveBayes() =
 
     let setGenericSerializer (newFormatterGuid: Guid) (cluster: Cluster) = 
         printf "Switching formatter... "
-        GenericSerialization.DefaultFormatterGuid <- newFormatterGuid
         DSet<unit>(Name = "foo", Cluster = cluster)
         |> DSet.distribute (Array.zeroCreate cluster.NumNodes : unit[])
         |> DSet.iter (fun _ -> GenericSerialization.DefaultFormatterGuid <- newFormatterGuid)
+        GenericSerialization.DefaultFormatterGuid <- newFormatterGuid
         printfn "done."
 
     let run (cluster: Cluster) = 
@@ -255,7 +255,7 @@ type NaiveBayes() =
  
 //        let stream = new MemoryStream()
         use stream = new MemStream()
-        let serializer = GenericSerialization.GetFormatter GenericSerialization.PrajnaFormatterGuid
+        let serializer = GenericSerialization.GetFormatter(GenericSerialization.PrajnaFormatterGuid, null)
         sw.Restart()
 //        stream.SerializeFrom seqCounts
         serializer.Serialize(stream, seqCounts)

@@ -873,9 +873,9 @@ type internal ExecutionTasks =
 /// Common portion of the customized threadpool, wait for handles. 
 /// One wait thread will be spinned every 64 handles
 /// </summary>
-type internal ThreadPoolWait internal (id:int) as this = 
+type private ThreadPoolWaitDeprecated internal (id:int) as this = 
     do 
-        CleanUp.Current.Register( 2000, this, ThreadPoolWait.TerminateAll, fun _ -> "ThreadPoolWait" ) |> ignore 
+        CleanUp.Current.Register( 2000, this, ThreadPoolWaitDeprecated.TerminateAll, fun _ -> "ThreadPoolWaitDeprecated" ) |> ignore 
     // Each thread can wait at most 64 handles, 
     static member val private MAX_WAITHANDLES = 64 with get, set
     /// bTerminate: stop all waiting threads. 
@@ -884,31 +884,31 @@ type internal ThreadPoolWait internal (id:int) as this =
     static member val private evTerminate = new ManualResetEvent(false) with get
     static member val private ActiveThreadPools = ConcurrentDictionary<_,_>() with get
     static member RegisterThreadPool (name:string) = 
-        Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWait, register wait pool %s ............" name ))
-        while (!ThreadPoolWait.nTerminate)<>0 do
+        Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWaitDeprecated, register wait pool %s ............" name ))
+        while (!ThreadPoolWaitDeprecated.nTerminate)<>0 do
             // Old Waiting Threads are being terminated, need to wait for that procedure to end. 
             let spin = SpinWait()
             spin.SpinOnce()             
-        ThreadPoolWait.ActiveThreadPools.Item( name ) <- (PerfADateTime.UtcNow())
+        ThreadPoolWaitDeprecated.ActiveThreadPools.Item( name ) <- (PerfADateTime.UtcNow())
     static member UnregisterThreadPool (name:string) = 
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWait, unregister wait pool %s ............" name ))
-        ThreadPoolWait.ActiveThreadPools.TryRemove( name ) |> ignore
-        if ThreadPoolWait.ActiveThreadPools.IsEmpty then 
-            if ( !(ThreadPoolWait.NumberOfWaitingThreads) > 0 ) then 
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWait, threadpool %s is the last registered threadpools, try terminating all" name ))
+        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWaitDeprecated, unregister wait pool %s ............" name ))
+        ThreadPoolWaitDeprecated.ActiveThreadPools.TryRemove( name ) |> ignore
+        if ThreadPoolWaitDeprecated.ActiveThreadPools.IsEmpty then 
+            if ( !(ThreadPoolWaitDeprecated.NumberOfWaitingThreads) > 0 ) then 
+                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWaitDeprecated, threadpool %s is the last registered threadpools, try terminating all" name ))
             // Termniate all Wait thread. 
-            ThreadPoolWait.TryTerminateAll()
-    static member val WaitingThreads = ConcurrentQueue<ThreadPoolWait*Thread>() with get, set
+            ThreadPoolWaitDeprecated.TryTerminateAll()
+    static member val WaitingThreads = ConcurrentQueue<ThreadPoolWaitDeprecated*Thread>() with get, set
     static member val NumberOfWaitingThreads = ref 0 with get, set
     static member private ClearAll() = 
         // Clear Up Structure. 
         let refValue = ref Unchecked.defaultof<_>
-        while ThreadPoolWait.WaitingThreads.TryDequeue( refValue ) do 
+        while ThreadPoolWaitDeprecated.WaitingThreads.TryDequeue( refValue ) do 
             let tp, _ = !refValue;
             (tp :> IDisposable).Dispose()
-        ThreadPoolWait.nTerminate := 0
+        ThreadPoolWaitDeprecated.nTerminate := 0
     /// <summary>
-    /// ThreadPoolWait.WaitForHandle schedule a continuation function to be executed when handle fires. 
+    /// ThreadPoolWaitDeprecated.WaitForHandle schedule a continuation function to be executed when handle fires. 
     /// </summary>
     /// <param name="infoFunc"> Information delegate of the handle/continution to be waited for, used in diagnostics </param>
     /// <param name="handle"> The handle to be waited on. </param>
@@ -917,56 +917,56 @@ type internal ThreadPoolWait internal (id:int) as this =
     /// </param> 
     /// <param name="unblockHandle"> handle to set if continuation function fired. </param>
     static member WaitForHandle (infoFunc:unit->string) (handle:WaitHandle) continuation (unblockHandle:ManualResetEvent) = 
-        if (!ThreadPoolWait.nTerminate)<>0 then 
-            let msg = sprintf "ThreadPoolWait.WaitForHandle should not be called when the corresponding Threadpool has been unregistered!" 
+        if (!ThreadPoolWaitDeprecated.nTerminate)<>0 then 
+            let msg = sprintf "ThreadPoolWaitDeprecated.WaitForHandle should not be called when the corresponding Threadpool has been unregistered!" 
             Logger.Log( LogLevel.Error, msg )
             failwith msg 
         else
             let mutable bDone = false
             while not bDone do 
-                for tuple in ThreadPoolWait.WaitingThreads do 
+                for tuple in ThreadPoolWaitDeprecated.WaitingThreads do 
                     let pool, _ = tuple
                     if not bDone && not pool.IsFull && pool.EnqueueWaitHandle infoFunc handle continuation unblockHandle then 
                         bDone <- true
                 if not bDone then 
-                    // Add a new ThreadPoolWait object, we don't use Interlocked.Increment to avoid creating multiple waiting threads. 
-                    lock ( ThreadPoolWait.WaitingThreads ) ( fun _ -> 
+                    // Add a new ThreadPoolWaitDeprecated object, we don't use Interlocked.Increment to avoid creating multiple waiting threads. 
+                    lock ( ThreadPoolWaitDeprecated.WaitingThreads ) ( fun _ -> 
                             // For the thread that enters first, this gets executed. 
                             // Starting the waiting thread. 
-                            let threadid = Interlocked.Increment( ThreadPoolWait.NumberOfWaitingThreads ) - 1
-                            let curPool = new ThreadPoolWait(threadid)
-                            let thread = ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "ThreadPoolWait waiting thread %d" threadid) (curPool.Wait)
-                            ThreadPoolWait.WaitingThreads.Enqueue( (curPool, thread) )  
-                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWait, launching waiting thread %d by %s" threadid (infoFunc()) ))
+                            let threadid = Interlocked.Increment( ThreadPoolWaitDeprecated.NumberOfWaitingThreads ) - 1
+                            let curPool = new ThreadPoolWaitDeprecated(threadid)
+                            let thread = ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "ThreadPoolWaitDeprecated waiting thread %d" threadid) (curPool.Wait)
+                            ThreadPoolWaitDeprecated.WaitingThreads.Enqueue( (curPool, thread) )  
+                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWaitDeprecated, launching waiting thread %d by %s" threadid (infoFunc()) ))
                             if threadid > 2 then 
-                                ThreadPoolWait.MonitorAllWaitHandles()   
+                                ThreadPoolWaitDeprecated.MonitorAllWaitHandles()   
                         )
         ()
 
     // First of the waiting hanle is a waiting handle used for informing the arriving of new handles. 
     static member private InitWaitingHandles() = 
-        let arr = Array.zeroCreate ThreadPoolWait.MAX_WAITHANDLES
+        let arr = Array.zeroCreate ThreadPoolWaitDeprecated.MAX_WAITHANDLES
         arr.[0] <- new ManualResetEvent(false) :> WaitHandle
         arr 
     // Use List<_> to hold waiting threads, we don't want to create too many Waiting Threads. 
     member val ThreadID = id with get
-    member val WaitingHandles = ThreadPoolWait.InitWaitingHandles() with get
-    member val Continuations = Array.zeroCreate ThreadPoolWait.MAX_WAITHANDLES with get
-    member val UnblockHandles = Array.zeroCreate ThreadPoolWait.MAX_WAITHANDLES with get
-    member val InfoFunc = Array.zeroCreate ThreadPoolWait.MAX_WAITHANDLES with get
+    member val WaitingHandles = ThreadPoolWaitDeprecated.InitWaitingHandles() with get
+    member val Continuations = Array.zeroCreate ThreadPoolWaitDeprecated.MAX_WAITHANDLES with get
+    member val UnblockHandles = Array.zeroCreate ThreadPoolWaitDeprecated.MAX_WAITHANDLES with get
+    member val InfoFunc = Array.zeroCreate ThreadPoolWaitDeprecated.MAX_WAITHANDLES with get
     member val LastWaitingHandles = ref 0 with get, set
     /// Information to detect deadlock in cont() 
     /// i.e., a blocking operation in cont()
     member val ContinueTicks = -1L with get, set
     member val ContinueInfo = Unchecked.defaultof<_> with get, set
     member val private Lock = SpinLockSlim(true) with get, set
-    member x.IsFull with get() = (!x.LastWaitingHandles) >= ThreadPoolWait.MAX_WAITHANDLES - 1
+    member x.IsFull with get() = (!x.LastWaitingHandles) >= ThreadPoolWaitDeprecated.MAX_WAITHANDLES - 1
     // Multiple thread on queueing. 
     member x.EnqueueWaitHandle (infoFunc:unit->string) handle continuation unblockHandle =
         if not (handle.WaitOne(0)) then 
             x.Lock.Enter()
             let idx = Interlocked.Increment( x.LastWaitingHandles ) 
-            if idx >= ThreadPoolWait.MAX_WAITHANDLES then 
+            if idx >= ThreadPoolWaitDeprecated.MAX_WAITHANDLES then 
                 Interlocked.Decrement( x.LastWaitingHandles ) |> ignore 
                 // We have exhaussted the waiting slot
                 x.Lock.Exit()
@@ -984,7 +984,7 @@ type internal ThreadPoolWait internal (id:int) as this =
                     handle0.Set() |> ignore
                     Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "add wait handle %s to pos %d, threadID %d " (infoFunc()) idx x.ThreadID ))
                 else
-                    let msg = sprintf "ThreadPoolWait.EnqueueWaitHandle, should never store the handle in slot 0"
+                    let msg = sprintf "ThreadPoolWaitDeprecated.EnqueueWaitHandle, should never store the handle in slot 0"
                     Logger.Log( LogLevel.Error, msg )
                     failwith msg
                 x.Lock.Exit()
@@ -996,12 +996,12 @@ type internal ThreadPoolWait internal (id:int) as this =
                 // If there is an unblock handle, set it. 
                 unblockHandle.Set() |> ignore     
             true
-    /// Try to monitor all wait handles in the current ThreadPoolWait
+    /// Try to monitor all wait handles in the current ThreadPoolWaitDeprecated
     static member MonitorAllWaitHandles() = 
         Logger.Do( LogLevel.MildVerbose, ( fun _ -> 
            let ntotal = ref 0 
            let dic = Dictionary<string, int>(StringComparer.Ordinal)
-           for tuple in ThreadPoolWait.WaitingThreads do
+           for tuple in ThreadPoolWaitDeprecated.WaitingThreads do
                let pool, _ = tuple
                let nHandles = !pool.LastWaitingHandles
                for i = 0 to nHandles - 1 do 
@@ -1021,13 +1021,13 @@ type internal ThreadPoolWait internal (id:int) as this =
        ))
 
     static member TryRemove handle =
-        if (!ThreadPoolWait.nTerminate)<>0 then 
-            let msg = sprintf "ThreadPoolWait.TryRemove should not be called when the corresponding Threadpool has been unregistered!" 
+        if (!ThreadPoolWaitDeprecated.nTerminate)<>0 then 
+            let msg = sprintf "ThreadPoolWaitDeprecated.TryRemove should not be called when the corresponding Threadpool has been unregistered!" 
             Logger.Log( LogLevel.Error, msg )
             failwith msg 
         else
             let mutable bRemoved = false
-            for tuple in ThreadPoolWait.WaitingThreads do
+            for tuple in ThreadPoolWaitDeprecated.WaitingThreads do
                 let pool, _ = tuple
                 bRemoved <- bRemoved || pool.TryRemove( handle )
             bRemoved
@@ -1035,7 +1035,7 @@ type internal ThreadPoolWait internal (id:int) as this =
     member x.TryRemove( handle:WaitHandle ) = 
         x.Lock.Enter()
         let mutable bRemoved = false
-        let mutable idx = Math.Min(!x.LastWaitingHandles, ThreadPoolWait.MAX_WAITHANDLES - 1)
+        let mutable idx = Math.Min(!x.LastWaitingHandles, ThreadPoolWaitDeprecated.MAX_WAITHANDLES - 1)
         while idx >= 1 do 
             if Object.ReferenceEquals( handle, x.WaitingHandles.[idx] ) then 
                 let info = x.InfoFunc.[idx]
@@ -1068,14 +1068,14 @@ type internal ThreadPoolWait internal (id:int) as this =
         bRemoved
     /// Only One thread on wait
     member x.Wait() = 
-        while (!ThreadPoolWait.nTerminate)=0 do 
+        while (!ThreadPoolWaitDeprecated.nTerminate)=0 do 
                 for func in ThreadPoolWaitCheck.Collection do 
                     func.Invoke()
                 // Examine backwards. 
                 let mutable bAnyFiring = true
                 while bAnyFiring do 
                     bAnyFiring <- false
-                    let mutable idx = Math.Min(!x.LastWaitingHandles, ThreadPoolWait.MAX_WAITHANDLES - 1)
+                    let mutable idx = Math.Min(!x.LastWaitingHandles, ThreadPoolWaitDeprecated.MAX_WAITHANDLES - 1)
                     while idx >= 1 do 
                         let handle = x.WaitingHandles.[idx]
                         if Utils.IsNotNull  handle then 
@@ -1134,20 +1134,20 @@ type internal ThreadPoolWait internal (id:int) as this =
                 // Wait for handles. 
                 let handle0 = x.WaitingHandles.[0] :?> ManualResetEvent
                 handle0.Reset() |> ignore 
-                if (!ThreadPoolWait.nTerminate)=0 then 
+                if (!ThreadPoolWaitDeprecated.nTerminate)=0 then 
                     let arr =   x.Lock.Enter()
                                 let retArr = Array.sub x.WaitingHandles 0 (!x.LastWaitingHandles + 1) |> Array.filter ( fun handle -> Utils.IsNotNull handle )
                                 x.Lock.Exit() 
                                 retArr
                     WaitHandle.WaitAny( arr ) |> ignore
-        if Interlocked.Decrement( ThreadPoolWait.NumberOfWaitingThreads ) = 0 then 
+        if Interlocked.Decrement( ThreadPoolWaitDeprecated.NumberOfWaitingThreads ) = 0 then 
             // Last thread clear up the structure. 
-            ThreadPoolWait.ClearAll()   
+            ThreadPoolWaitDeprecated.ClearAll()   
     static member TryTerminateAll() = 
-        if Interlocked.CompareExchange( ThreadPoolWait.nTerminate, 1, 0 )=0 then 
-            let arr = ThreadPoolWait.WaitingThreads.ToArray()
+        if Interlocked.CompareExchange( ThreadPoolWaitDeprecated.nTerminate, 1, 0 )=0 then 
+            let arr = ThreadPoolWaitDeprecated.WaitingThreads.ToArray()
             if arr.Length > 0 then 
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWait, try to terminate %d waiting threads" arr.Length ))
+                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWaitDeprecated, try to terminate %d waiting threads" arr.Length ))
                 for i = 0 to arr.Length - 1 do 
                     let pool, th = arr.[i]
                     let handle0 = pool.WaitingHandles.[0] :?> ManualResetEvent
@@ -1155,13 +1155,13 @@ type internal ThreadPoolWait internal (id:int) as this =
                     handle0.Set() |> ignore 
                     (pool :> IDisposable).Dispose()
             else // arr.Length = 0 
-                ThreadPoolWait.nTerminate := 0
-            ThreadPoolWait.evTerminate.Set() |> ignore 
-        ThreadPoolWait.evTerminate.WaitOne() |> ignore 
+                ThreadPoolWaitDeprecated.nTerminate := 0
+            ThreadPoolWaitDeprecated.evTerminate.Set() |> ignore 
+        ThreadPoolWaitDeprecated.evTerminate.WaitOne() |> ignore 
     /// Terminate all waiting tasks . 
     static member TerminateAll() = 
         // Wait for the thread to end. 
-        ThreadPoolWait.TryTerminateAll()
+        ThreadPoolWaitDeprecated.TryTerminateAll()
 
     override x.Finalize() =
         /// Close All Active Connection, to be called when the program gets shutdown.
@@ -1171,10 +1171,120 @@ type internal ThreadPoolWait internal (id:int) as this =
         member x.Dispose() = 
             CleanUp.Current.CleanUpAll()
             GC.SuppressFinalize(x)
-            
-
-            
-
+          
+/// ThreadPoolWait.RegisterWaitForSingleObject, with capability:
+/// 1. To remove a particular wait handle. 
+/// 2. To show all wait handles queued in the system, 
+/// and 3. To show long continuation (not normal). 
+type internal ThreadPoolWait() = 
+    static let rwhToRemove = ConcurrentQueue<_>()
+    static let waitHandleCollection = ConcurrentDictionary<_,_>() 
+    static let unregisterTimer = new System.Threading.Timer( TimerCallback( ThreadPoolWait.ToUnregister ), null, 10, 10 )
+    /// Register for a waithandle, with a cancellation token. 
+    /// The caller needs to check for cancellation within the continuation funcito. 
+    static member WaitForHandleWithCancellation (infoFunc: unit-> string) (handle:WaitHandle) (continuation:unit->unit) (unblockHandle:ManualResetEvent) (token:CancellationToken) =
+        if token.IsCancellationRequested then 
+            // Continuation should contains further check on cancellation
+            continuation() 
+            if Utils.IsNotNull unblockHandle  then 
+                // If there is an unblock handle, set it. 
+                unblockHandle.Set() |> ignore          
+        else
+            token.Register( fun _ -> ThreadPoolWait.TryWakeup handle |> ignore ) |> ignore 
+            ThreadPoolWait.WaitForHandle infoFunc handle continuation unblockHandle
+    static member WaitForHandle (infoFunc: unit-> string) (handle:WaitHandle) (continuation:unit->unit) (unblockHandle:ManualResetEvent) =
+        if handle.WaitOne(0) then 
+            continuation() 
+            if Utils.IsNotNull unblockHandle then 
+                // If there is an unblock handle, set it. 
+                unblockHandle.Set() |> ignore
+        else
+            /// Uniquely identify this async job and its resource removal. 
+            let jobObject = Object()
+            let rwh = ThreadPool.RegisterWaitForSingleObject( handle, new WaitOrTimerCallback(ThreadPoolWait.CallBack), (infoFunc,handle,continuation,unblockHandle,jobObject) , -1, true )
+            waitHandleCollection.Item(jobObject) <- ( rwh, infoFunc, ref DateTime.MinValue.Ticks, handle )
+    static member private CallBack( state: Object ) (timeout:bool) = 
+        if not timeout then
+            try
+                let infoFunc,handle,continuation,unblockHandle,jobObject = state :?> ((unit->string)*WaitHandle*(unit->unit)*ManualResetEvent*Object)
+                continuation() 
+                if Utils.IsNotNull unblockHandle  then 
+                    // If there is an unblock handle, set it. 
+                    unblockHandle.Set() |> ignore  
+                let bExist, tuple = waitHandleCollection.TryGetValue( jobObject )
+                if bExist then 
+                    let rwh, _, _, _ = tuple 
+                    rwh.Unregister(null) |> ignore 
+                    waitHandleCollection.TryRemove( jobObject ) |> ignore 
+                else
+                    rwhToRemove.Enqueue( jobObject )
+            with 
+            | ex -> 
+                Logger.LogF( LogLevel.Error, fun _ -> sprintf "ThreadPoolWait.Callback, exception: %A" ex )
+                reraise()
+        else
+            failwith "ThreadPoolWait.Callback, timeout path reached (impossible execution route)"
+    static member private ToUnregister(o:Object) = 
+        let requeue = List<_>()        
+        while not rwhToRemove.IsEmpty do
+            let bRemove, jobObject = rwhToRemove.TryDequeue()
+            if bRemove then 
+                let bExist, tuple = waitHandleCollection.TryGetValue( jobObject )
+                if bExist then 
+                    let rwh, _, _, _ = tuple
+                    rwh.Unregister(null) |> ignore 
+                else
+                    requeue.Add( jobObject )
+        for jobObject in requeue do 
+            rwhToRemove.Enqueue(jobObject)    
+    static member TryTerminateAll() = 
+        for pair in waitHandleCollection do
+            let _, _, _, handle = pair.Value
+            ThreadPoolWait.TryWakeup( handle ) |> ignore 
+        ()
+    /// Wake up handle (if it is ManualResetEvent). The continuation function will still execute, it is the caller's responsibility 
+    /// to check for cancellation. 
+    static member TryWakeup (handle:WaitHandle) = 
+        match handle with 
+        | :? ManualResetEvent as ev -> 
+            ev.Set() |> ignore 
+            true
+        | _ -> 
+            Logger.Do( LogLevel.MildVerbose, fun _ -> 
+                let mutable bFindHandle = false
+                let mutable infoFunc = Unchecked.defaultof<_>
+                // This path should be an exception, so it is OK to search for the handle. 
+                for pair in waitHandleCollection do
+                    let _, infofunc, _, ev = pair.Value
+                    if Object.ReferenceEquals( ev, handle ) then 
+                        infoFunc <- infofunc
+                        bFindHandle <- true
+                if bFindHandle then 
+                    Logger.Log( LogLevel.MildVerbose, sprintf "Try to wake up handle %s, but the handle is not ManualResetEvent" (infoFunc()) )
+                else
+                    Logger.Log( LogLevel.MildVerbose, sprintf "Try to wake up a handle, but the handle is not MnaulResetEvent and also can't find information of the handle."  )
+            )                
+            false
+    static member ShowAllWaiting(sb:System.Text.StringBuilder) = 
+        let mutable cnt = 0
+        sb.Append( "Wait Handles: ") |> ignore 
+        for pair in waitHandleCollection do
+            let _, infoFunc, _, _  = pair.Value
+            cnt <- cnt + 1 
+            if Utils.IsNotNull infoFunc then 
+                sb.Append( infoFunc() ).Append( ", ") |> ignore 
+        if cnt > 0 then 
+            sb.Append( sprintf " Total (%d) " cnt ) |> ignore 
+        else
+            sb.Append( "None" ) |> ignore 
+    static member ShowLongContinuation(thresholdInMs:int) = 
+        for pair in waitHandleCollection do
+            let _, infoFunc, ticksRef, _ = pair.Value
+            let startTicks = !ticksRef
+            if startTicks<>DateTime.MinValue.Ticks && Utils.IsNotNull infoFunc then 
+                let curTicks = DateTime.UtcNow.Ticks 
+                if ( curTicks - startTicks )/TimeSpan.TicksPerMillisecond > int64 thresholdInMs then 
+                    Logger.LogF( LogLevel.Info, fun _ -> sprintf "Long continuation execution for handle %s" (infoFunc()) )
     
 // We can't internalize the class as it is used as parameter in an abstract function, which is default to the public. 
 // Wait Handle don't participate generic CleanUp, as it can be clean up per project. 
@@ -1182,7 +1292,8 @@ type internal ThreadPoolWait internal (id:int) as this =
 [<AllowNullLiteral>]
 type internal WaitHandleCollection(collectionName:string, initialCapacity:int)  = 
     do 
-        ThreadPoolWait.RegisterThreadPool( collectionName )    
+        ()
+//        ThreadPoolWait.RegisterThreadPool( collectionName )    
     member val Collecton = ConcurrentDictionary<_,_>() with get
     member val PreDeposit = System.Collections.Generic.List<_>(initialCapacity) with get, set
     member val AllDone = new ManualResetEvent(false) with get
@@ -1215,9 +1326,10 @@ type internal WaitHandleCollection(collectionName:string, initialCapacity:int)  
         if not (x.Collecton.IsEmpty) then 
             for pair in x.Collecton do 
                 let handle, _ = pair.Key
-                let bRemoved = ThreadPoolWait.TryRemove handle
-                if bRemoved then
-                    handle.Dispose()
+                let bRemoved = ThreadPoolWait.TryWakeup handle
+//                if bRemoved then
+//                    handle.Dispose()
+                ()
             let bEmptyCollection = x.Collecton.IsEmpty
             x.Collecton.Clear()
             bEmptyCollection
@@ -1277,14 +1389,15 @@ type internal WaitHandleCollection(collectionName:string, initialCapacity:int)  
         if Interlocked.CompareExchange( x.nAllClosed, 1, 0)=0 then 
             for pair in x.Collecton do
                 let handle, cont = pair.Key
-                let bRemoved = ThreadPoolWait.TryRemove handle 
-                if bRemoved then 
-                    let infoFunc, lastMonitor = pair.Value
-                    handle.Dispose()
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "!!! Removed !!! remove handle %s .............." (infoFunc()) ))
+                let bRemoved = ThreadPoolWait.TryWakeup handle 
+//                if bRemoved then 
+//                    let infoFunc, lastMonitor = pair.Value
+//                    handle.Dispose()
+//                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "!!! Removed !!! remove handle %s .............." (infoFunc()) ))
+                ()
             // Unblock everything that is waiting 
             // Waiting all threads to unblock and shutdown. 
-            ThreadPoolWait.UnregisterThreadPool( collectionName )
+//            ThreadPoolWait.UnregisterThreadPool( collectionName )
     override x.Finalize() =
         x.CloseAll()
     interface IDisposable with
@@ -1350,10 +1463,10 @@ and internal ThreadPoolWaitHandles() =
         let bWaitStatus = WaitHandle.WaitAny( ev, millisecondsTimeout) 
         x.LeaveBlock() 
         bWaitStatus         
-    member private x.SafeWaitAny( ev, millisecondsTimeout:int ) = 
-        let nStatus =  WaitHandle.WaitAny(ev,0)
+    member private x.SafeWaitAny( handles, millisecondsTimeout:int ) = 
+        let nStatus =  WaitHandle.WaitAny(handles,0)
         if nStatus=WaitHandle.WaitTimeout then 
-            x.WaitAny(ev, millisecondsTimeout)
+            x.WaitAny(handles, millisecondsTimeout)
         else
             nStatus
     member private x.SafeWaitOne( ev: ManualResetEvent, millisecondsTimeout:int, shouldReset : bool ) = 
@@ -1372,10 +1485,10 @@ and internal ThreadPoolWaitHandles() =
         ThreadPoolWaitHandles.Current.SafeWaitOne( ev, Timeout.Infinite, shouldReset )
     static member safeWaitOne ( ev,  millisecondsTimeout, shouldReset) =
         ThreadPoolWaitHandles.Current.SafeWaitOne( ev, millisecondsTimeout, shouldReset )
-    static member safeWaitAny ( ev ) = 
-        ThreadPoolWaitHandles.Current.SafeWaitAny( ev, Timeout.Infinite )
-    static member safeWaitAny ( ev,  millisecondsTimeout ) = 
-        ThreadPoolWaitHandles.Current.SafeWaitAny( ev, millisecondsTimeout )
+    static member safeWaitAny ( handles ) = 
+        ThreadPoolWaitHandles.Current.SafeWaitAny( handles, Timeout.Infinite )
+    static member safeWaitAny ( handles,  millisecondsTimeout ) = 
+        ThreadPoolWaitHandles.Current.SafeWaitAny( handles, millisecondsTimeout )
     static member RegisterThread(y: ThreadPoolWithWaitHandlesBase ) = 
         ThreadPoolWaitHandles.Current.RegisterThread(y)
     static member UnRegisterThread() = 
@@ -1420,7 +1533,7 @@ and [<AllowNullLiteral>]
         new ThreadPoolWithWaitHandles<'K>()
         then
             x.ThreadPoolName <- name
-            ThreadPoolWait.RegisterThreadPool(name)
+//            ThreadPoolWait.RegisterThreadPool(name)
             PoolTimer.AddTimer(x.ToMonitor, 100L, 100L)
             x.CleanUp <- CleanUp.Current.Register( 1500, x, (x.OperationsToCloseAllThreadPool), (fun _ -> sprintf "ThreadPoolWithWaitHandles for %s" name) )
             ()
@@ -1457,7 +1570,7 @@ and [<AllowNullLiteral>]
         // Clear TaskList & TaskStatus
         if not x.TaskTracking.IsEmpty || not x.CompletedTasks.IsEmpty || not x.TaskList.IsEmpty || not x.TaskStatus.IsEmpty then 
             x.OperationsToCloseAllThreadPool()
-            ThreadPoolWait.RegisterThreadPool( x.ThreadPoolName )
+//            ThreadPoolWait.RegisterThreadPool( x.ThreadPoolName )
         x.nAllCancelled := 0
         x.NumberOfTasks := 0
         x.NumberOfWaitedTasks := 0 
@@ -1759,7 +1872,7 @@ and [<AllowNullLiteral>]
                     let cts, key, action, affinityMask = !tuple  
                     x.Finished affinityMask cts key action -1 
             x.TaskStatus.Clear()
-            ThreadPoolWait.UnregisterThreadPool( x.ThreadPoolName )
+//            ThreadPoolWait.UnregisterThreadPool( x.ThreadPoolName )
             Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, (fun _ -> sprintf "Threadpool %s closed" x.ThreadPoolName))
     member x.CloseAllThreadPool() = 
         if Utils.IsNull x.CleanUp then 
@@ -1798,13 +1911,14 @@ and [<AllowNullLiteral>]
                               else
                                   false
                           prtStr.Append ( sprintf "%A Fired: %b Status: %b\n" key fired !status ) |> ignore
-                      for tuple in ThreadPoolWait.WaitingThreads do
-                          let (pool, _) = tuple
-                          if Utils.IsNotNull pool then
-                              for j = 0 to !pool.LastWaitingHandles do
-                                  let infoFunc = pool.InfoFunc.[j]
-                                  if Utils.IsNotNull infoFunc then
-                                      prtStr.Append( sprintf "Waiting handle: %s\n" (infoFunc()) ) |> ignore
+                      ThreadPoolWait.ShowAllWaiting( prtStr )
+//                      for tuple in ThreadPoolWait.WaitingThreads do
+//                          let (pool, _) = tuple
+//                          if Utils.IsNotNull pool then
+//                              for j = 0 to !pool.LastWaitingHandles do
+//                                  let infoFunc = pool.InfoFunc.[j]
+//                                  if Utils.IsNotNull infoFunc then
+//                                      prtStr.Append( sprintf "Waiting handle: %s\n" (infoFunc()) ) |> ignore
                       prtStr.ToString()
                   ))
            ))
@@ -1814,16 +1928,17 @@ and [<AllowNullLiteral>]
             if Interlocked.CompareExchange( x.DetectDeadLockTicksRef, cur, old) = old then 
                 /// detect any deadlock 
                 try 
-                    for tuple in ThreadPoolWait.WaitingThreads do
-                            let (pool, _) = tuple
-                            let continueTicks = pool.ContinueTicks 
-                            if continueTicks >=0L then 
-                                let cur = (PerfADateTime.UtcNowTicks())
-                                if cur - continueTicks > ThreadPoolWithWaitHandles<_>.MaxContinuationDurationInMilliSeconds * TimeSpan.TicksPerMillisecond then 
-                                    let elapseMs = ( cur - continueTicks )/ TimeSpan.TicksPerMillisecond
-                                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Possible Deadlocks! cont() of %s has been in executionin ThreadPoolWait for more than %d ms. Possible deadlock or poor performance in implementing cont() (there should not be any blocking operation or long running operation in cont()) " 
-                                                                                       (pool.ContinueInfo())
-                                                                                       elapseMs ))
+                    ThreadPoolWait.ShowLongContinuation( int ThreadPoolWithWaitHandles<_>.MaxContinuationDurationInMilliSeconds )
+//                    for tuple in ThreadPoolWait.WaitingThreads do
+//                            let (pool, _) = tuple
+//                            let continueTicks = pool.ContinueTicks 
+//                            if continueTicks >=0L then 
+//                                let cur = (PerfADateTime.UtcNowTicks())
+//                                if cur - continueTicks > ThreadPoolWithWaitHandles<_>.MaxContinuationDurationInMilliSeconds * TimeSpan.TicksPerMillisecond then 
+//                                    let elapseMs = ( cur - continueTicks )/ TimeSpan.TicksPerMillisecond
+//                                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Possible Deadlocks! cont() of %s has been in executionin ThreadPoolWait for more than %d ms. Possible deadlock or poor performance in implementing cont() (there should not be any blocking operation or long running operation in cont()) " 
+//                                                                                       (pool.ContinueInfo())
+//                                                                                       elapseMs ))
                 with 
                 | e ->
                     // no need to deal with inconsistency here.  

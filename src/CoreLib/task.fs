@@ -866,7 +866,7 @@ and [<AllowNullLiteral; Serializable>]
         x.TraverseAllObjects TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset (x.ResetAll jbInfo)
         x.TraverseAllObjectsWDirection TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset (x.PreBeginSync jbInfo)
 
-    member x.CloseAllSync jbInfo ( dset: DSet ) = 
+    member x.CloseAllSync jobAction jbInfo ( dset: DSet ) = 
         let t1 = (PerfDateTime.UtcNow())       
         Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "start PreClose %A %s:%s ........" dset.ParamType dset.Name dset.VersionString ) )
         if Utils.IsNull x.WaitForCloseAllStreamsHandleCollection then 
@@ -1228,7 +1228,7 @@ and [<AllowNullLiteral; Serializable>]
                             jobAction.EncounterExceptionAtContainer( ex, "___ SyncJobExecutionAsSeparateApp (loop on WaitForAll) ___" )
                         // JinL: note some of the write task may not finish at this moment. 
                         if x.IsJobInitializer(dset) && not (!bExistPriorTasks) then 
-                            x.CloseAllSync jbInfo dset
+                            x.CloseAllSync jobAction jbInfo dset
                             Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "%s Task %s:%s, DSet %s:%s is completed in %f ms........." taskName x.Name x.VersionString dset.Name dset.VersionString ((PerfDateTime.UtcNow()).Subtract( x.JobStartTime ).TotalMilliseconds) ))
                             Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> "=======================================================================================================================================" ))
                             x.JobReady.Reset() |> ignore

@@ -391,7 +391,10 @@ and [<AllowNullLiteral>]
                                 //    casting a functor that extends FSharpFunc (in one DLL) to FSharFunc (in the other DLL) fail. So in Linux, we need to link assemblies, so Mono
                                 //    does not look for FSharp.Core from GAC but from job directory.
                                 ta.LinkAllAssemblies( x.JobDirectory ) 
-                            let param = ContainerAppDomainInfo( Name = x.SignatureName, Version = x.SignatureVersion, Ticks = executeTicks, JobPort = nodeInfo.ListeningPort, JobDir = x.JobDirectory, JobEnvVars = x.JobEnvVars  )
+                            let param = 
+                                ContainerAppDomainInfo( Name = x.SignatureName, Version = x.SignatureVersion, Ticks = executeTicks, JobPort = nodeInfo.ListeningPort,
+                                    JobDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), 
+                                    JobEnvVars = x.JobEnvVars  )
                             x.AppDomainInfo <- param
                             x.Thread <- ThreadTracking.StartThreadForFunction ( fun _ -> sprintf "Launch remote container as AppDomain, port %d" nodeInfo.ListeningPort) ( fun _ -> ContainerAppDomainInfo.StartProgram param )
                             x.State <- TaskState.InExecution

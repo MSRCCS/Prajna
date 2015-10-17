@@ -147,12 +147,12 @@ type DistributedFunctionTest() =
     member x.DistributedFunctionLocalTest() = 
         let cnt0 = DistributedFunctionStore.Current.NumberOfRegistered()
         x.DistributedFunctionLocal( 1, 1, 2, true )
+        // capacity check, no concurrency garantee
+        x.DistributedFunctionLocal( 1, 1000, 2, true )
         // no capacity check, no concurrency garantee
         x.DistributedFunctionLocal( 0, 1000, 2, false )
         // capacity check, no concurrency garantee
         x.DistributedFunctionLocal( Int32.MaxValue, 1000, 2, false )
-        // capacity check, no concurrency garantee
-        x.DistributedFunctionLocal( 1, 1000, 2, true )
         let cnt1 = DistributedFunctionStore.Current.NumberOfRegistered()
         Logger.LogF( LogLevel.Info, fun _ -> sprintf "Number of distributed functions registered is %d(before) and %d (after)." cnt0 cnt1 )
         Assert.Greater( cnt1, cnt0 )

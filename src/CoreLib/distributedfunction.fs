@@ -206,20 +206,20 @@ type internal SchemaBinaryFormatterHelper<'T>() =
         if Utils.IsNotNull o then o :?> 'T else Unchecked.defaultof<_>
 
 /// Helper class to generate schema ID
-type internal SchemaPrajnaFormatterHelper<'T>() = 
-    /// Get a GUID that representing the coding of a type. Note that this binds to the 
-    /// fullname of the type with assembly (AssemblyQualifiedName) so if the assembly 
-    /// of the type changes, the schemaID will change. 
-    static member SchemaID() = 
+type internal SchemaPrajnaFormatterHelper<'T>() =
+    /// Get a GUID that representing the coding of a type. Note that this binds to the
+    /// fullname of the type with assembly (AssemblyQualifiedName) so if the assembly
+    /// of the type changes, the schemaID will change.
+    static member SchemaID() =
         let schemaStr = "Prajna.Tools.BinarySerializer:" + typeof<'T>.AssemblyQualifiedName
         let hash = HashStringToGuid(schemaStr)
         hash
-    static member Encoder(o:'T, ms:Stream) = 
+    static member Encoder(o:'T, ms:Stream) =
         let fmt = Prajna.Tools.BinarySerializer() :> IFormatter
         fmt.Serialize( ms, o )
-    static member Decoder(ms:Stream) = 
+    static member Decoder(ms:Stream) =
         let fmt = Prajna.Tools.BinarySerializer() :> IFormatter
-        let o = fmt.Deserialize( ms ) 
+        let o = fmt.Deserialize( ms )
         if Utils.IsNotNull o then o :?> 'T else Unchecked.defaultof<_>
 
 /// Govern the behavior of the default serialization to be used 
@@ -253,7 +253,7 @@ type private DistributedFunctionID( providerID: Guid, domainID: Guid, schemaIn: 
 /// Distributed function holder 
 /// Govern the execution cycle of a distributed function. 
 [<Serializable>]
-type internal DistributedFunctionHolder(name:string, capacity:int, executor: (Guid * int * Object * CancellationToken * IObserver<Object> -> unit) ) = 
+type internal DistributedFunctionHolderByLock(name:string, capacity:int, executor: (Guid * int * Object * CancellationToken * IObserver<Object> -> unit) ) = 
     let capacityControl = ( capacity > 0 )
     let currentItems = ref 0 
     let totalItems = ref 0L 
@@ -261,7 +261,7 @@ type internal DistributedFunctionHolder(name:string, capacity:int, executor: (Gu
     let lock = if not capacityControl then null else new ManualResetEvent(true)
     /// Execute a distributed function with a certain time budget. 
     /// The execution is an observer object. 
-    member x.Execute( jobID: Guid, timeBudget: int, input: Object, token: CancellationToken, observer:IObserver<Object>) = 
+    member x.ExecuteWithTimebudget( jobID: Guid, timeBudget: int, input: Object, token: CancellationToken, observer:IObserver<Object>) = 
         let isCancelled() = ( cts.IsCancellationRequested || token.IsCancellationRequested )
         let mutable bCancelled = isCancelled() 
         if bCancelled then 
@@ -343,6 +343,115 @@ type internal DistributedFunctionHolder(name:string, capacity:int, executor: (Gu
             x.CleanUp()
             GC.SuppressFinalize(x)
 
+/// Distributed function holder 
+/// Govern the execution cycle of a distributed function. 
+[<Serializable>]
+type internal DistributedFunctionHolderBySemaphore(name:string, capacity:int, executor: (Guid * int * Object * CancellationToken * IObserver<Object> -> unit) ) = 
+    let capacityControl = ( capacity > 0 )
+    let semaphore = if capacityControl then new SemaphoreSlim( capacity, capacity) else null
+    let cts = new CancellationTokenSource()
+    /// Execute a distributed function with a certain time budget. 
+    /// The execution is an observer object. 
+    member x.ExecuteWithTimebudget( jobID: Guid, timeBudget: int, input: Object, token: CancellationToken, observer:IObserver<Object>) = 
+        let isCancelled() = ( cts.IsCancellationRequested || token.IsCancellationRequested )
+        let mutable bCancelled = isCancelled() 
+        if bCancelled then 
+            // Operation has already been cancelled. 
+            observer.OnCompleted()
+        else
+            let useTimeBudget = if timeBudget <=0 then Int32.MaxValue else timeBudget 
+            let launchTicks = DateTime.UtcNow.Ticks 
+            let chainedCTS = CancellationTokenSource.CreateLinkedTokenSource( token, cts.Token )
+            if capacityControl then 
+                let semaTask = semaphore.WaitAsync(useTimeBudget, chainedCTS.Token )
+                let wrapperExecute (taskEnter:Task<bool>) = 
+                    let elapse = int (( DateTime.UtcNow.Ticks - launchTicks ) / TimeSpan.TicksPerMillisecond )
+                    if taskEnter.Result then 
+                        // Entered
+                        try 
+                            if useTimeBudget > elapse then 
+                                if not chainedCTS.Token.IsCancellationRequested then 
+                                    executor( jobID, useTimeBudget - elapse, input, chainedCTS.Token, observer )
+                                else
+                                    // Operation cancelled. 
+                                    observer.OnCompleted()
+                            else
+                                let ex = TimeoutException( sprintf "ExecuteWithTimebudget: Function %s, time budget %d ms has been exhausted (%d ms)" name timeBudget elapse)
+                                observer.OnError(ex)
+                            chainedCTS.Dispose()
+                            semaphore.Release() |> ignore
+                        with 
+                        | ex -> 
+                            Logger.LogF( LogLevel.Warning, fun _ -> sprintf "ExecuteWithTimebudget, Functioon %s, exception in main loop of %A" name ex )
+                            observer.OnError( ex )
+                            chainedCTS.Dispose()
+                            semaphore.Release() |> ignore
+                    else
+                        try 
+                            if useTimeBudget <= elapse then 
+                                let ex = OperationCanceledException(sprintf "ExecuteWithTimebudget: Function %s, semaphore task is entered as cancelled" name)
+                                observer.OnError(ex)
+                            else
+                                let ex = TimeoutException( sprintf "ExecuteWithTimebudget: Function %s, semaphore task is entered in %d ms(budget %d ms)" name elapse timeBudget )
+                                observer.OnError(ex)
+                            chainedCTS.Dispose()
+                            semaphore.Release() |> ignore 
+                        with
+                        | ex -> 
+                            Logger.LogF( LogLevel.Warning, fun _ -> sprintf "ExecuteWithTimebudget, Functioon %s, exception while not enter, of %A" name ex )
+                            observer.OnError( ex )
+                            chainedCTS.Dispose()
+                let cancelledExecute (taskEnter:Task<bool>) = 
+                    try 
+                        chainedCTS.Dispose()
+                        semaphore.Release() |> ignore 
+                    with
+                    | ex -> 
+                        Logger.LogF( LogLevel.Warning, fun _ -> sprintf "ExecuteWithTimebudget, Functioon %s, exception when dispose of %A" name ex )
+                semaTask.ContinueWith( wrapperExecute, TaskContinuationOptions.None ) |> ignore 
+                semaTask.ContinueWith( cancelledExecute, TaskContinuationOptions.OnlyOnCanceled ) |> ignore
+            else
+                try 
+                    executor( jobID, useTimeBudget, input, chainedCTS.Token, observer )
+                    chainedCTS.Dispose()
+                with 
+                | ex -> 
+                    chainedCTS.Dispose()
+                    observer.OnError( ex )
+    override x.ToString() = sprintf "Distributed function %s:%s/%d" name (if Utils.IsNull semaphore then "Unknown" else (capacity-semaphore.CurrentCount).ToString() ) (capacity)
+    /// Cancel all jobs related to this distributed function. 
+    member x.Cancel() = 
+        // This process is responsible for the disposing routine
+        cts.Cancel()
+    /// Can we dispose this job holder?
+    member x.CanDispose() = 
+        // Wait for all job in semaphore to exit
+        if capacityControl then 
+            semaphore.CurrentCount = capacity 
+        else 
+            true 
+    member x.CleanUp() = 
+        x.Cancel()
+        if capacityControl && x.CanDispose() then 
+            // Dispose CancellationTokenSource and lock
+            cts.Dispose() 
+        else
+            // When not in capacity control, there is no lock. 
+            // However, we may not be able to dispose CancellationTokenSource as there may still be job executing, and need to 
+            // check the state of the cancellation Token. We will let the System garbage collection CancellationTokenSource
+            ()
+    override x.Finalize() =
+        /// Close All Active Connection, to be called when the program gets shutdown.
+        x.CleanUp()
+    interface IDisposable with
+        /// Close All Active Connection, to be called when the program gets shutdown.
+        member x.Dispose() = 
+            x.CleanUp()
+            GC.SuppressFinalize(x)
+
+type internal DistributedFunctionHolder = DistributedFunctionHolderBySemaphore
+
+
 /// Option for DistributedFunctionHolder with a string to hold information on why fails to find
 type internal DistributedFunctionHolderImporter = 
     | FoundFolder of DistributedFunctionHolder
@@ -376,7 +485,7 @@ type DistributedFunctionStore internal () as thisStore =
         let typeIDPrajna = SchemaPrajnaFormatterHelper<'T>.SchemaID()
         let typeIDBinary = SchemaBinaryFormatterHelper<'T>.SchemaID()
         let typeIDJSon = SchemaBinaryFormatterHelper<'T>.SchemaID()
-        let mutable schemas = [| typeIDPrajna; typeIDBinary; typeIDJSon |]
+        let mutable schemas = [| typeIDPrajna; typeIDBinary; typeIDJSon |] 
         let schemaID = 
             match DistributedFunctionStore.DefaultSerializerTag with 
             | DefaultSerializerForDistributedFunction.PrajnaSerializer ->
@@ -697,7 +806,7 @@ type DistributedFunctionStore internal () as thisStore =
                                 ()
                     }
                 // Local action is not identified with a guid in execution
-                holder.Execute( Guid.Empty, Timeout.Infinite, null, cts.Token, observer )
+                holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, null, cts.Token, observer )
                 doneAction.Wait() |> ignore 
                 if Utils.IsNotNull !exRet then 
                     raise( !exRet ) 
@@ -744,7 +853,7 @@ type DistributedFunctionStore internal () as thisStore =
                                 ()
                     }
                 // Local action is not identified with a guid in execution
-                holder.Execute( Guid.Empty, Timeout.Infinite, param, cts.Token, observer )
+                holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, param, cts.Token, observer )
                 doneAction.Wait() |> ignore
                 if Utils.IsNotNull !exRet then 
                     raise( !exRet ) 
@@ -799,7 +908,7 @@ type DistributedFunctionStore internal () as thisStore =
                                         exRet := ex
                     }
                 // Local action is not identified with a guid in execution
-                holder.Execute( Guid.Empty, Timeout.Infinite, null, cts.Token, observer )
+                holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, null, cts.Token, observer )
                 doneAction.Wait() |> ignore 
                 if Utils.IsNotNull !exRet then 
                     raise( !exRet ) 
@@ -857,7 +966,7 @@ type DistributedFunctionStore internal () as thisStore =
                                         this.OnError( ex )
                     }
                 // Local action is not identified with a guid in execution
-                holder.Execute( Guid.Empty, Timeout.Infinite, param, cts.Token, observer )
+                holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, param, cts.Token, observer )
                 doneAction.Wait() |> ignore 
                 if Utils.IsNotNull !exRet then 
                     raise( !exRet ) 

@@ -177,6 +177,8 @@ type internal ClientLauncher() =
 
         Logger.Log( LogLevel.Info, ( sprintf "Start PrajnaClient at port %d (%d-%d)...................... Mode %s, %d MB" DeploymentSettings.ClientPort DeploymentSettings.JobPortMin DeploymentSettings.JobPortMax DeploymentSettings.PlatformFlag (DeploymentSettings.MaximumWorkingSet>>>20)))
 
+        Process.ReportSystemThreadPoolStat()
+
         let argsToLog = Array.copy orgargs
         for i in 0..argsToLog.Length-1 do
             if String.Compare(argsToLog.[i], "-pwd", StringComparison.InvariantCultureIgnoreCase) = 0 ||

@@ -691,20 +691,6 @@ type Network() =
 // wants to implement processing on thread pool and have flow control (using the resizequeue structures)
 
 type [<AllowNullLiteral>] internal ComponentBase() =
-    static do
-        let minThreads = ref 0
-        let minIOThreads = ref 0
-        let maxThreads = ref 0
-        let maxIOThreads = ref 0
-        let availThreads = ref 0
-        let availIOThreads = ref 0
-        //System.Threading.ThreadPool.SetMinThreads(6, 6) |> ignore
-        System.Threading.ThreadPool.GetMinThreads(minThreads, minIOThreads)
-        System.Threading.ThreadPool.GetMaxThreads(maxThreads, maxIOThreads)
-        System.Threading.ThreadPool.GetAvailableThreads(availThreads, availIOThreads)
-        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Minimum threads: %d Minimum I/O completion threads: %d" !minThreads !minIOThreads)
-        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Maximum threads: %d Maximum I/O completion threads: %d" !maxThreads !maxIOThreads)
-        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Available threads: %d Available I/O completion threads: %d" !availThreads !availIOThreads)
 
     static let componentCount = ref -1
     let componentId = Interlocked.Increment(componentCount)

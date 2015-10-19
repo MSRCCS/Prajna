@@ -986,12 +986,13 @@ and [<AllowNullLiteral; Serializable>]
     /// OnJobFinish govern freeing of the resource of the Task object. 
     /// It has been registered when the Task is first established, and will garantee to execute when job is done or cancelled
     member x.OnJobFinish() = 
-        for i=0 to x.NumBlobs-1 do
-            if (Utils.IsNotNull x.Blobs.[i]) then
-                if (Utils.IsNotNull x.Blobs.[i].Hash) then
-                    BlobFactory.remove x.Blobs.[i].Hash
-                if (Utils.IsNotNull x.Blobs.[i].Stream) then
-                    (x.Blobs.[i].Stream :> IDisposable).Dispose()
+        if Utils.IsNotNull x.Blobs then
+            for i=0 to x.NumBlobs-1 do
+                if (Utils.IsNotNull x.Blobs.[i]) then
+                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
+                        BlobFactory.remove x.Blobs.[i].Hash
+                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
+                        (x.Blobs.[i].Stream :> IDisposable).Dispose()
         if (Utils.IsNotNull x.MetadataStream) then
             (x.MetadataStream :> IDisposable).Dispose()
         Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
@@ -1772,6 +1773,7 @@ and [<AllowNullLiteral; Serializable>]
     /// clientModuleName: the host client's module name
     /// clientStartTimeTicks: the ticks of the host client's start time
     static member StartTaskAsSeperateApp( sigName:string, sigVersion:int64, ip : string, port, jobip, jobport, authParams, clientProcessId, clientModuleName, clientStartTimeTicks) = 
+        Process.ReportSystemThreadPoolStat()
         let (bRequireAuth, guid, rsaParam, pwd) = authParams
         // Start a client. 
         // Only in App Domain that we can load assembly, and deserialize function object. 
@@ -3768,6 +3770,13 @@ type internal ContainerLauncher() =
         if (requireAuth) then
             guid <- new Guid(guidStr)
             rsaKey <- (Convert.FromBase64String(rsaKeyStrAuth), Convert.FromBase64String(rsaKeyStrExch))
+
+        // Currently, the runtime still has blocking operations (e.g. safeWaitOne) that can hold on a thread
+        // When such operation was performed on thread pool thread, it can hold a pool thread being unusable. 
+        // Pool needs to be able to launch new threads quickly. To allevaite such scenarios, adjust the min thread 
+        // for pool to be higher
+        let _, minIoThs = ThreadPool.GetMinThreads()
+        ThreadPool.SetMinThreads(Environment.ProcessorCount * 2, minIoThs) |> ignore
 
     //    DeploymentSettings.ClientPort <- port
         let memory_size = parse.ParseInt64( "-mem", (DeploymentSettings.MaxMemoryLimitInMB) )

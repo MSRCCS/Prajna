@@ -391,6 +391,14 @@ module internal Process =
         else
             false
 
+    let ReportSystemThreadPoolStat () =
+        let minThreads, minIOThreads = ThreadPool.GetMinThreads()
+        let maxThreads, maxIOThreads = ThreadPool.GetMaxThreads()
+        let availThreads, availIOThreads = ThreadPool.GetAvailableThreads()
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Minimum threads: %d Minimum I/O completion threads: %d" minThreads minIOThreads)
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Maximum threads: %d Maximum I/O completion threads: %d" maxThreads maxIOThreads)
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Available threads: %d Available I/O completion threads: %d" availThreads availIOThreads)
+
 
 type internal ExecutionMode = 
     | ByTask = 0
@@ -2427,4 +2435,4 @@ type internal SingleCreation<'U>() =
                                                                e ) )
             if bLockTaken then 
                 lock.Exit() 
-                
+

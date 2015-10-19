@@ -1,6 +1,7 @@
 ﻿namespace Prajna.Test.Common
 
 open System
+open System.Threading
 
 open NUnit.Framework
 
@@ -30,14 +31,17 @@ type Tester () =
         // GC.Collect()
         // GC.WaitForPendingFinalizers()
         let proc = Diagnostics.Process.GetCurrentProcess()
+
+        let maxThreads, maxIOThreads = ThreadPool.GetMaxThreads()
+        let availThreads, availIOThreads = ThreadPool.GetAvailableThreads()
+
         Logger.LogF( LogLevel.Info, 
-                     ( fun _ -> sprintf "##### Test %s ends: %s (%i ms) (%i THs, GC Heap: %f MB, Private Memory %f MB) #####" 
+                     ( fun _ -> sprintf "##### Test %s ends: %s (%i ms) (%i THs, (%i, %i) ThreadPool THs, GC Heap: %f MB, Private Memory %f MB) #####" 
                                   TestContext.CurrentContext.Test.FullName 
                                   (TestContext.CurrentContext.Result.Status.ToString()) 
                                   sw.ElapsedMilliseconds 
                                   (proc.Threads.Count)
+                                  (maxThreads - availThreads)
+                                  (maxIOThreads - availIOThreads)
                                   ((float (GC.GetTotalMemory(false))) / 1e6)
                                   ((float proc.PrivateMemorySize64)/1e6)))
-
-
-

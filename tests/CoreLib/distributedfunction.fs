@@ -111,6 +111,20 @@ type DistributedFunctionTest() =
             // At all other concurrency level, the return result is uncertain 
             Assert.AreEqual( result, niterations )
 
+        let executeUnitActionAsync = DistributedFunctionStoreAsync.Current.TryImportUnitActionLocal( name )
+        let input = Array.init niterations Operators.id
+        let ticks = DateTime.UtcNow.Ticks
+        let tasks = input |> Array.map( fun i -> executeUnitActionAsync() )
+        tasks |> Task.WaitAll
+        let result = finalValueFunc()
+        let elapse = ( DateTime.UtcNow.Ticks - ticks ) / TimeSpan.TicksPerMillisecond
+        Logger.LogF( LogLevel.Info, fun _ -> sprintf "Parallel Distributed function of %d increment( async mode) of 1 with concurrency level %d, result = %d (%dms)" niterations concurrencyLevel result elapse )
+        if bCheck then 
+            // We purposefully designed a inner function which is not multi-thread safe, 
+            // Only when the concurrency level is 1, the function will return 1 result as if the function is running in single thread. 
+            // At all other concurrency level, the return result is uncertain 
+            Assert.AreEqual( result, niterations * 2 )
+
     [<Test(Description = "Test: Distributed Action local")>]
     member x.DistributedUnitActionLocalTest() = 
         let cnt0 = DistributedFunctionStore.Current.NumberOfRegistered()
@@ -142,6 +156,24 @@ type DistributedFunctionTest() =
             // Only when the concurrency level is 1, the function will return 1 result as if the function is running in single thread. 
             // At all other concurrency level, the return result is uncertain 
             Assert.AreEqual( cnt, niterations )
+
+        let executeFunctionAsync = DistributedFunctionStoreAsync.Current.TryImportFunctionLocal<int,int>( name )
+        let ticks = DateTime.UtcNow.Ticks
+        let input = seq { 0 .. niterations - 1 }
+        input 
+        |> Seq.map( fun i -> async {   let! res = Async.AwaitTask(executeFunctionAsync(i)) 
+                                    Assert.AreEqual( res, i + addValue )
+                                    })
+        |> Async.Parallel |> Async.RunSynchronously |> ignore
+        let cnt = numberAddedFunc()
+        let elapse = ( DateTime.UtcNow.Ticks - ticks ) / TimeSpan.TicksPerMillisecond
+        Logger.LogF( LogLevel.Info, fun _ -> sprintf "Parallel Distributed function of %d addition of %d with concurrency level %d, result = %d (%dms)" niterations addValue concurrencyLevel cnt elapse )
+        if bCheck then 
+            // We purposefully designed a inner function which is not multi-thread safe, 
+            // Only when the concurrency level is 1, the function will return 1 result as if the function is running in single thread. 
+            // At all other concurrency level, the return result is uncertain 
+            Assert.AreEqual( cnt, niterations * 2 )
+
 
     [<Test(Description = "Test: Distributed Function Local")>]
     member x.DistributedFunctionLocalTest() = 

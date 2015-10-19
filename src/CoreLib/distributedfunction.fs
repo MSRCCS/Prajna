@@ -259,6 +259,9 @@ type internal DistributedFunctionHolderByLock(name:string, capacity:int, executo
     let totalItems = ref 0L 
     let cts = new CancellationTokenSource()
     let lock = if not capacityControl then null else new ManualResetEvent(true)
+    let refCnt = ref 0 
+    member x.AddRef() = Interlocked.Increment( refCnt ) 
+    member x.DecRef() = Interlocked.Decrement( refCnt ) 
     /// Execute a distributed function with a certain time budget. 
     /// The execution is an observer object. 
     member x.ExecuteWithTimebudget( jobID: Guid, timeBudget: int, input: Object, token: CancellationToken, observer:IObserver<Object>) = 
@@ -340,8 +343,20 @@ type internal DistributedFunctionHolderByLock(name:string, capacity:int, executo
     interface IDisposable with
         /// Close All Active Connection, to be called when the program gets shutdown.
         member x.Dispose() = 
-            x.CleanUp()
-            GC.SuppressFinalize(x)
+                x.CleanUp()
+                GC.SuppressFinalize(x)
+#if false
+            try 
+                x.CleanUp()
+                GC.SuppressFinalize(x)
+            with 
+            | :? ObjectDisposedException as ex -> 
+                // https://msdn.microsoft.com/en-us/library/system.idisposable.dispose.aspx
+                // If an object's Dispose method is called more than once, the object must ignore all calls after the first one. The object must not throw an exception if its Dispose method is called multiple times.                
+                ()
+            | ex -> 
+                reraise()
+#endif
 
 /// Distributed function holder 
 /// Govern the execution cycle of a distributed function. 
@@ -350,6 +365,9 @@ type internal DistributedFunctionHolderBySemaphore(name:string, capacity:int, ex
     let capacityControl = ( capacity > 0 )
     let semaphore = if capacityControl then new SemaphoreSlim( capacity, capacity) else null
     let cts = new CancellationTokenSource()
+    let refCnt = ref 0 
+    member x.AddRef() = Interlocked.Increment( refCnt ) 
+    member x.DecRef() = Interlocked.Decrement( refCnt ) 
     /// Execute a distributed function with a certain time budget. 
     /// The execution is an observer object. 
     member x.ExecuteWithTimebudget( jobID: Guid, timeBudget: int, input: Object, token: CancellationToken, observer:IObserver<Object>) = 
@@ -422,6 +440,7 @@ type internal DistributedFunctionHolderBySemaphore(name:string, capacity:int, ex
     /// Cancel all jobs related to this distributed function. 
     member x.Cancel() = 
         // This process is responsible for the disposing routine
+        Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "Function holder %s cancelled" name)
         cts.Cancel()
     /// Can we dispose this job holder?
     member x.CanDispose() = 
@@ -431,6 +450,7 @@ type internal DistributedFunctionHolderBySemaphore(name:string, capacity:int, ex
         else 
             true 
     member x.CleanUp() = 
+        Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "Function holder %s cleaned. " name)
         x.Cancel()
         if capacityControl && x.CanDispose() then 
             // Dispose CancellationTokenSource and lock
@@ -451,11 +471,56 @@ type internal DistributedFunctionHolderBySemaphore(name:string, capacity:int, ex
 
 type internal DistributedFunctionHolder = DistributedFunctionHolderBySemaphore
 
+/// A DistributedFunctionHolder can be reference with multiple schema (e.g., different input/output coding type, etc..)
+/// DistributedFunctionHolderRef allows reference counting on the DistributedFunctionHolder. 
+/// When the reference count goes to zero, the enclosed DistributedFunctionHolder can be deferenced. 
+type internal DistributedFunctionHolderRef( holder: DistributedFunctionHolder) = 
+    let nDisposed = ref 0 
+    do 
+        holder.AddRef() |> ignore 
+        ()
+    /// Execute a distributed function with a certain time budget. 
+    /// The execution is an observer object. 
+    member x.ExecuteWithTimebudget( jobID, timeBudget, input, token, observer ) = 
+        holder.ExecuteWithTimebudget( jobID, timeBudget, input, token, observer )
+    /// Cancel all jobs related to this distributed function. 
+    member x.Cancel() = 
+        holder.Cancel()
+    member x.CanDispose() = 
+        holder.CanDispose()
+    member x.CleanUp() = 
+        if Interlocked.Increment( nDisposed ) = 1 then 
+            let cnt = holder.DecRef() 
+            if cnt = 0 then 
+                ( holder :> IDisposable).Dispose() |> ignore 
+    override x.Finalize() =
+        /// Close All Active Connection, to be called when the program gets shutdown.
+        x.CleanUp()
+    interface IDisposable with
+        /// Close All Active Connection, to be called when the program gets shutdown.
+        member x.Dispose() = 
+            x.CleanUp()
+            GC.SuppressFinalize(x)
+
 
 /// Option for DistributedFunctionHolder with a string to hold information on why fails to find
 type internal DistributedFunctionHolderImporter = 
-    | FoundFolder of DistributedFunctionHolder
+    | FoundFolder of DistributedFunctionHolderRef
     | NotFound of string
+
+/// Safe Remvoal of an entry of ConcurrentDictionary. 
+type internal SafeConcurrentDictionary =
+    static member TryRemoveIfEmpty<'K, 'V, 'A, 'B when 'V :> ConcurrentDictionary<'A,'B> >( dic: ConcurrentDictionary<'K,'V>, key: 'K, entry: 'V) = 
+        if entry.IsEmpty then 
+            let bRemove, removedEntry = dic.TryRemove( key )
+            if not (removedEntry.IsEmpty) then 
+                // An entry may be inserted by another thread, needs to add the entry back 
+                dic.GetOrAdd( key, removedEntry ) |> ignore 
+                false
+            else
+                true
+        else
+            false
         
 /// DistributedFunctionStore provides a central location for handling distributed functions. 
 type DistributedFunctionStore internal () as thisStore = 
@@ -484,7 +549,7 @@ type DistributedFunctionStore internal () as thisStore =
     static member InstallDefaultSerializer<'T>() = 
         let typeIDPrajna = SchemaPrajnaFormatterHelper<'T>.SchemaID()
         let typeIDBinary = SchemaBinaryFormatterHelper<'T>.SchemaID()
-        let typeIDJSon = SchemaBinaryFormatterHelper<'T>.SchemaID()
+        let typeIDJSon = SchemaJSonHelper<'T>.SchemaID()
         let mutable schemas = [| typeIDPrajna; typeIDBinary; typeIDJSon |] 
         let schemaID = 
             match DistributedFunctionStore.DefaultSerializerTag with 
@@ -520,7 +585,7 @@ type DistributedFunctionStore internal () as thisStore =
         x.PublicProviderID <- provider.PublicID
     /// Collection of exported distributed functions, indexed by providerID, domainID, schemaIn and schemaOut
     /// This set is used 
-    member val internal ExportedCollections = ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,DistributedFunctionHolder>>>>() with get
+    member val internal ExportedCollections = ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,DistributedFunctionHolderRef>>>>() with get
     /// <summary>
     /// Export an action or function object. 
     /// <param name="privateID"> private ID of the provider </param>
@@ -540,11 +605,12 @@ type DistributedFunctionStore internal () as thisStore =
             let schemaInStore = domainStore.GetOrAdd( schemaIn, fun _ -> ConcurrentDictionary<_,_>() )
             if bReload then 
                 // bReload is true, always overwrite the content in store. 
-                schemaInStore.Item( schemaOut ) <- obj
+                schemaInStore.Item( schemaOut ) <- new DistributedFunctionHolderRef( obj )
             else
                 // bReload is false, operation will fail if an item of the same name exists in DistributedFunctionStore
-                let existingObj = schemaInStore.GetOrAdd( schemaOut, obj )
-                if not(Object.ReferenceEquals( obj, existingObj )) then 
+                let insertedObj = new DistributedFunctionHolderRef( obj )
+                let existingObj = schemaInStore.GetOrAdd( schemaOut, insertedObj )
+                if not(Object.ReferenceEquals( insertedObj, existingObj )) then 
                     Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "DistributedFunctionStore, export of function failed, with provider privateID %A, domain %A, schema %A and %A, item of same signature already exists " 
                                                                         privateID domainID schemaIn schemaOut ))
             let dispose = 
@@ -570,6 +636,14 @@ type DistributedFunctionStore internal () as thisStore =
                         if bExist then 
                             if holder.CanDispose() then 
                                 (holder :> IDisposable ).Dispose() 
+                            /// Remove inserted entry of the function holder, use SafeConcurrentDictionary.TryRemoveIfEmpty
+                            /// to avoid concurrent insert of a same entry
+                            let bRemove = SafeConcurrentDictionary.TryRemoveIfEmpty( domainStore, useSchemaIn, schemaInStore )
+                            if bRemove then 
+                                let bRemove = SafeConcurrentDictionary.TryRemoveIfEmpty( providerStore, domainID, domainStore )
+                                if bRemove then 
+                                    SafeConcurrentDictionary.TryRemoveIfEmpty( x.ExportedCollections, publicID, providerStore ) |> ignore  
+
     /// Clean Up 
     member internal x.CleanUp(timeOut:int) = 
         for pair0 in x.ExportedCollections do 
@@ -860,7 +934,7 @@ type DistributedFunctionStore internal () as thisStore =
             wrappedAction
 
     /// <summary>
-    /// Try find an action to execute without input and output parameter 
+    /// Try find function to execute with no input parameter, but with output. 
     /// <param name="publicID"> public ID of the provider </param>
     /// <param name="domainID"> ID of the particular function/action </param>
     /// </summary>
@@ -876,7 +950,7 @@ type DistributedFunctionStore internal () as thisStore =
                 ()
         retFunc 
 
-    /// Try import an action to execution
+    /// Try import an function with no input parameter
     member x.TryImportFunctionLocal<'TResult>( name ) =
         let retFunc = x.TryFindFunctionLocal<'TResult>( x.PublicProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -918,7 +992,7 @@ type DistributedFunctionStore internal () as thisStore =
 
 
     /// <summary>
-    /// Try find an action to execute without input and output parameter 
+    /// Try find a function to execute
     /// <param name="publicID"> public ID of the provider </param>
     /// <param name="domainID"> ID of the particular function/action </param>
     /// </summary>
@@ -935,7 +1009,7 @@ type DistributedFunctionStore internal () as thisStore =
                     ()
         retFunc 
 
-    /// Try import an action to execution
+    /// Try import a function to execution
     member x.TryImportFunctionLocal<'T,'TResult>( name ) =
         let retFunc = x.TryFindFunctionLocal<'T, 'TResult>( x.PublicProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -972,6 +1046,317 @@ type DistributedFunctionStore internal () as thisStore =
                     raise( !exRet ) 
                 else 
                     !res
+            wrappedFunction
+
+/// Distributed function store with Async interface. 
+type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
+    /// Access the common DistributedFunctionStore for the address space. 
+    static member val Current = DistributedFunctionStoreAsync( DistributedFunctionStore.Current ) with get
+    /// <summary>
+    /// Register a task to be executed when called upon. 
+    /// <param name="name"> name of the action </param>
+    /// <param name="capacity"> Concurrency level, if larger than 1, multiple action can be executed at the same time, if less than or equal to 0, no capacity control is exercised </param>
+    /// <param name="privateID"> private ID of the provider </param>
+    /// <param name="domainID"> ID of the particular function/action </param>
+    /// <param name="act"> An action of type to be registered </param>
+    /// <param name="bReload"> Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store. </param>
+    /// </summary>
+    member x.RegisterUnitAction( name, capacity, privateID, domainID, act:unit -> Task, bReload) = 
+        let executor( jobID: Guid, timeBudget: int, o: Object, token: CancellationToken, observer: IObserver<Object> ) = 
+            let task = act()
+            let wrappedFunc ( ta: Task)  = 
+                if ta.IsCompleted then 
+                    observer.OnCompleted()
+                else
+                    let ex = ta.Exception
+                    if Utils.IsNotNull ex then 
+                        observer.OnError(ex)
+                    else
+                        observer.OnCompleted()
+            task.ContinueWith( Action<_>(wrappedFunc), token ) |> ignore
+        let obj = new DistributedFunctionHolder( name, capacity, executor )
+        let schemaIn = Guid.Empty
+        let schemaOut = Guid.Empty
+        store.RegisterInternal( privateID, domainID, schemaIn, schemaOut, obj, bReload )
+    /// <summary>
+    /// Register an action without input and output parameter.
+    /// <param name="name"> name of the action </param>
+    /// <param name="act"> An action to be registered </param>
+    /// </summary>
+    member x.RegisterUnitAction( name, act:unit -> Task) = 
+        x.RegisterUnitAction( name, store.ConcurrentCapacity, store.CurrentProviderID, HashStringToGuid( name ), 
+            act, false ) 
+    /// <summary>
+    /// Register an action Action&lt;'T>
+    /// <param name="name"> name of the action, for debugging purpose </param>
+    /// <param name="capacity"> Concurrency level, if larger than 1, multiple action can be executed at the same time, if less than or equal to 0, no capacity control is exercised </param>
+    /// <param name="privateID"> private ID of the provider </param>
+    /// <param name="domainID"> ID of the particular function/action </param>
+    /// <param name="act"> An action of type Action&lt;'T> to be registered </param>
+    /// <param name="bReload"> Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store. </param>
+    /// </summary>
+    member x.RegisterAction<'T>( name, capacity, privateID, domainID, act:'T -> Task, bReload) = 
+        let executor( jobID: Guid, timeBudget: int, o: Object, token: CancellationToken, observer: IObserver<Object> ) = 
+            let runObject = if Utils.IsNull o then Unchecked.defaultof<'T> else o :?> 'T 
+            let task = act(runObject)
+            let wrappedFunc ( ta: Task)  = 
+                if ta.IsCompleted then 
+                    observer.OnCompleted()
+                else
+                    let ex = ta.Exception
+                    if Utils.IsNotNull ex then 
+                        observer.OnError(ex)
+                    else
+                        observer.OnCompleted()
+            task.ContinueWith( Action<_>(wrappedFunc), token ) |> ignore
+        let obj = new DistributedFunctionHolder( name, capacity, executor )
+        let _, schemaInCollection = DistributedFunctionStore.InstallDefaultSerializer<'T>()
+        let schemaOut = Guid.Empty
+        let lst = List<_>()
+        /// For export, we will install all possible schemas 
+        for schemaIn in schemaInCollection do 
+            let disposeInterface = store.RegisterInternal( privateID, domainID, schemaIn, schemaOut, obj, bReload )
+            lst.Add( disposeInterface ) 
+        let dispose = 
+            { new IDisposable with 
+                    member this.Dispose() = 
+                        for item in lst do 
+                            item.Dispose() 
+            }
+        // Return a disposable interface if the caller wants to unregister 
+        dispose
+    /// <summary>
+    /// Register an action Action&lt;'T>
+    /// <param name="name"> name of the action, for debugging purpose </param>
+    /// <param name="act"> An action of type Action&lt;'T> to be registered </param>
+    /// </summary>
+    member x.RegisterAction<'T>( name, act:'T -> Task) = 
+        x.RegisterAction<'T>( name, store.ConcurrentCapacity, store.CurrentProviderID, HashStringToGuid( name ), 
+            act, false ) 
+    /// <summary>
+    /// Register as a function Func&lt;'T,Task&lt;'TResult>>
+    /// <param name="name"> name of the action </param>
+    /// <param name="capacity"> Concurrency level, if larger than 1, multiple action can be executed at the same time, if less than or equal to 0, no capacity control is exercised </param>
+    /// <param name="privateID"> private ID of the provider </param>
+    /// <param name="domainID"> ID of the particular function/action </param>
+    /// <param name="func"> A function of type Func&lt;'T,'TResult> to be registered </param>
+    /// <param name="bReload"> Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store. </param>
+    /// </summary>
+    member x.RegisterFunction<'T,'TResult>( name, capacity, privateID, domainID, func:'T -> Task<'TResult>, bReload) = 
+        let executor( jobID: Guid, timeBudget: int, o: Object, token: CancellationToken, observer: IObserver<Object> ) = 
+            let runObject = if Utils.IsNull o then Unchecked.defaultof<'T> else o :?> 'T 
+            let task = func( runObject) 
+            let wrappedFunc ( ta: Task<'TResult>)  = 
+                if ta.IsCompleted then 
+                    observer.OnNext(ta.Result)
+                    observer.OnCompleted()
+                else
+                    let ex = ta.Exception
+                    if Utils.IsNotNull ex then 
+                        observer.OnError(ex)
+                    else
+                        observer.OnCompleted()
+            task.ContinueWith( Action<_>(wrappedFunc), token ) |> ignore
+        let obj = new DistributedFunctionHolder( name, store.ConcurrentCapacity, executor )
+        let _, schemaInCollection = DistributedFunctionStore.InstallDefaultSerializer<'T>()
+        let schemaOut, _ = DistributedFunctionStore.InstallDefaultSerializer<'TResult>()
+        let lst = List<_>()
+        for schemaIn in schemaInCollection do 
+            let disposeInterface = store.RegisterInternal( privateID, domainID, schemaIn, schemaOut, obj, bReload )
+            lst.Add( disposeInterface ) 
+        let dispose = 
+            { new IDisposable with 
+                    member this.Dispose() = 
+                        for item in lst do 
+                            item.Dispose() 
+            }
+            // Return a disposable interface if the caller wants to unregister 
+        dispose
+    /// <summary>
+    /// Register as a function Func&lt;'T,'TResult>
+    /// <param name="name"> name of the action </param>
+    /// <param name="func"> A function of type Func&lt;'T,'TResult> to be registered </param>
+    /// </summary>
+    member x.RegisterFunction<'T,'TResult>( name, func:'T -> Task<'TResult>) = 
+        x.RegisterFunction<'T, 'TResult>( name, store.ConcurrentCapacity, store.CurrentProviderID, HashStringToGuid( name ), 
+            func, false ) 
+    /// <summary>
+    /// Register a function Func&lt;'TResult>
+    /// <param name="name"> name of the action </param>
+    /// <param name="capacity"> Concurrency level, if larger than 1, multiple action can be executed at the same time, if less than or equal to 0, no capacity control is exercised </param>
+    /// <param name="privateID"> private ID of the provider </param>
+    /// <param name="domainID"> ID of the particular function/action </param>
+    /// <param name="func"> A function of type Func&lt;'T,'TResult> to be registered </param>
+    /// <param name="bReload"> Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store. </param>
+    /// </summary>
+    member x.RegisterFunction<'TResult>( name, capacity, privateID, domainID, func:unit -> Task<'TResult>, bReload) = 
+        let executor( jobID: Guid, timeBudget: int, o: Object, token: CancellationToken, observer: IObserver<Object> ) = 
+            let task = func() 
+            let wrappedFunc ( ta: Task<'TResult>)  = 
+                if ta.IsCompleted then 
+                    observer.OnNext(ta.Result)
+                    observer.OnCompleted()
+                else
+                    let ex = ta.Exception
+                    if Utils.IsNotNull ex then 
+                        observer.OnError(ex)
+                    else
+                        observer.OnCompleted()
+            task.ContinueWith( Action<_>(wrappedFunc), token ) |> ignore
+        let obj = new DistributedFunctionHolder( name, store.ConcurrentCapacity, executor )
+        let schemaIn = Guid.Empty
+        let schemaOut, _ = DistributedFunctionStore.InstallDefaultSerializer<'TResult>()
+        store.RegisterInternal( privateID, domainID, schemaIn, schemaOut, obj, bReload )
+    /// <summary>
+    /// Register a function Func&lt;'TResult>
+    /// <param name="name"> name of the function </param>
+    /// <param name="func"> A function of type Func&lt;'TResult> to be registered </param>
+    /// </summary>
+    member x.RegisterFunction<'TResult>( name, func:unit -> Task<'TResult> ) = 
+        x.RegisterFunction<'TResult>( name, store.ConcurrentCapacity, store.CurrentProviderID, HashStringToGuid( name ), 
+            func, false ) 
+    /// Try import an action to execution
+    /// The return signature is () -> Task
+    member x.TryImportUnitActionLocal( name ) = 
+        let retFunc = store.TryFindUnitActionLocal( store.PublicProviderID, HashStringToGuid(name) )
+        match retFunc with 
+        | NotFound( err ) -> 
+            let ex = ArgumentException( sprintf "Fails to find unit action %s" name )
+            raise(ex)
+        | FoundFolder( holder ) -> 
+            let wrappedAction() = 
+                let ts = new TaskCompletionSource<unit>()
+                let cts = new CancellationTokenSource()
+                let observer = 
+                    {
+                        new IObserver<Object> with 
+                            member this.OnCompleted() = 
+                                let bSet = ts.TrySetResult() 
+                                if bSet then 
+                                    cts.Dispose() |> ignore 
+                            member this.OnError( ex ) = 
+                                let bSet = ts.TrySetException( ex ) 
+                                if bSet then 
+                                    cts.Dispose() |> ignore 
+                            member this.OnNext( o ) = 
+                                // Don't expect return value 
+                                ()
+                    }
+                // Local action is not identified with a guid in execution
+                holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, null, cts.Token, observer )
+                ts.Task :> Task
+            wrappedAction
+    /// Try import an action to execution
+    member x.TryImportActionLocal<'T>( name ) =
+        let retFunc = store.TryFindActionLocal<'T>( store.PublicProviderID, HashStringToGuid(name) )
+        match retFunc with 
+        | NotFound( err ) -> 
+            let ex = ArgumentException( sprintf "Fails to find action %s" name )
+            raise(ex)
+        | FoundFolder( holder ) -> 
+            let wrappedAction(param:'T) = 
+                let ts = new TaskCompletionSource<unit>()
+                let cts = new CancellationTokenSource()
+                let observer = 
+                    {
+                        new IObserver<Object> with 
+                            member this.OnCompleted() = 
+                                let bSet = ts.TrySetResult() 
+                                if bSet then 
+                                    cts.Dispose() |> ignore 
+                            member this.OnError( ex ) = 
+                                let bSet = ts.TrySetException( ex ) 
+                                if bSet then 
+                                    cts.Dispose() |> ignore 
+                            member this.OnNext( o ) = 
+                                // Don't expect return value 
+                                ()
+                    }
+                // Local action is not identified with a guid in execution
+                holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, param, cts.Token, observer )
+                ts.Task :> Task
+            wrappedAction
+    /// Try import a function to execution
+    member x.TryImportFunctionLocal<'TResult>( name ) =
+        let retFunc = store.TryFindFunctionLocal<'TResult>( store.PublicProviderID, HashStringToGuid(name) )
+        match retFunc with 
+        | NotFound( err ) -> 
+            let ex = ArgumentException( sprintf "Fails to find function %s" name )
+            raise(ex)
+        | FoundFolder( holder ) -> 
+            let wrappedFunction() = 
+                let ts = new TaskCompletionSource<'TResult>()
+                let cts = new CancellationTokenSource()
+                let observer = 
+                    {
+                        new IObserver<Object> with 
+                            member this.OnCompleted() = 
+                                let bSet = 
+                                    if not ts.Task.IsCompleted then 
+                                        ts.TrySetResult( Unchecked.defaultof<_> )
+                                    else
+                                        false
+                                if bSet then 
+                                    cts.Dispose() |> ignore 
+                            member this.OnError( ex ) = 
+                                let bSet = ts.TrySetException( ex ) 
+                                if bSet then 
+                                    cts.Dispose() |> ignore 
+                            member this.OnNext( o ) = 
+                                    try 
+                                        let retObj = if Utils.IsNotNull o then  o:?> 'TResult else Unchecked.defaultof<_>
+                                        let bSetSuccessful = ts.TrySetResult( retObj ) 
+                                        if not bSetSuccessful then 
+                                            let ex = System.Exception( sprintf "Function: %s, task is already in state %A" name ts.Task.Status ) 
+                                            this.OnError( ex )
+                                    with 
+                                    | ex -> 
+                                        this.OnError( ex )
+                    }
+                // Local action is not identified with a guid in execution
+                holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, null, cts.Token, observer )
+                ts.Task
+            wrappedFunction
+    /// Try import an action to execution
+    member x.TryImportFunctionLocal<'T,'TResult>( name ) =
+        let retFunc = store.TryFindFunctionLocal<'T, 'TResult>( store.PublicProviderID, HashStringToGuid(name) )
+        match retFunc with 
+        | NotFound( err ) -> 
+            let ex = ArgumentException( sprintf "Fails to find function(IO) %s" name )
+            raise(ex)
+        | FoundFolder( holder ) -> 
+            let wrappedFunction(param:'T) = 
+                let ts = new TaskCompletionSource<'TResult>()
+                let cts = new CancellationTokenSource()
+                let observer = 
+                    {
+                        new IObserver<Object> with 
+                            member this.OnCompleted() = 
+                                let bSet = 
+                                    if not ts.Task.IsCompleted then 
+                                        ts.TrySetResult( Unchecked.defaultof<_> )
+                                    else
+                                        false
+                                if bSet then 
+                                    cts.Dispose() |> ignore 
+                            member this.OnError( ex ) = 
+                                let bSet = ts.TrySetException( ex ) 
+                                if bSet then 
+                                    cts.Dispose() |> ignore 
+                            member this.OnNext( o ) = 
+                                    try 
+                                        let retObj = if Utils.IsNotNull o then  o:?> 'TResult else Unchecked.defaultof<_>
+                                        let bSetSuccessful = ts.TrySetResult( retObj ) 
+                                        if not bSetSuccessful then 
+                                            let ex = System.Exception( sprintf "Function: %s, task is already in state %A" name ts.Task.Status ) 
+                                            this.OnError( ex )
+                                    with 
+                                    | ex -> 
+                                        this.OnError( ex )
+                    }
+                // Local action is not identified with a guid in execution
+                holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, param, cts.Token, observer )
+                ts.Task
             wrappedFunction
 
 /// This class services the request of distributed function. 

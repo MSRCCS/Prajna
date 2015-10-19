@@ -651,7 +651,7 @@ and
     /// Given a queue information, lookup the peer number
     /// OutgoingQueuesToPeerNumber is constructed one time during job launch, no multithread issue here. 
     member val OutgoingQueuesToPeerNumber = Dictionary<_,_>() with get, set
-    member val OutgoingQueueStatuses = List<_>() with get, set
+    member val private OutgoingQueueStatuses = ConcurrentDictionary<_,_>() with get, set
     /// All Clusters to be used in the current job. 
     member val Clusters = List<_>() with get, set   
     /// Prajna Task Type
@@ -1143,7 +1143,9 @@ and
                 // Add initial availability information. 
                 availPeer.Add( BlobAvailability( x.NumBlobs ) )
                 // Status
-                x.OutgoingQueueStatuses.Add( PerQueueJobStatus.NotConnected )
+                if not (x.OutgoingQueueStatuses.TryAdd(peeri, PerQueueJobStatus.NotConnected)) then
+                    // It should never be here, given how it's invoked, TryAdd should always succeeds
+                    Logger.Log(LogLevel.Error, sprintf "Failed to add queue %i to OutgoingQueueStatuses" peeri)
                 // Add reverse lookup table. 
                 x.OutgoingQueuesToPeerNumber.Item( queue ) <- peeri
     /// Node Information within a job. 
@@ -2350,17 +2352,13 @@ and
                     let bReturn = x.UpdateMetadata() 
                     if bReturn then 
                         for peeri=0 to x.OutgoingQueues.Count-1 do 
-                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] &&& (~~~ PerQueueJobStatus.AvailabilitySent)
+                            x.UpdateOutgoingQueueStatus peeri (&&&) (~~~ PerQueueJobStatus.AvailabilitySent)
                     x.CheckSync()
             else
                 // Add CheckSync() to Check on peer failures. 
                 x.CheckSync()
 
     member x.BeginSendMetaData() = 
-//        x.OutgoingQueueStatuses <- x.OutgoingQueues |> Seq.map ( fun queue -> 
-//                                                    if Utils.IsNotNull queue && queue.CanSend 
-//                                                        then PerQueueJobStatus.Connected 
-//                                                        else PerQueueJobStatus.NotConnected ) |> List<_>.AddRange
         jobMetadataStream <- new MemStream( 4096 ) 
         x.Pack( jobMetadataStream ) 
         for cluster in x.Clusters do 
@@ -2406,7 +2404,7 @@ and
                 for peeri = 0 to x.OutgoingQueues.Count - 1 do 
                     let queue = x.OutgoingQueues.[peeri] 
                     if not (NetworkCommandQueue.QueueFail(queue)) then 
-                        if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.FailedToStart)<>PerQueueJobStatus.None then 
+                        if (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.FailedToStart)<>PerQueueJobStatus.None then 
                             match x.LaunchMode with 
                             | TaskLaunchMode.DonotLaunch -> 
                                 // Mark peer as all available. 
@@ -2424,7 +2422,15 @@ and
                         Logger.LogF(DeploymentSettings.TraceLevelBlobAvailability, ( fun _ -> sprintf "CheckSync: peer %d is not all available .... %A " peeri x.AvailPeer.[peeri] ))
             else
                 Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "CheckSync: current app doesnot has all blobs .... %A " x.AvailThis )                            )
-            bAllSynced <- bAllAvailable
+            
+            // Note: this ensures that bAllSynced can only go from "false" to "true", but never the other way around. 
+            if bAllAvailable then
+                bAllSynced <- bAllAvailable
+                Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "CheckSync: bAllSycned has been set to %b " bAllSynced))
+            else if bAllSynced then
+                // bAllSycned is already true (set by a previous CheckSync) but bAllAvailable is false, this should not happen (imply a race), log a warning
+                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "CheckSync Warning: bAllSycned = true, bAllAvailable = false "))
+
             Logger.Do( LogLevel.MildVerbose, ( fun _ ->    let curTime = (PerfDateTime.UtcNow())
                                                            if curTime.Subtract( x.CheckSyncTimer ).TotalSeconds > DeploymentSettings.CheckSyncStatusInterval then 
                                                                x.CheckSyncTimer <- curTime
@@ -2473,13 +2479,13 @@ and
                         for peeri=0 to x.OutgoingQueues.Count-1 do 
                             let queue = x.OutgoingQueues.[peeri]
                             if Utils.IsNotNull queue && queue.CanSend && not jobAction.IsCancelledAndThrow then 
-                                if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.JobMetaDataSent)=PerQueueJobStatus.None then 
+                                if (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.JobMetaDataSent)=PerQueueJobStatus.None then 
                                     // Set, Job
                                     queue.ToSend( ControllerCommand( ControllerVerb.Set, ControllerNoun.Job ), jobMetadataStream )
                                     Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Job: %s:%s Send Set, Job to peer %d " x.Name x.VersionString peeri))
-                                    x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.JobMetaDataSent
+                                    x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.JobMetaDataSent)
                                     bIOActivity := true
-                                if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.AvailabilitySent)=PerQueueJobStatus.None then 
+                                if (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.AvailabilitySent)=PerQueueJobStatus.None then 
                                     // Availability, Blob
                                     Logger.LogF( x.JobID, DeploymentSettings.TraceLevelBlobSend, ( fun _ -> sprintf "Job: %s:%s Send Availability, Blob to peer %d " x.Name x.VersionString peeri))
                                     // Send out job metadata & availability information. 
@@ -2491,10 +2497,10 @@ and
                                         x.AvailThis.Pack( availStream )
                                         queue.ToSend( ControllerCommand( ControllerVerb.Availability, ControllerNoun.Blob ), availStream ) 
                                     )
-                                    x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AvailabilitySent
+                                    x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.AvailabilitySent)
                                     bIOActivity := true
                                 if x.BlobSync=BlobSyncMethod.Unicast && // bAllSrcAvailable && 
-                                    (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.SentAllMetadata)=PerQueueJobStatus.None then  
+                                    (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.SentAllMetadata)=PerQueueJobStatus.None then  
                                     // outstandingSendingQueue < x.SendingQueueLimit then 
                                     // Calculate outstanding queue length 
                                     // Sent all metadata 
@@ -2535,9 +2541,9 @@ and
                                                                                                            peeri (LocalDNS.GetShowInfo( x.OutgoingQueues.Item(peeri).RemoteEndPoint ))
                                                                                                            x.AvailPeer.[peeri]
                                                                                                             ) )
-                                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.SentAllMetadata
-                                                                                                                // assume that Metadata is received, 
-                                                                                                               ||| PerQueueJobStatus.AllMetadataSynced
+                                            x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.SentAllMetadata
+                                                                                     // assume that Metadata is received, 
+                                                                                     ||| PerQueueJobStatus.AllMetadataSynced)
 
                         // Check if job related information is available. 
                         x.UpdateClusterJobInfo() 
@@ -2574,11 +2580,11 @@ and
                     let queue = x.OutgoingQueues.[peeri]
                     if not (NetworkCommandQueue.QueueFail(queue)) then 
                         // No need to start failed peer
-                        if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.StartJob)=PerQueueJobStatus.None then 
+                        if (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.StartJob)=PerQueueJobStatus.None then 
                             // Start, Job hasn't sent yet. 
                             if Utils.IsNotNull queue && queue.CanSend then 
-                                if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.AllMetadataSynced)<>PerQueueJobStatus.None 
-                                    && (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.FailedToStart)=PerQueueJobStatus.None then 
+                                if (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.AllMetadataSynced)<>PerQueueJobStatus.None 
+                                    && (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.FailedToStart)=PerQueueJobStatus.None then 
                                     // Start, Job
                                     Logger.LogF( x.JobID, DeploymentSettings.TraceLevelStartJob, ( fun _ -> sprintf "Start, Job send to peer %d" peeri ))
                                     // Call start, job on each client. 
@@ -2588,24 +2594,26 @@ and
                                         jobStream.WriteInt64( x.Version.Ticks )
                                         queue.ToSend( ControllerCommand( ControllerVerb.Start, ControllerNoun.Job ), jobStream )
                                     )
-                                    x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.StartJob
+                                    x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.StartJob)
                                     bIOActivity <- true
-                        if (x.OutgoingQueueStatuses.[peeri] &&& PerQueueJobStatus.ConfirmStart)<>PerQueueJobStatus.None || 
+                        Logger.LogF( x.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Job Start Status for peer %d: outgoing queue - %A, launch mode - %A " peeri (x.GetOutgoingQueueStatus(peeri)) x.LaunchMode))
+                        if (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.ConfirmStart)<>PerQueueJobStatus.None || 
                             x.LaunchMode = TaskLaunchMode.DonotLaunch then 
                             numConfirmedStart <- numConfirmedStart + 1
                         else
-                            if (x.OutgoingQueueStatuses.[peeri] &&& (PerQueueJobStatus.Failed|||PerQueueJobStatus.Shutdown|||PerQueueJobStatus.FailedToStart)) = PerQueueJobStatus.None then 
+                            if (x.GetOutgoingQueueStatus(peeri) &&& (PerQueueJobStatus.Failed|||PerQueueJobStatus.Shutdown|||PerQueueJobStatus.FailedToStart)) = PerQueueJobStatus.None then 
                                 // At least one peer can't start
                                 bAllPeerConfirmed <- false
                             else
                                 // peer failed, job may still start
-                                ()
+                                Logger.LogF( x.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Job Start Status for peer %d: failed, but job may still start " peeri))
                 if bIOActivity then 
                     // Reset clock for any io activity
                     maxWait <- clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
                 else
                     Threading.Thread.Sleep(5)
             Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s of task %s is ready to execute" x.Name x.VersionString x.SignatureName ))
+            Logger.LogF( x.JobID, LogLevel.WildVerbose, ( fun _ -> sprintf "bAllSynced = %b, bAllPeerConfirmed = %b, numConfirmedStart = %i" bAllSynced bAllPeerConfirmed numConfirmedStart))
             // bAllSynced is always true, so should be bAllPeerConfirmed
             bAllSynced && bAllPeerConfirmed && numConfirmedStart>0
         else
@@ -2640,8 +2648,7 @@ and
                             Logger.LogF( jobID, DeploymentSettings.TraceLevelBlobRcvd,  ( fun _ -> sprintf "Availability, Blob (all available ) for job %s:%s node %d peer %d peer %A this %A" 
                                                                                                         x.Name x.VersionString inClusterPeeri peeri
                                                                                                         availInfo x.AvailThis ))
-                            x.CheckSync()
-                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AllMetadataSynced
+                            x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.AllMetadataSynced)
                         else
                             Logger.LogF( jobID, DeploymentSettings.TraceLevelBlobRcvd, ( fun _ -> sprintf "Availability, Blob for job %s:%s node %d peer %d peer %A this %A" 
                                                                                                         x.Name x.VersionString inClusterPeeri peeri
@@ -2667,7 +2674,7 @@ and
                         let node = cluster.ClusterInfo.ListOfClients.[peeri]
                         NodeConnectionFactory.Current.StoreNodeInfo( node.MachineName, node.MachinePort, x.LaunchIDName, x.LaunchIDVersion, null ) 
                         x.NodeInfo.Item( queue.RemoteEndPointSignature ) <- null
-                        x.OutgoingQueueStatuses.[inClusterPeeri] <- x.OutgoingQueueStatuses.[inClusterPeeri] ||| PerQueueJobStatus.FailedToStart
+                        x.UpdateOutgoingQueueStatus inClusterPeeri (|||) (PerQueueJobStatus.FailedToStart)
                         Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Fail to start task %s on peer %d:%s" x.SignatureName inClusterPeeri (LocalDNS.GetShowInfo( queue.RemoteEndPoint)) ))
                     | ControllerVerb.Write, ControllerNoun.Blob ->                
                         let blobi = ms.ReadVInt32()
@@ -2711,8 +2718,7 @@ and
                             let bAvailBefore = peerAvail.AllAvailable
                             peerAvail.CheckAllAvailable()
                             if not bAvailBefore && peerAvail.AllAvailable then 
-                                x.CheckSync()
-                                x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.AllMetadataSynced
+                                x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.AllMetadataSynced)
                     | ControllerVerb.Echo, ControllerNoun.Job ->
                         // Confirm Start, Job command received
                         ()
@@ -2723,11 +2729,11 @@ and
                                                                                                  bSuccess ))
 
                         if bSuccess then 
-                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.ConfirmStart
+                            x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.ConfirmStart)
                             // Job started    
                         else
                             // Some failure
-                            x.OutgoingQueueStatuses.[peeri] <- x.OutgoingQueueStatuses.[peeri] ||| PerQueueJobStatus.Failed
+                            x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.Failed)
                             ()
                     | ControllerVerb.Exception, ControllerNoun.Job -> 
                         let ex = ms.ReadException()
@@ -2824,7 +2830,7 @@ and
                     if (NetworkCommandQueue.QueueFail(queue)) then 
                         yield sprintf "%d:FAILED" peeri 
                     else
-                        let status = x.OutgoingQueueStatuses.[peeri] 
+                        let status = x.GetOutgoingQueueStatus(peeri)
                         yield sprintf "%d:%s" peeri (Job.PeerQueueString( status ))
             }
         "PeerQueue Status : " + ( peerQueueStatusSeq |> String.concat ", " )
@@ -2849,7 +2855,18 @@ and
                                     x.AvailThis.AllAvailable
     /// Send Current Job Metadata to each peer. 
 
+    /// Update the status of outgoing queue
+    member private x.UpdateOutgoingQueueStatus peeri (updateFunc : PerQueueJobStatus -> PerQueueJobStatus -> PerQueueJobStatus) (flag : PerQueueJobStatus) =
+        x.OutgoingQueueStatuses.AddOrUpdate(peeri, 
+                                            (fun i -> failwith (sprintf "Job.UpdateOutgoingQueueStatus: the peer %i does not exist, and it should not happen" peeri)), 
+                                            (fun i orgValue -> updateFunc orgValue flag)) |> ignore
 
+    /// Get the status of the outgoing queue
+    member private x.GetOutgoingQueueStatus peeri = 
+        let b, v = x.OutgoingQueueStatuses.TryGetValue(peeri)
+        if not b then
+            failwith (sprintf "Job.GetOutgoingQueueStatus: the peer %i does not exist, and it should not happen" peeri)
+        v 
 
     override x.ToString() = 
         seq {

@@ -785,9 +785,11 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     let [<VolatileField>] mutable isTerminated = false
     let [<VolatileField>] mutable bInProcessing = false
     let [<VolatileField>] mutable procCount = 0
+
     override x.Finalize() =
         /// Close All Active Connection, to be called when the program gets shutdown.
         x.ReleaseAllItems()
+
     /// Standard form for all class that use CleanUp service
     interface IDisposable with
         /// Close All Active Connection, to be called when the program gets shutdown.
@@ -857,6 +859,12 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     member private x.CompBase with get() = compBase
 
     member x.ReleaseAllItems() =
+        isTerminated <- true
+        let spinWait = new SpinWait()
+        let oldCnt = x.ProcCount
+        while (x.InProcessing && oldCnt=x.ProcCount) do
+            // if x.ProcCount has increased, then even if InProcessing, then Process has seen "isTerminated=true" condition
+            spinWait.SpinOnce()
         if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
             let itemDQ : 'T ref = ref Unchecked.defaultof<'T>
             if (Utils.IsNotNull !item) then
@@ -868,6 +876,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                     if (success) then
                         x.ReleaseItem(itemDQ)
                         itemDQ := null
+
     // default CloseAction by setting next component to close in pipeline 
     // this gets called once bIsClosed is true && queue is empty, triggers next component to close
     /// A default "Close" function which can be used

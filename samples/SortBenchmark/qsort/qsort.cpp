@@ -4,7 +4,7 @@
 #include <stdlib.h>     
 #include <string.h>
 #include <algorithm>
-#include <cstdlib>
+//#include <cstdlib>
 #include "sort.h"
 
 #include <vector>
@@ -13,13 +13,17 @@
 static int d = 100;
 static int hashBytes = 2;
 
-int compare(const void * a, const void * b)
+int compare(void *context, const void * a, const void * b)
 {
 	return memcmp(a, b, d);
 }
-bool compareb(const void * a, const void * b)
+bool compareb(void *context, const void * a, const void * b)
 {
 	return memcmp(a, b, d) < 0;
+}
+bool comparec(const void * a, const void * b)
+{
+    return memcmp(a, b, d) < 0;
 }
 
 #define swapcode(TYPE, parmi, parmj, n) { 		\
@@ -37,7 +41,7 @@ extern "C" __declspec(dllexport)
 void stdquicksort(void* buf, int len, int dim)
 {
 	dim = d;
-	qsort_s(buf, len, dim, compare, null);
+	qsort_s(buf, len, dim, compare, 0);
 }
 
 
@@ -198,7 +202,7 @@ void stdsort(void* buf, int len, int dim)
 		p = p + dim;
 	}
 
-	std::sort(pointer.begin(), pointer.end(), compareb);
+	std::sort(pointer.begin(), pointer.end(), comparec);
 
 	char* tbuf = new char[len*dim];
 

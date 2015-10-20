@@ -997,6 +997,28 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
             dstLen <- dstLen - numDst
         (numSrc, numDst)
 
+    // return is in units of bytes - only copy sufficient so that dst alignment is "align"
+    // that is after copy (total length of dst - alignOffset) should be divisible by align (in units of bytes)
+    static member internal SrcDstBlkCopyAlign<'T1,'T2,'T1Elem,'T2Elem when 'T1 :> Array and 'T2 :>Array>
+        (src : 'T1, srcOffset : int byref, srcLen : int byref,
+         dst : 'T2, dstOffset : int byref, dstLen : int byref,
+         alignOffset : int, align : int) =
+        let mutable toCopy = Math.Min(srcLen*sizeof<'T1Elem>, dstLen*sizeof<'T2Elem>) // in units of bytes
+        // adjust for alignment
+        if (toCopy < srcLen*sizeof<'T1Elem>) then
+            // constrained by destination buffer size, then align
+            let finalDstLen = dstOffset + toCopy - alignOffset
+            toCopy <- finalDstLen/align*align
+        let numSrc = toCopy / sizeof<'T1Elem>
+        let numDst = toCopy / sizeof<'T2Elem>
+        if (toCopy > 0) then
+            Buffer.BlockCopy(src, srcOffset*sizeof<'T1Elem>, dst, dstOffset*sizeof<'T2Elem>, toCopy)
+            srcOffset <- srcOffset + numSrc
+            srcLen <- srcLen - numSrc
+            dstOffset <- dstOffset + numDst
+            dstLen <- dstLen - numDst
+        (numSrc, numDst)
+
     member private x.Release(bFromFinalize : bool) =
         if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
             if (bFromFinalize) then
@@ -1271,10 +1293,19 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
         x.MoveToNextBuffer(true, bufRemWrite) |> ignore
         (rbuf, bufPos, bufRemWrite)
 
+    member internal x.SealWriteBuffer() =
+        // forces move to next buffer
+        bufRemWrite <- 0
+        bufRem <- 0
+
     member x.WriteOne(b : 'T) =
         x.MoveToNextBuffer(true, bufRemWrite) |> ignore
         rbuf.Buffer.[bufPos] <- b
         x.MoveForwardAfterWrite(1)
+
+    member x.SealAndGetNextWriteBuffer() =
+        x.SealWriteBuffer()
+        x.GetWriteBuffer()
 
     member x.WriteArr<'TS>(buf : 'TS[], offset : int, count : int) =
         let mutable bOffset = offset
@@ -1286,6 +1317,25 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
             rbufPart.Count <- Math.Max(rbufPart.Count, bufPos - bufBeginPos)
             position <- position + int64 dstCopy
             length <- Math.Max(length, position)
+
+    member x.WriteArrAlign<'TS>(buf : 'TS[], offset : int, count : int, align : int) =
+        let alignOffset = 0
+        let mutable bAlignOffset = 0
+        let mutable bOffset = offset
+        let mutable bCount = count
+        while (bCount > 0) do
+            x.MoveToNextBuffer(true, bufRemWrite) |> ignore
+            bAlignOffset <-  alignOffset + bufPos
+            let (srcCopy, dstCopy) = BufferListStream<'T>.SrcDstBlkCopyAlign<'TS[],'T[],'TS,'T>(buf, &bOffset, &bCount, rbuf.Buffer, &bufPos, &bufRemWrite, bAlignOffset, align)
+            if (bCount > 0) then
+                // if still more to write, close this buffer
+                bufRemWrite <- 0
+                bufRem <- 0
+            else
+                bufRem <- Math.Max(0, bufRem - dstCopy)
+            rbufPart.Count <- Math.Max(rbufPart.Count, bufPos - bufBeginPos)
+            position <- position + int64 dstCopy
+            length <- Math.Max(length, position)        
 
     member x.WriteArr<'TS>(buf : 'TS[]) =
         x.WriteArr<'TS>(buf, 0, buf.Length)
@@ -1473,6 +1523,23 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
             if (writeAmt <> toRead) then
                 failwith "Write to memstream from file fails as file is out data"
 
+    member x.WriteFromStreamAlign(fh : Stream, count : int64, align : int) =
+        let mutable bCount = count
+        while (bCount > 0L) do
+            let (buf, pos, amt) = x.GetWriteBuffer()
+            let mutable toRead = Math.Min(bCount, int64 amt)
+            if (toRead < bCount) then
+                // constrained by dest buffer
+                toRead <- toRead/(int64 align)*(int64 align)
+            let writeAmt = fh.Read(buf.Buffer, pos, int toRead)
+            x.MoveForwardAfterWrite(writeAmt)
+            if (toRead < bCount) then
+                // if constrained by dest buffer then seal so no more data can be written to current buffer
+                x.SealWriteBuffer()
+            bCount <- bCount - int64 writeAmt
+            if (writeAmt <> int toRead) then
+                failwith "Write to memstream from file fails as file is out data"
+
     override x.WriteByte(b : byte) =
         x.WriteOne(b)
 
@@ -1531,6 +1598,8 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
             let readAmt = Math.Min(bCount, int64 amt)
             fh.Write(buf.Buffer, pos, int readAmt)
             x.MoveForwardAfterRead(int readAmt)
+
+    
 
     // read count starting from offset, and don't move position forward
     override x.ReadToStream(s : Stream, offset : int64, count : int64) =

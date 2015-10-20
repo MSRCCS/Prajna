@@ -2613,6 +2613,8 @@ and
                 else
                     Threading.Thread.Sleep(5)
             Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Job %s:%s of task %s is ready to execute" x.Name x.VersionString x.SignatureName ))
+            let bAllPeerConfirmed = bAllPeerConfirmed
+            let numConfirmedStart = numConfirmedStart
             Logger.LogF( x.JobID, LogLevel.WildVerbose, ( fun _ -> sprintf "bAllSynced = %b, bAllPeerConfirmed = %b, numConfirmedStart = %i" bAllSynced bAllPeerConfirmed numConfirmedStart))
             // bAllSynced is always true, so should be bAllPeerConfirmed
             bAllSynced && bAllPeerConfirmed && numConfirmedStart>0

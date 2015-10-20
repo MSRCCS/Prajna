@@ -1656,7 +1656,8 @@ and [<AllowNullLiteral>]
                     let numBlockedThreads = Volatile.Read( x.NumberOfBlockedThreads )
                     let numTasks = Volatile.Read( x.NumberOfTasks )
                     let numWaitedTasks = Volatile.Read(x.NumberOfWaitedTasks)
-                    Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "TryExecute: pool = %s, nThreads = %i, numBlockedThreads = %i, numTasks = %i, numWaitedTasks = %i" x.ThreadPoolName numThreads numBlockedThreads numTasks numWaitedTasks)
+                    let curNumThreads = numThreads
+                    Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "TryExecute: pool = %s, nThreads = %i, numBlockedThreads = %i, numTasks = %i, numWaitedTasks = %i" x.ThreadPoolName curNumThreads numBlockedThreads numTasks numWaitedTasks)
                     if not (numThreads - numBlockedThreads < ThreadPoolWithWaitHandles<'K>.MinActiveThreads && numThreads < numTasks - numWaitedTasks) then
                         exitsLoop <- true
                     else 
@@ -1676,7 +1677,8 @@ and [<AllowNullLiteral>]
                                     Logger.LogF(LogLevel.WildVerbose, fun _ ->  sprintf "ThreadPoolWithWaitHandles:%s, TryExecuteN set HandleDoneExecution" x.ThreadPoolName)
                             else
                                 x.HandleDoneExecution.Reset() |> ignore
-                                Logger.LogF(LogLevel.WildVerbose, fun _ ->  sprintf "ThreadPoolWithWaitHandles:%s, TryExecuteN reset HandleDoneExecution (numThreads = %i)" x.ThreadPoolName numThreads)
+                                let curNumThreads = numThreads
+                                Logger.LogF(LogLevel.WildVerbose, fun _ ->  sprintf "ThreadPoolWithWaitHandles:%s, TryExecuteN reset HandleDoneExecution (numThreads = %i)" x.ThreadPoolName curNumThreads)
                                 let threadID = numThreads - 1
                                 let useAffinityMask = allAffinityMasks.[ threadID % allAffinityMasks.Length ]
                                 let cancelFunc() = 

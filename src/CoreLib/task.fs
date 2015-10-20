@@ -1773,6 +1773,7 @@ and [<AllowNullLiteral; Serializable>]
     /// clientModuleName: the host client's module name
     /// clientStartTimeTicks: the ticks of the host client's start time
     static member StartTaskAsSeperateApp( sigName:string, sigVersion:int64, ip : string, port, jobip, jobport, authParams, clientProcessId, clientModuleName, clientStartTimeTicks) = 
+        DistributedFunctionEnvironment.Init()
         Process.ReportSystemThreadPoolStat()
         let (bRequireAuth, guid, rsaParam, pwd) = authParams
         // Start a client. 

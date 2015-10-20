@@ -1,4 +1,4 @@
-(*---------------------------------------------------------------------------
+﻿(*---------------------------------------------------------------------------
     Copyright 2013 Microsoft
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,16 +30,25 @@
 namespace Prajna.Core
 
 open System
+open System.Threading
 open Prajna.Tools
 open Prajna.Tools.FSharp
+open Prajna.Service
 
 /// Represent Prajna Environment for running Prajna program
 type Environment() =
+    static let nInitialized = ref 0 
 
     /// Initialize Prajna Environment for running Prajna program
-    /// Currently, it's required to be called only if one needs to create a local cluster via Cluster
+    /// Currently, under the following scenario, Environment.Init() should be called explicitly by users:
+    /// 1）Local cluster is used
+    /// 2) Distributed function is used. 
     static member Init () = 
-        Cluster.SetCreateLocalCluster(LocalCluster.Create)
+        /// Avoid using Interlocked.Increment if this has already been initialized. 
+        if !nInitialized = 0 then 
+            if Interlocked.Increment( nInitialized ) = 1 then 
+                Cluster.SetCreateLocalCluster(LocalCluster.Create)
+                DistributedFunctionEnvironment.Init()       
 
     /// Cleanup Prajna Environment for running Prajna program
     static member Cleanup() =

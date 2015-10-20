@@ -52,7 +52,7 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
     member val internal CallOnClose = List<OnPeerClose>() with get
     member val internal CloseCommandQueuePeerCalled = false with get, set
     /// Write DSet Metadata to disk
-    member internal x.SetDSet( jobID, ?inputStream: StreamBase<byte> ) = 
+    member internal x.SetDSet( jobLifeCycleObj:JobLifeCycle, ?inputStream: StreamBase<byte> ) = 
         let ms = 
             match inputStream with 
             | Some ( stream ) -> if Utils.IsNotNull stream then stream else x.SetDSetMSG
@@ -65,7 +65,7 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
             use readStream = new MemStream()
             readStream.AppendNoCopy(ms, 0L, ms.Length)
             readStream.Seek( ms.Position, SeekOrigin.Begin ) |> ignore
-            let dsetOption, errMsg, msSend = DSetPeer.Unpack( readStream, true, x, jobID )
+            let dsetOption, errMsg, msSend = DSetPeer.Unpack( readStream, true, x, jobLifeCycleObj.JobID )
             match errMsg with 
             | ClientBlockingOn.Cluster ->
                 // Cluster Information can't be parsed, Wait for cluster information. 
@@ -76,9 +76,14 @@ type NetworkCommandQueuePeer internal ( socket, onet ) =
                 // Unblocking
                 x.BlockOn <- 0
                 let curDSet = Option.get( dsetOption )
-                let newDSet = DSetPeerFactory.CacheDSetPeer( curDSet )
-                (msSend :> IDisposable).Dispose()
-                newDSet.Setup()
+                try 
+                    let newDSet = DSetPeerFactory.CacheDSetPeer( curDSet )
+                    (msSend :> IDisposable).Dispose()
+                    newDSet.BeginWriteJobOnDaemon(jobLifeCycleObj )
+                    newDSet.Setup()
+                with 
+                | ex -> 
+                    jobLifeCycleObj.DSetExceptionAtDaemon( ex, curDSet.Name, curDSet.Version.Ticks )    
             | _ ->
                 // Error, fail to set DSet
                 let retCmd = ControllerCommand( ControllerVerb.Error, ControllerNoun.Message )

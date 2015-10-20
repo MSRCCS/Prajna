@@ -697,6 +697,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         xgc.StartNetwork()
         // start NetworkCommand sender
         xCSend.StartProcess x.ONet.CmdProcPoolSend xgc.CTS ("CmdSend:"+xgc.ConnKey) (fun k -> "CommandSendPool:" + k)
+        NetworkCommandQueueLifeCycle.OnConnect( x )
         // perform callback - future enumerations will automatically invoke
         x.OnConnect.Trigger()
         // no networking starts unitl initialized set to true
@@ -1861,3 +1862,14 @@ UnprocessedCmD:%d bytes Status:%A"
             base.DisposeResource()
             CleanUp.Current.CleanUpAll()
             GC.SuppressFinalize(x)
+
+
+and /// NetworkCommandQueueLifeCycle contains function that should be called whenever 
+    /// a connection is connected or disconnected. 
+    internal NetworkCommandQueueLifeCycle() =  
+    /// Upon connect, do something for the queue
+        static member val internal RegisterOnConnect = ConcurrentDictionary<string, NetworkCommandQueue->unit>() with get
+        static member OnConnect( queue ) = 
+            for pair in NetworkCommandQueueLifeCycle.RegisterOnConnect do 
+                let func = pair.Value
+                func(queue)

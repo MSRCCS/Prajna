@@ -83,9 +83,14 @@ type DistributedFunctionProvider() =
     /// Private ID of the provider, the service provider should use this ID to register for service 
     member val PrivateID = Guid.Empty with get, set 
 
-
-
-
+/// For built in Prajna functions. 
+type DistributedFunctionBuiltInProvider() = 
+    inherit DistributedFunctionProvider( VersionString = "0.0.0.1", 
+                                         Name = "Prajna.Service", 
+                                         Institution = "MSRCCS", 
+                                         Email = "Prajna@github.com", 
+                                         PublicID = Guid("{66241EF4-9B6C-4511-9D3B-4712856D69D8}"), 
+                                         PrivateID = Guid("{0CCBDDEC-A6A6-423C-9261-622D325DFC69}") ) 
 
 /// DistributedFunctionPerformance provides a performance statistics instance for the underlying operation. 
 /// Whenever a request is queued, a timestamp is registered in the class. We will wait for the 
@@ -521,9 +526,46 @@ type internal SafeConcurrentDictionary =
                 true
         else
             false
+
+/// Representing a single registered distributed function
+type RegisteredDistributedFunction internal ( disposeFunc: bool -> unit, getSchema: unit -> seq<Guid*Guid*Guid*Guid> ) = 
+    /// Get all schemas in the form of a provideID, domainID, schemaInID, schemaOutID tuple of the particular distributed function
+    /// These schemas can be used by a remote App (potentially on different platform) to invoke the distributed function 
+    member x.GetAllSchemas() = 
+        getSchema()
+    /// To be extended
+    interface IDisposable with 
+        member this.Dispose() = 
+            disposeFunc( true )
+            GC.SuppressFinalize( this )
+    override x.Finalize() = 
+        disposeFunc( false )
+
+/// Representing a single registered distributed function
+#if false
+type RegisteredDistributedFunctionOne ( publicID, domainID, schemaInID, schemaOutID ) = 
+    inherit RegisteredDistributedFunction( 
+        ( fun disposing -> if disposing then 
+                              DistributedFunctionStore.Current.Unregister( publicID, domainID, schemaInID, schemaOutID ) ),
+        ( fun _ -> 
+            [| (publicID, domainID, schemaInID, schemaOutID) |] )
+       )
+    /// Get all schemas in the form of a provideID, domainID, schemaInID, schemaOutID tuple of the particular distributed function
+    /// These schemas can be used by a remote App (potentially on different platform) to invoke the distributed function 
+    member x.GetAllSchemas() = 
+        getSchema()
+    /// To be extended
+    interface IDisposable with 
+        member this.Dispose() = 
+            disposeFunc( true )
+            GC.SuppressFinalize( this )
+    override x.Finalize() = 
+        disposeFunc( false )
+#endif
+
         
 /// DistributedFunctionStore provides a central location for handling distributed functions. 
-type DistributedFunctionStore internal () as thisStore = 
+and DistributedFunctionStore internal () as thisStore = 
     do 
         // Clean up registration 
         CleanUp.Current.Register( 700, thisStore, (fun _ -> thisStore.CleanUp(1000)), fun _ -> "DistributedFunctionStore" ) |> ignore 
@@ -583,6 +625,10 @@ type DistributedFunctionStore internal () as thisStore =
         x.ProviderCollection.Item( provider.PrivateID ) <- provider
         x.CurrentProviderID <- provider.PrivateID
         x.PublicProviderID <- provider.PublicID
+    /// force other function to register its own provider
+    member internal x.NullifyProvider( ) =
+        x.CurrentProviderID <- Guid.Empty
+        x.PublicProviderID <- Guid.Empty
     /// Collection of exported distributed functions, indexed by providerID, domainID, schemaIn and schemaOut
     /// This set is used 
     member val internal ExportedCollections = ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,ConcurrentDictionary<Guid,DistributedFunctionHolderRef>>>>() with get
@@ -1375,3 +1421,4 @@ type internal DistributedFunctionServices() =
     member val StatisticsPeriodInSecond = 600 with get, set
     member val internal bTerminate = false with get, set
     member val internal  InitialMessage = null with get, set
+

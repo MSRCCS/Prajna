@@ -90,6 +90,7 @@
     <Compile Include="ClientPeer.fs" />
     <Compile Include="listener.fs" />
     <Compile Include="distributedfunction.fs" />
+    <Compile Include="builtinfunction.fs" />
     <Compile Include="contracts.fs" />
     <Compile Include="servicebase.fs" />
     <Compile Include="task.fs" />

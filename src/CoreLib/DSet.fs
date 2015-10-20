@@ -1091,6 +1091,20 @@ and [<Serializable; AllowNullLiteral>]
     member val private WriteLifeCycleObjRef : JobLifeCycle ref = ref null with get
     // This write ID is reserved only for the cleanup, to make sure that clean up operation can always be executed 
     member val internal WriteIDForCleanUp = Guid.Empty with get, set
+    member internal x.BeginWriteJobOnDaemon( jobLifeCycleObj: JobLifeCycle ) = 
+        let oldObj = Interlocked.CompareExchange( x.WriteLifeCycleObjRef, jobLifeCycleObj, null )
+        if Utils.IsNull oldObj then 
+            // Store Job ID for clean up operation. 
+            x.WriteIDForCleanUp <- jobLifeCycleObj.JobID
+            jobLifeCycleObj.OnDisposeFS( fun _ -> x.WriteIDForCleanUp <- Guid.Empty
+                                                  x.WriteLifeCycleObjRef := null
+                
+                                        )
+        elif Object.ReferenceEquals( oldObj, jobLifeCycleObj) then 
+            ()
+        else
+            failwith ( sprintf "Try to initilialize a new write job %A on DSet %s:%s while an existing job %A is still in process. A DSet can't be simultaneously involved in two jobs that both write to it."
+                                oldObj.JobID x.Name x.VersionString jobLifeCycleObj.JobID )
     member internal x.BeginWriteJob( jobLifeCycleObj: JobLifeCycle ) = 
         let oldObj = Interlocked.CompareExchange( x.WriteLifeCycleObjRef, jobLifeCycleObj, null )
         if Utils.IsNull oldObj then 

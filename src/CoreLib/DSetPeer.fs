@@ -395,9 +395,10 @@ and [<AllowNullLiteral>]
             let file = x.StorageProvider.Choose( x.ConstructDSetPath(), x.MetaDataName() )
             x.SaveToMetaData( file, DSetMetadataStorageFlag.None )
         
-    member x.WriteDSet( ms: StreamBase<byte>, queue:NetworkCommandQueue, bReplicateWrite ) =
+    member x.WriteDSet( jobAction:SingleJobActionDaemon, ms: StreamBase<byte>, queue:NetworkCommandQueue, bReplicateWrite ) =
         let msSend = new MemStream( 1024 )
         let retCmd = ControllerCommand( ControllerVerb.EchoReturn, ControllerNoun.DSet )
+        msSend.WriteGuid( jobAction.JobID )
         msSend.WriteString( x.Name )
         msSend.WriteInt64( x.Version.Ticks )
         try
@@ -513,6 +514,7 @@ and [<AllowNullLiteral>]
                     if bReplicateWrite then 
                         if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
                             use msInfo = new MemStream( 1024 )
+                            msInfo.WriteGuid( jobAction.JobID )
                             msInfo.WriteString( x.Name )
                             msInfo.WriteInt64( x.Version.Ticks )
                             msInfo.WriteVInt32( parti ) 

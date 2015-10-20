@@ -704,6 +704,8 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
                 | None -> Path.Combine( folder, name + ".inf" )
         fname1
 
+        
+
     /// Construct the name to save the cluster info
     member x.ConstructClusterInfoFilename() = 
         ClusterInfo.ConstructClusterInfoFileNameWithVersion( x.Name, x.Version ) 
@@ -976,6 +978,30 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
             ClusterInfo.Read( name ) 
         else
             None, None  
+
+    /// Query available clusters 
+    static member GetClusters( name: string ) = 
+        let folder = ClusterInfo.ClusterInfoFolder()
+        if Directory.Exists folder then 
+            let searchName = if StringTools.IsNullOrEmpty name then "*" else name + "_" + "*"
+            let dic = ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase)
+            for file in Directory.GetFiles( folder, name, SearchOption.TopDirectoryOnly ) do        
+                try 
+                    let clusterInfoOpt, _ = ClusterInfo.Read( file )
+                    match clusterInfoOpt with 
+                    | Some clusterInfo -> 
+                        dic.AddOrUpdate( clusterInfo.Name, clusterInfo.Version, fun name ver -> if ver.Ticks > clusterInfo.Version.Ticks then ver else clusterInfo.Version ) |> ignore 
+                    | None -> 
+                        ()
+                with 
+                | ex -> 
+                    /// It is OK if some of the cluster file can't be parsed
+                    () 
+            dic |> Seq.map( fun pair -> pair.Key, pair.Value ) |> Seq.toArray
+        else
+            Array.empty
+
+
     /// Save the current ClusterInfoBase to file, with default name
     member x.Save() = 
         x.Save( x.ConstructClusterInfoFilename() )
@@ -1298,6 +1324,5 @@ type internal HomeInServer(info, ?serverInfo, ?ipAddress, ?port, ?cport) =
             Logger.Log( LogLevel.MildVerbose, (sprintf "Rcvd %dB from %A..." rcvdBuf.Length socket ))
         with
         | _ -> () 
-
 
 

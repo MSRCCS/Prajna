@@ -433,6 +433,14 @@ type internal JobLifeCycle(jobID:Guid) =
                     Logger.LogF( jobID, LogLevel.Info, fun _ -> sprintf "Exception Info %A=%A" key (ex.Data.Item(key)) )
             Logger.LogF( jobID, LogLevel.Info, fun _ -> sprintf "Exception %d ... %A" !cntRef ex )
             cntRef := !cntRef + 1 
+    /// Exception AT Daemon 
+    member x.DSetExceptionAtDaemon( ex: Exception, dSetName, dSetVersion) = 
+        let ms = new MemStream( 1024 )
+        ms.WriteGuid( jobID )
+        ms.WriteString( dSetName ) 
+        ms.WriteInt64( dSetVersion )
+        ms.WriteException( ex )
+        ControllerCommand( ControllerVerb.Exception, ControllerNoun.DSet ), ms
 
     /// Cancel by Exception 
     member x.CancelByException( ex: Exception ) = 
@@ -440,7 +448,6 @@ type internal JobLifeCycle(jobID:Guid) =
         if Utils.IsNotNull ex then 
             for act in onException do 
                 act.Invoke( ex )
-
             /// First exception will be thrown 
             exCollections.Enqueue( ex )
             Logger.LogF( jobID, LogLevel.Info, fun _ -> sprintf "Exception %d has been received with message %s" (exCollections.Count) ex.Message )

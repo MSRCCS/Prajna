@@ -67,7 +67,7 @@ type TestEnvironment private () =
         sw.Start()
         DeploymentSettings.LocalClusterTraceLevel <- LogLevel.MediumVerbose
         // Sometimes the AppVeyor build VM is really slow on IO and need more time to establish the container
-        DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit <- 120L
+        DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit <- 240L
         let cl =
             if useAppDomainForDaemonsAndContainers then
                 Cluster(sprintf "local[%i]" clusterSize)
@@ -104,7 +104,8 @@ type TestEnvironment private () =
             Prajna.Core.Environment.Cleanup()
             sw.Stop()
             reportProcessStatistics("After environment cleanup")
-            Logger.Log( LogLevel.Info, (sprintf "##### Dispose test environment ..... completed ##### (%i ms)" (sw.ElapsedMilliseconds)))             
+            Logger.Log( LogLevel.Info, (sprintf "##### Dispose test environment ..... completed ##### (%i ms)" (sw.ElapsedMilliseconds)))
+            Thread.Sleep(TimeSpan.FromMinutes(10.0))
             disposed <- true
 
     interface IDisposable with

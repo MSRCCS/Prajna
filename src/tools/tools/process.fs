@@ -1190,7 +1190,7 @@ type internal ThreadPoolWait() =
     static let unregisterTimer = new System.Threading.Timer( TimerCallback( ThreadPoolWait.ToUnregister ), null, 10, 10 )
     /// Register for a waithandle, with a cancellation token. 
     /// The caller needs to check for cancellation within the continuation funcito. 
-    static member WaitForHandleWithCancellation (infoFunc: unit-> string) (handle:WaitHandle) (continuation:unit->unit) (unblockHandle:ManualResetEvent) (token:CancellationToken) =
+    static member WaitForHandleWithCancellation (infoFunc: unit-> string) (handle:WaitHandle) (continuation:unit->unit) (unblockHandle:EventWaitHandle) (token:CancellationToken) =
         if token.IsCancellationRequested then 
             // Continuation should contains further check on cancellation
             continuation() 
@@ -1200,7 +1200,7 @@ type internal ThreadPoolWait() =
         else
             token.Register( fun _ -> ThreadPoolWait.TryWakeup handle |> ignore ) |> ignore 
             ThreadPoolWait.WaitForHandle infoFunc handle continuation unblockHandle
-    static member WaitForHandle (infoFunc: unit-> string) (handle:WaitHandle) (continuation:unit->unit) (unblockHandle:ManualResetEvent) =
+    static member WaitForHandle (infoFunc: unit-> string) (handle:WaitHandle) (continuation:unit->unit) (unblockHandle:EventWaitHandle) =
         if handle.WaitOne(0) then 
             continuation() 
             if Utils.IsNotNull unblockHandle then 
@@ -1214,7 +1214,7 @@ type internal ThreadPoolWait() =
     static member private CallBack( state: Object ) (timeout:bool) = 
         if not timeout then
             try
-                let infoFunc,handle,continuation,unblockHandle,jobObject = state :?> ((unit->string)*WaitHandle*(unit->unit)*ManualResetEvent*Object)
+                let infoFunc,handle,continuation,unblockHandle,jobObject = state :?> ((unit->string)*WaitHandle*(unit->unit)*EventWaitHandle*Object)
                 continuation() 
                 if Utils.IsNotNull unblockHandle  then 
                     // If there is an unblock handle, set it. 
@@ -1565,7 +1565,7 @@ and [<AllowNullLiteral>]
     member val TaskList = ConcurrentDictionary<_,ConcurrentQueue<_>>() with get, set
     member val TaskStatus = ConcurrentDictionary<_,_>() with get, set
     member val HandleDoneExecution = new ManualResetEvent( true ) with get
-    member val HandleWaitForMoreJob = new ManualResetEvent( true ) with get
+    member val HandleWaitForMoreJob = new AutoResetEvent( false ) with get
     member val HandleBlockOnJob = null with get, set
     member val CompletedTasks =  ConcurrentDictionary<_,_>() with get, set
     member val TaskTracking = ConcurrentDictionary<_,int>() with get, set
@@ -1702,13 +1702,11 @@ and [<AllowNullLiteral>]
             let nTasks = ref 0
             let ret = x.AllAffinityTasks.TryGetValue(threadAffinityMask, nTasks)
             if (!taskQueue).IsEmpty && !nTasks > 0 then
-                x.HandleWaitForMoreJob.Reset() |> ignore
-                if (!taskQueue).IsEmpty && !nTasks > 0 then
-                    Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Waiting for more jobs WaitingJobs %s:%d: NumTasks:%d" x.ThreadPoolName threadID !nTasks))
-                    x.HandleWaitForMoreJob.WaitOne() |> ignore
-                    Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Start job execution again %s:%d" x.ThreadPoolName threadID))
-                else
-                    x.HandleWaitForMoreJob.Set() |> ignore
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Waiting for more jobs WaitingJobs %s:%d: NumTasks:%d" x.ThreadPoolName threadID !nTasks))
+                x.HandleWaitForMoreJob.WaitOne() |> ignore
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Start job execution again %s:%d" x.ThreadPoolName threadID))
+            else
+                x.HandleWaitForMoreJob.Set() |> ignore
             if (!nTasks = 0) then
                 Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Done all jobs %s:%d" x.ThreadPoolName threadID))
                 bDoneAllJobs <- true

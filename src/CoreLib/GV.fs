@@ -677,6 +677,8 @@ type internal SingleJobActionGeneric<'T when 'T :> JobLifeCycle and 'T : null >(
         cnt<=0 || !jobLifeCycle.EndJobMark>0 || jobLifeCycle.IsCancellationRequested
     let jobID = if not (isCancellationRequested()) then jobLifeCycle.JobID else Guid.Empty
     let nDisposed = ref 0 
+    member x.NumberOfJobActionsInProcess() = 
+        if Utils.IsNull jobLifeCycle then Int32.MinValue else Volatile.Read( jobLifeCycle.numJobActionsInProcess )
     member x.JobID with get() = jobID
     /// Get Cancelation Token
     member x.CTS with get() = jobLifeCycle.CTS

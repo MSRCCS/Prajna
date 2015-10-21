@@ -378,8 +378,9 @@ type internal DSetAction() =
                 for cluster in x.Job.Clusters do 
                     for peeri = 0 to cluster.NumNodes - 1 do 
                         let queue = cluster.Queue( peeri )
-                        if Utils.IsNotNull queue && queue.CanSend then 
+                        if Utils.IsNotNull queue && queue.CanSend then
                             queue.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.Job), msCloseMsg ) 
+                            Logger.LogF (x.Job.JobID, LogLevel.MildVerbose, fun _ -> sprintf "CloseAndUnregister, send Close,Job to %i" peeri)
             )
             x.EndRegister()
 
@@ -536,21 +537,17 @@ type internal DSetFoldAction<'U, 'State >()=
             if x.Timeout() then 
                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Timeout for DSetFoldAction ............." ))
             x.OrderlyEndAction()
+            Logger.LogF( x.Job.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Fold Job OrderlyEndAction"))
             match (!x.ReturnResultFromPeer) with
             | Some result -> 
                 result
             | None -> 
                 // Return initial state if fails. 
                 s
-//            if returnResultFromPeer.Count > 0 then 
-//                returnResultFromPeer.[0]
-//            else
-//                useDSet.PartitionAnalysis() 
-//                let msg = sprintf "Fold fail in some peers"
-//                Logger.Log(LogLevel.Error, msg)
-//                failwith msg
         else
-            x.CloseAndUnregister()
+            x.EndAction()
+            Logger.LogF( x.Job.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Fold Job EndAction"))
+            // x.CloseAndUnregister()
             let status, msg = x.Job.JobStatus()
             if status then
                 Logger.Log( LogLevel.Info, msg )

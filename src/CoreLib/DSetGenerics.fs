@@ -389,16 +389,15 @@ type DSet<'U> () =
     static member toSeq (x:DSet<'U>) = 
         x.ToSeq()
 
-    /// Fold 
-    /// Warning: serialzing a generic empty object, e.g., List<_>() doesn't seem to work well across machine. It might be better to send a null, and reinitialize the variable 
-    /// at client end
-    member private y.FoldAction (foldFunc: 'GV -> 'U -> 'GV) (aggrFunc: 'GV -> 'GV -> 'GV) = 
+    member private y.FoldAction (folder, aggrFunc, state:'GV, commonStatePerNode : bool) = 
         let x = y.IfSourceIdentity()
-        use action = new DSetFoldAction<'U, 'GV >( CommonStatePerNode = true, Param=x, 
-                                                    FoldFunc=FoldFunction<'U, 'GV >(  foldFunc ), 
-                                                    AggreFunc=AggregateFunction<'GV>( aggrFunc ) )
+        use action = new DSetFoldAction<'U, 'GV >( CommonStatePerNode = commonStatePerNode, 
+                                                   Param=x, 
+                                                   FoldFunc=FoldFunction<'U, 'GV >(  folder ), 
+                                                   AggreFunc=AggregateFunction<'GV>( aggrFunc ) )
         x.Action <- action :> DSetAction
-        action.DoFold
+        action.DoFold (state)
+
 
     /// <summary>
     /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is broadcasted to each node, and is shared
@@ -408,8 +407,8 @@ type DSet<'U> () =
     /// <param name="folder"> 'State -> 'U -> 'State, update the state given the input elements </param>
     /// <param name="aggrFunc"> 'State -> 'State -> 'State, which aggregate the state from different partitions to a single state variable.</param>
     /// <param name="state"> initial state for each partition </param>
-    member internal x.FoldWithCommonStatePerNode (folder, aggrFunc, state:'State) = 
-        x.FoldAction folder aggrFunc state
+    member internal x.FoldWithCommonStatePerNode (folder, aggrFunc, state) = 
+        x.FoldAction (folder, aggrFunc, state, commonStatePerNode = true)
 
     /// <summary>
     /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is deserialized (separately) for each partition. 
@@ -419,13 +418,8 @@ type DSet<'U> () =
     /// <param name="folder"> 'State -> 'U -> 'State, update the state given the input elements </param>
     /// <param name="aggrFunc"> 'State -> 'State -> 'State, which aggregate the state from different partitions to a single state variable.</param>
     /// <param name="state"> initial state for each partition </param>
-    member public y.Fold (foldFunc: 'GV -> 'U -> 'GV, aggrFunc: 'GV -> 'GV -> 'GV, state:'GV) = 
-        let x = y.IfSourceIdentity()
-        use action = new DSetFoldAction<'U, 'GV >(  Param=x, 
-                                                    FoldFunc=FoldFunction<'U, 'GV >(  foldFunc ), 
-                                                    AggreFunc=AggregateFunction<'GV>( aggrFunc ) )
-        x.Action <- action :> DSetAction
-        action.DoFold( state )
+    member public x.Fold (foldFunc: 'GV -> 'U -> 'GV, aggrFunc: 'GV -> 'GV -> 'GV, state:'GV) = 
+        x.FoldAction (foldFunc, aggrFunc, state, commonStatePerNode = false)
 
     /// <summary>
     /// Fold the entire DSet with a fold function, an aggregation function, and an initial state. The initial state is broadcasted to each partition. 

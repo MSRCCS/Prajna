@@ -2554,6 +2554,11 @@ and
                             maxWait := clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
                         elif not jobAction.IsCancelledAndThrow then 
                             Threading.Thread.Sleep(5)
+                    if not bAllSynced && not bFailureToGetSrcMetadata && not jobAction.IsCancelledAndThrow then
+                        // the above loop is exited due to time out
+                        let errorMsg = sprintf "Unable to establish remote containers within %i seconds" (DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit)
+                        Logger.Log( x.JobID, LogLevel.MildVerbose, errorMsg )
+                        raise (TimeoutException(errorMsg))
                 with
                 | :? AggregateException as ex -> 
                     reraise()

@@ -859,13 +859,13 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     member private x.CompBase with get() = compBase
 
     member x.ReleaseAllItems() =
-        isTerminated <- true
-        let spinWait = new SpinWait()
-        let oldCnt = x.ProcCount
-        while (x.InProcessing && oldCnt=x.ProcCount) do
-            // if x.ProcCount has increased, then even if InProcessing, then Process has seen "isTerminated=true" condition
-            spinWait.SpinOnce()
         if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
+            isTerminated <- true
+            let spinWait = new SpinWait()
+            let oldCnt = x.ProcCount
+            while (x.InProcessing && oldCnt=x.ProcCount) do
+                // if x.ProcCount has increased, then even if InProcessing, then Process has seen "isTerminated=true" condition
+                spinWait.SpinOnce()
             let itemDQ : 'T ref = ref Unchecked.defaultof<'T>
             if (Utils.IsNotNull !item) then
                 x.ReleaseItem(item)

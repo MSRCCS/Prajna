@@ -49,6 +49,7 @@ open Prajna.ServiceLib.Tests
 open Prajna.Api.FSharp
 
 [<TestFixture(Description = "Tests for KV Store service")>]
+[<Ignore("This part is undergoing a re-write, ignores for now")>]
 type KVStoreServiceTests () =
     inherit Prajna.Test.Common.Tester()
 

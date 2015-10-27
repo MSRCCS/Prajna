@@ -76,19 +76,19 @@ type ILoggerProvider =
     // The "log level" is to specify the level of the log entry.
 
     /// For the specifed "log id", whether the specified "log level" is enabled
-    abstract member IsEnabled : (string*LogLevel) -> bool
+    abstract member IsEnabled : string*LogLevel -> bool
 
     /// Takes two parameters: log level, log Message
-    abstract member Log : (LogLevel*string) -> unit
+    abstract member Log : LogLevel*string -> unit
 
     /// Takes three parameters: log id, log level, log Message
-    abstract member Log : (string*LogLevel*string) -> unit
+    abstract member Log : string*LogLevel*string -> unit
 
     /// Takes three parameters: JobID, log level, log Message
-    abstract member Log : (Guid*LogLevel*string) -> unit
+    abstract member Log : Guid*LogLevel*string -> unit
 
     /// Takes four parameters: log id, JobID, log level, log Message
-    abstract member Log : (string*Guid*LogLevel*string) -> unit
+    abstract member Log : string*Guid*LogLevel*string -> unit
 
     /// Parse arguments that configs the behavior of the LoggerProvider
     abstract member ParseArgs : string[] -> unit
@@ -306,14 +306,14 @@ type internal DefaultLogger () =
         member this.GetArgsUsage() =
             usage
 
-        member this.IsEnabled((logId : string, logLevel : LogLevel)) =
+        member this.IsEnabled(logId : string, logLevel : LogLevel) =
             // DefaultLogger does not support "log id" yet, returns true at Info level
             logLevel <= LogLevel.Info
 
-        member this.Log ((logLevel : LogLevel, message : string)) =
+        member this.Log (logLevel : LogLevel, message : string) =
             EmitLogEntry(logLevel, message)
 
-        member this.Log ((jobID: Guid, logLevel : LogLevel, message : string)) =
+        member this.Log (jobID: Guid, logLevel : LogLevel, message : string) =
             // DefaultLogger does not support "log id" yet
             if shouldShowTimeForJobID then 
                 let curTicks = DateTime.UtcNow.Ticks 
@@ -323,11 +323,11 @@ type internal DefaultLogger () =
             else
                 EmitLogEntry(logLevel, sprintf "JobID=%A,%s" jobID message)
 
-        member this.Log ((logId : string, logLevel : LogLevel, message : string)) =
+        member this.Log (logId : string, logLevel : LogLevel, message : string) =
             // DefaultLogger does not support "log id" yet
             EmitLogEntry(logLevel, message)
         
-        member this.Log ((logId : string, jobID: Guid, logLevel : LogLevel, message : string)) =
+        member this.Log (logId : string, jobID: Guid, logLevel : LogLevel, message : string) =
             // DefaultLogger does not support "log id" yet
             if shouldShowTimeForJobID then 
                 let curTicks = DateTime.UtcNow.Ticks 
@@ -413,22 +413,22 @@ type Logger internal ()=
     /// Log "message" if logLevel <= Logger.DefaultLogLevel                                                                    
     static member inline Log(logLevel : LogLevel, message : string) =
         if logLevel <= Logger.DefaultLogLevel then
-            Logger.LoggerProvider.Log((logLevel, message))
+            Logger.LoggerProvider.Log(logLevel, message)
 
     /// Log "message" using "logId"                                                              
     static member inline Log(logId : string, logLevel : LogLevel, message : string) =
         if Logger.LoggerProvider.IsEnabled(logId, logLevel) then
-            Logger.LoggerProvider.Log((logId, logLevel, message))
+            Logger.LoggerProvider.Log(logId, logLevel, message)
 
     /// Log "message" using "jobID"                                                              
     static member inline Log(jobID: Guid, logLevel : LogLevel, message : string) =
         if logLevel <= Logger.DefaultLogLevel then
-            Logger.LoggerProvider.Log((jobID, logLevel, message))
+            Logger.LoggerProvider.Log(jobID, logLevel, message)
 
     /// Log "message" using "logId" and jobID
     static member inline Log(logId: string, jobID: Guid, logLevel : LogLevel, message : string) =
         if Logger.LoggerProvider.IsEnabled(logId, logLevel) then
-            Logger.LoggerProvider.Log((logId, jobID, logLevel, message))
+            Logger.LoggerProvider.Log(logId, jobID, logLevel, message)
 
     /// Log stack trace if logLevel <= Logger.DefaultLogLevel
     static member LogStackTrace(logLevel : LogLevel) =

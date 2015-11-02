@@ -145,31 +145,30 @@ type JobListener() =
             x
         else
             null
+
     static member internal EndAccept ar =
         let state = ar.AsyncState
         match state with 
         | :? JobListener as x ->
+            // Post another listening request immediately
+            try
+                x.Listener.BeginAccept(AsyncCallback( JobListener.EndAccept ), x) |> ignore
+            with e ->
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when repost BeginAccept: %A" e ))
             try
                 let soc = x.Listener.EndAccept( ar )
+                // add queue
                 let queue = x.ConnectsClient.AddPeerConnect( soc ) 
                 queue.Initialize()
-                // Post another listening request. 
                 Logger.LogF( LogLevel.MildVerbose, (fun _ -> let ep = soc.RemoteEndPoint 
                                                              let eip = ep :?> IPEndPoint
                                                              sprintf "incoming connection established from socket %A with name %A" ep (LocalDNS.GetHostByAddress( eip.Address.GetAddressBytes(),false)  ) ))
                 x.Activity <- true
-//                x.InListeningState <- false
-            with
-            | e ->
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when try to accept conection: %A" e )    )
-            try
-                let ar = x.Listener.BeginAccept( AsyncCallback( JobListener.EndAccept ), x)
-                ()
-            with
-            | e ->
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when repost BeginAccept: %A" e )                   )
+            with e ->
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when try to accept conection: %A" e ))
         | _ ->
             failwith "Incorrect logic, Listener.EndAccept should always be called with Listener as an object"
+
     member val private m_MonitorBlocking = ConcurrentDictionary<_,DateTime>() with get
 
     member internal x.ProcessPeerJobCommand (queuePeer : NetworkCommandQueuePeer)

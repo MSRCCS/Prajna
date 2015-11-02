@@ -31,7 +31,7 @@
     <DocumentationFile>bin\Debugx64\SortBenchmark.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
     <PlatformTarget>x64</PlatformTarget>
-    <StartArguments>-nfile 16 -nump 50 -nump2 120 -cluster C:\OneNet\Cluster\Cluster_hz_31to35.inf -verbose 4 -log c:\OneNet\SortBenchmark.log -con -dir d:\gensort -sort 1 -records 25000000000</StartArguments>
+    <StartArguments>-con -verbose 4 -log c:\Prajna\Log\sortbenchmark.log</StartArguments>
     <StartWorkingDirectory>
     </StartWorkingDirectory>
   </PropertyGroup>
@@ -45,7 +45,7 @@
     <DocumentationFile>bin\Releasex64\SortBenchmark.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
     <PlatformTarget>x64</PlatformTarget>
-    <StartArguments>-nfile 16 -nump 50 -nump2 120 -cluster C:\OneNet\Cluster\Cluster_hz_31to35.inf -verbose 4 -log c:\OneNet\SortBenchmark.log -con -dir d:\gensort -sort 1 -records 25000000000</StartArguments>
+    <StartArguments>-log c:\prajna\log\a.log -con -verbose 4 -cluster c:\onenet\cluster\onenet01-30.inf</StartArguments>
   </PropertyGroup>
   <Choose>
     <When Condition="'$(VisualStudioVersion)' == '11.0'">
@@ -83,6 +83,11 @@
     <ProjectReference Include="..\..\src\tools\tools\Tools.fsproj">
       <Name>Tools (src\Tools\Tools)</Name>
       <Project>{159bb552-8346-4313-8e10-43b88beca63b}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="qsort\qsort.vcxproj">
+      <Name>qsort</Name>
+      <Project>{e95d819a-b8e3-4f94-b7ee-300e31ab0181}</Project>
       <Private>True</Private>
     </ProjectReference>
   </ItemGroup>

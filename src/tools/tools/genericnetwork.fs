@@ -170,6 +170,10 @@ and [<AllowNullLiteral>] GenericConn() as x =
     let eSendStackWait = new ManualResetEvent(true)
     let eSendFinished = new ManualResetEvent(false)
 
+    let tryAgain = new ManualResetEvent(false)
+    let setTryAgain() =
+        tryAgain.Set() |> ignore
+
     // processing of send without tokens
     let processSendWithoutTokens(sa : RBufPart<byte>) =
         eSendSA <- sa
@@ -178,9 +182,14 @@ and [<AllowNullLiteral>] GenericConn() as x =
         eSendFinished.Reset() |> ignore
         //Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Start send %d bytes" e.Count )
         x.SendCounter <- x.SendCounter + 1L
-        NetUtils.SendOrClose(xConn, GenericConn.FinishSendBuf, e)
-        x.LastSendTicks <- DateTime.UtcNow
-        (true, eSendFinished)
+        let dataSent = NetUtils.SendOrClose(xConn, GenericConn.FinishSendBuf, e)
+        if (dataSent) then
+            x.LastSendTicks <- DateTime.UtcNow
+            (true, eSendFinished)
+        else
+            tryAgain.Reset() |> ignore
+            PoolTimer.AddTimer(setTryAgain, 5L) // try again after 5ms
+            (false, tryAgain)
         // sync send - thread pool anyways
 //        NetUtils.SyncSendOrClose(xConn, e.Buffer, 0, e.Count)
 //        GenericConn.FinishSendBuf(e)
@@ -408,7 +417,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
     member val private CloseSocketDone : int ref = ref -1
     member private x.CloseSocketConnection() =
         if (Interlocked.Increment(x.CloseSocketDone) = 0) then
-            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "SocketClosed Endpoint: %s" connKey))
+            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "SocketClosed Endpoint: %s" connKey))
             bSocketClosed <- true
             if (Utils.IsNotNull xConn.Socket) then
                 xConn.Socket.Close()
@@ -457,10 +466,17 @@ and [<AllowNullLiteral>] GenericConn() as x =
             //Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Request Enqueue" )
             x.Net.BufStackRecvComp.Q.EnqueueSync(box(x.NextReceiveOne)) |> ignore
 
+    member private x.ReceiveAfterSomeTime (e : SocketAsyncEventArgs) () =
+        NetUtils.RecvOrClose(x, GenericConn.FinishRecvBuf, e)
+
     static member internal FinishRecvBuf(e : SocketAsyncEventArgs) =
         let x = e.UserToken :?> GenericConn
-        x.FinishRecvCounter <- x.FinishRecvCounter + 1L
-        x.ContinueReceive(null, false)
+        if (e.BytesTransferred > 0) then
+            x.FinishRecvCounter <- x.FinishRecvCounter + 1L
+            x.ContinueReceive(null, false)
+        else
+            // no data received, call again with same SocketAsyncEventArgs after some time
+            PoolTimer.AddTimer(x.ReceiveAfterSomeTime e, 5L)
 
     /// The function to call to enqueue received SocketAsyncEventArgs
     member val RecvQEnqueue = xRecvC.Q.EnqueueWaitTime with get, set
@@ -482,12 +498,13 @@ and [<AllowNullLiteral>] GenericConn() as x =
 
     member x.ESendSA with get() = eSendSA
     static member internal FinishSendBuf(e : SocketAsyncEventArgs) =
-        let x = e.UserToken :?> GenericConn
-        x.FinishSendCounter <- x.FinishSendCounter + 1L
-        //Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Finish send %d bytes to %s" e.Count x.ConnKey )
-        x.AfterSendCallback(e) // callback prior to release
-        x.ESendSA.Release()
-        x.SendFinished.Set() |> ignore
+        if (e.BytesTransferred > 0) then
+            let x = e.UserToken :?> GenericConn
+            x.FinishSendCounter <- x.FinishSendCounter + 1L
+            //Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Finish send %d bytes to %s" e.Count x.ConnKey )
+            x.AfterSendCallback(e) // callback prior to release
+            x.ESendSA.Release()
+            x.SendFinished.Set() |> ignore
 
     // for connecting with GenericConn ======================
     /// If RecvDequeueGenericConn/x.ProcessRecvGenericConn are being used for component processing

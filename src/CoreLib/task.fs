@@ -1216,7 +1216,8 @@ and [<AllowNullLiteral; Serializable>]
                         // JinL: 05/10/2014, need to find a way to wait for all intermediate task.  
                             if not (!bExistPriorTasks) then 
                                 Component<_>.ExecTP tasks
-                                let bDone = tasks.WaitForAll( -1 )
+                                // wait for pool to terminate
+                                let bDone = Component<_>.ThreadPoolWait tasks
                                 endJob jbInfo
                                 // Release the resource of the execution engine
                                 let tp = ref Unchecked.defaultof<ThreadPoolWithWaitHandles<int>>
@@ -1357,11 +1358,14 @@ and [<AllowNullLiteral; Serializable>]
                 let fastHash = buf.ComputeChecksum(int64 pos, int64 count)
                 let bSuccess,cryptoHash = BlobFactory.receiveWriteBlob( fastHash, lazy buf.ComputeSHA256(int64 pos, int64 count), ms, queue.RemoteEndPointSignature )
                 if bSuccess then 
-                    Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
-                                                                           (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
-                                                                           buf.Length
-                                                                           (BytesToHex(if cryptoHash.IsSome then cryptoHash.Value else fastHash))
-                                                                           pos count  ))
+                    Logger.LogF(DeploymentSettings.TraceLevelBlobIO, (fun _ -> 
+                        sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
+                            (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                            buf.Length
+                            (BytesToHex(if cryptoHash.IsSome then cryptoHash.Value else fastHash))
+                            pos count
+                        )
+                    )
                 else
                     Logger.LogF( LogLevel.Info, fun _ -> sprintf "[may be OK, job cancelled?] Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), but failed to find corresponding job"
                                                                            (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
@@ -1843,6 +1847,7 @@ and [<AllowNullLiteral; Serializable>]
                     msSend.WriteString( sigName )
                     msSend.WriteInt64( sigVersion )
                     queue.ToSend( ControllerCommand( ControllerVerb.Link, ControllerNoun.Program ), msSend ) 
+                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Link program back to daemon")
                     // This becomes the main loop for the job 
                     let mutable bIOActivity = false
                     let mutable lastActive = (PerfDateTime.UtcNow())
@@ -2051,6 +2056,7 @@ and [<AllowNullLiteral; Serializable>]
             for blobi = 0 to x.NumBlobs - 1 do 
                 let avStatus = Microsoft.FSharp.Core.LanguagePrimitives.EnumOfValue<_,_>(x.AvailThis.AvailVector.[blobi])
                 match  avStatus with 
+                | BlobStatus.Duplicate
                 | BlobStatus.AllAvailable ->
                     // Decoded 
                     ()
@@ -2061,6 +2067,11 @@ and [<AllowNullLiteral; Serializable>]
                 | BlobStatus.NoInformation ->
                     /// beginning. 
                     let blob = x.Blobs.[blobi]
+                    let repeatedBlob = 
+                        if (Utils.IsNull blob.Hash) then
+                            false
+                        else
+                            BlobFactory.Current.Collection.ContainsKey(blob.Hash)
                     let stream = 
                         match blob.TypeOf with 
                         | BlobKind.ClusterWithInJobInfo -> 
@@ -2164,13 +2175,15 @@ and [<AllowNullLiteral; Serializable>]
                             x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.NotAvailable
                     | _ ->
                         ()
+                    if (repeatedBlob) then
+                        x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.Duplicate
                 | _ ->
                     ()
                 // For bAllSrcAvailable=false, CalculateDependantDSet will be called at TrySyncMetaData
             // JinL: 05/12/2014, with this, it is possible to clearup some of the logic up to set availability vector. 
             for blobi = 0 to x.NumBlobs - 1 do 
                 let blob = x.Blobs.[blobi]
-                if Utils.IsNotNull blob.Object || blob.IsAllocated then 
+                if Utils.IsNotNull blob.Object || blob.IsAllocated || (x.AvailThis.AvailVector.[blobi] = byte BlobStatus.Duplicate) then 
                     x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.AllAvailable 
                 else
                     x.AvailThis.AvailVector.[blobi] <- byte BlobStatus.NotAvailable
@@ -2202,8 +2215,8 @@ and [<AllowNullLiteral; Serializable>]
                 msFeedback.WriteInt64( x.Version.Ticks )
                 msFeedback.WriteVInt32( blobi ) 
                 msFeedback.WriteBoolean( bSuccess ) 
-                Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Acknowledge the receipt of Blob %A %d from peer %s, this %A" 
-                                                                           blob.TypeOf blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) 
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Acknowledge the receipt of Blob %A:%s %d from peer %s, this %A" 
+                                                                           blob.TypeOf blob.Name blobi (LocalDNS.GetShowInfo(LocalDNS.Int64ToIPEndPoint(epSignature)) ) 
                                                                            x.AvailThis
                                                                            ))
                 queue.ToSend( ControllerCommand( ControllerVerb.Acknowledge, ControllerNoun.Blob ), msFeedback )
@@ -3092,11 +3105,14 @@ and internal TaskQueue() =
             let fastHash = buf.ComputeChecksum(int64 pos, int64 count)
             let bSuccess, cryptoHash = BlobFactory.receiveWriteBlob( fastHash, lazy buf.ComputeSHA256(int64 pos, int64 count), ms, queue.RemoteEndPointSignature )
             if bSuccess then 
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
-                                                                       (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
-                                                                       buf.Length
-                                                                       (BytesToHex(if cryptoHash.IsSome then cryptoHash.Value else fastHash))
-                                                                       pos count  ))
+                Logger.LogF( DeploymentSettings.TraceLevelBlobIO, (fun _ -> 
+                    sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (%d, %dB), successfully parsed"
+                        (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                        buf.Length
+                        (BytesToHex(if cryptoHash.IsSome then cryptoHash.Value else fastHash))
+                        pos count
+                    )
+                )
                 true
             else
                 let errMsg = sprintf "Rcvd Set, Blob from endpoint %s of %dB hash to %s (and %s) (%d, %dB), failed to find corresponding job"
@@ -3424,6 +3440,7 @@ and internal TaskQueue() =
         else
             bExist <- false
         if bExist then 
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "(ConfirmStart, Program) - Program is started")
             ( ControllerCommand( ControllerVerb.ConfirmStart, ControllerNoun.Program ), null )
         else
             let msg1 = sprintf "receive Link, Job but Job with signature %s:%s does not exist........." sigName (sigVersion.ToString("X"))

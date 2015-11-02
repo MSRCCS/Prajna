@@ -62,8 +62,8 @@ type internal BlobStatus =
     | LatestVersion = 5uy     // For SrcDSet, SrcGV only
     | Outdated = 6uy        // For SrcDSet, SrcGV only
     | AllAvailable = 7uy
-    | Error = 8uy
-
+    | Duplicate = 8uy
+    | Error = 9uy
 
 /// The BlobFactory class implements cache that avoid instantiation of multiple Blob class, and save memory. 
 type internal BlobFactory() = 
@@ -314,6 +314,7 @@ type internal BlobAvailability(numBlobs) =
         | BlobStatus.Initial -> "Initial"
         | BlobStatus.LatestVersion -> "LatestV"
         | BlobStatus.Outdated -> "Outdated"
+        | BlobStatus.Duplicate -> "Duplicate"
         | BlobStatus.Error -> "Error"
         | _ -> "Illegal"
     /// Unpack to decode availability information

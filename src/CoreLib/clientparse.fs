@@ -565,11 +565,12 @@ type internal Listener =
                         let mutable bCanStart = true
                         let socket = queue.Socket
                         let ipEndPoint = queue.RemoteEndPoint :?> Net.IPEndPoint
-                        if ipEndPoint.Address=Net.IPAddress.Loopback then 
-                            () // JinL: Loopback is set before Listen operation. 
-                        else
-                            bCanStart <- false
-                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Link, Program is not called to a loop back interface: %A" ipEndPoint.Address ))
+                        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Recv (Link, Program) program from %A" ipEndPoint.Address)
+//                        if ipEndPoint.Address=Net.IPAddress.Loopback then 
+//                            () // JinL: Loopback is set before Listen operation. 
+//                        else
+//                            bCanStart <- false
+//                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Link, Program is not called to a loop back interface: %A" ipEndPoint.Address ))
                         if not bCanStart then 
                             queuePeer.ToSend( ControllerCommand( ControllerVerb.Close, ControllerNoun.Program ), null )    
                         else
@@ -779,6 +780,11 @@ type internal Listener =
         let state = ar.AsyncState
         match state with 
         | :? Listener as x ->
+            // Post another listening request. 
+            try
+                x.Listener.BeginAccept( AsyncCallback( Listener.EndAccept ), x) |> ignore
+            with e ->
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when repost BeginAccept: %A" e ) )
             try
                 let soc = x.Listener.EndAccept( ar )
                 let queue = x.ConnectsClient.AddPeerConnect( soc ) 
@@ -792,19 +798,10 @@ type internal Listener =
                 queue.GetOrAddRecvProc("ParseCommandAtDaemon", procItem ) |> ignore
                 // set queue to initialized
                 queue.Initialize()
-                // Post another listening request. 
                 Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Incoming connection established from socket %A" soc.RemoteEndPoint ))
                 x.Activity <- true
-//                x.InListeningState <- false
-            with
-            | e ->
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when try to accept conection: %A" e )    )
-            try
-                let ar = x.Listener.BeginAccept( AsyncCallback( Listener.EndAccept ), x)
-                ()
-            with
-            | e ->
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when repost BeginAccept: %A" e )                   )
+            with e ->
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when try to accept conection: %A" e ) )
         | _ ->
             failwith "Incorrect logic, Listener.EndAccept should always be called with Listener as an object"
 

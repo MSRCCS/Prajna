@@ -453,8 +453,6 @@ type StreamBaseExtension =
                         GenericSerialization.GetDefaultFormatter( CustomizedSerializationSurrogateSelector(getNew, getNewBuf) )
                     StreamBaseExtension.FormatterSerializeFromTypeName( x, obj, fullname, fmt )
 
-    //static member ArrToReadTo = Array.zeroCreate<byte>(50000)
-
     /// <summary> 
     /// Deserialize a particular object from bytestream, allow use of customizable serializer if installed. 
     /// A Guid is first read from bytestream, if it is a specific reserved NullObjectGuid, return object is null. 

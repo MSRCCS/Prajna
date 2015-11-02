@@ -701,7 +701,8 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
         // perform callback - future enumerations will automatically invoke
         x.OnConnect.Trigger()
         // no networking starts unitl initialized set to true
-        ThreadPoolWaitHandles.safeWaitOne( eInitialized ) |> ignore
+        //ThreadPoolWaitHandles.safeWaitOne( eInitialized ) |> ignore
+        eInitialized.WaitOne() |> ignore
         // start current processing recv pool - provided its needed (at least one processor must be registered)
         if (xCRecv.Processors.Count > 0) then
             // start NetworkCommand receiver processing
@@ -885,17 +886,21 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
 
     member private x.InitConnection(soc : Socket) =
         soc.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true)
-        soc.SendBufferSize <- TCPSendBufSize
-        soc.ReceiveBufferSize <- TCPRcvBufSize
+//        soc.SendBufferSize <- TCPSendBufSize
+//        soc.ReceiveBufferSize <- TCPRcvBufSize
+//        soc.NoDelay <- true
         soc.SendTimeout <- Int32.MaxValue
         soc.ReceiveTimeout <- Int32.MaxValue
-        soc.NoDelay <- true
         remoteEndPoint <- soc.RemoteEndPoint
         localEndPoint <- soc.LocalEndPoint
         remoteEndPointSignature <- LocalDNS.IPEndPointToInt64(soc.RemoteEndPoint :?> IPEndPoint)
         epInfo <- LocalDNS.GetShowInfo(soc.RemoteEndPoint)
         //xgc.SetTokenUse(16384L*8L, (int64 DeploymentSettings.SendTokenBucketSize)*8L, usedMSS, Math.Min(x.SendSpeed, x.RcvdSpeed))
         xgc.InitConnectionAndStart(soc, x.ONet) x.Start
+
+    member val private ConnectTime = new Stopwatch() with get
+    member val private TryConnectCount = 0 with get, set
+    static member val MaxTryConnectCount = 2 with get
 
     /// Begin connection to IP address
     /// <param name="addr">The IPAddress to connect to</param>
@@ -912,33 +917,60 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 soc.Bind(new IPEndPoint(IPAddress.Parse(x.ONet.IpAddr), 0))
             connectionStatus <- ConnectionStatus.BeginConnect
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "BeginConnect to host %s with address %A" (x.MachineName) (addr.ToString()) ))
-            let ar = soc.BeginConnect( addr, port, AsyncCallback(NetworkCommandQueue.EndConnect), (x, soc) )
+            x.ConnectTime.Restart()
+            x.TryConnectCount <- x.TryConnectCount + 1
+            let ar = soc.BeginConnect( addr, port, AsyncCallback(NetworkCommandQueue.EndConnect), (x, soc, addr, port) )
             ()
         with 
         | e ->
             x.MarkFail() 
             if Utils.IsNotNull soc then soc.Dispose()
             Logger.Log( LogLevel.Error, (sprintf "NetworkCommandQueue.BeginConnect failed with exception %A" e ))
-            
-    static member private EndConnect( ar ) =
-        let (x, soc) = ar.AsyncState :?> (NetworkCommandQueue*Socket)
+
+    member x.EndConnect(ar, soc : Socket, addr : IPAddress, port : int) =
         if not x.Shutdown then 
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Connection takes %f seconds" x.ConnectTime.Elapsed.TotalSeconds)
             try
                 soc.EndConnect( ar )
                 x.ConnectionStatusSet <- ConnectionStatus.Connected
                 x.InitConnection(soc)
             with
             | e ->
-                x.MarkFail()
-                (x :> IDisposable).Dispose()
-                soc.Dispose()                
-                Logger.Log( LogLevel.Error, (sprintf "NetworkCommandQueue.BEndConnect failed with exception %A" e ))
+                Logger.LogF(LogLevel.Error, fun _ -> sprintf "Connection tried for %f seconds and failed" x.ConnectTime.Elapsed.TotalSeconds)
+                if (x.TryConnectCount < NetworkCommandQueue.MaxTryConnectCount) then
+                    Logger.LogF(LogLevel.Error, fun _ -> sprintf "Try again %d" x.TryConnectCount)
+                    x.BeginConnect(addr, port)
+                else
+                    Logger.LogF(LogLevel.Error, fun _ -> sprintf "Done trying - give up %d" x.TryConnectCount)
+                    x.MarkFail()
+                    (x :> IDisposable).Dispose()
+                    soc.Dispose()                
+                    Logger.Log( LogLevel.Error, (sprintf "NetworkCommandQueue.BEndConnect to %A failed with exception %A" remoteEndPoint e ))
+            
+    static member private EndConnect( ar ) =
+        let (x, soc, addr, port) = ar.AsyncState :?> (NetworkCommandQueue*Socket*IPAddress*int)
+        x.EndConnect(ar, soc, addr, port)
 
     /// Initialize the NetworkCommandQueue - Only call after AddRecvProc are all done
     member x.Initialize() =
         x.Stopwatch.Start()
         eInitialized.Set() |> ignore
         bInitialized <- true
+
+    member x.StatusInfo() =
+        sprintf "\
+Channel :%A \
+Last ToSent Ticks: %A Last Socket Sent Ticks: %A sendcount: %d finishsendcount: %d \
+Last Socket Recv Start: %A recvcount: %d finishrecvcount: %d \
+sending cmd queue: %d sending queue:%d receiving queue:%d receiving command queue: %d \
+sending queue size:%d recv queue size: %d \
+UnprocessedCmD:%d bytes Status:%A" 
+            (LocalDNS.GetShowInfo(x.RemoteEndPoint)) 
+            x.LastSendTicks x.Conn.LastSendTicks x.Conn.SendCounter x.Conn.FinishSendCounter 
+            x.Conn.LastRecvTicks x.Conn.RecvCounter x.Conn.FinishRecvCounter
+            (x.SendCommandQueueLength) (x.SendQueueLength) (x.ReceivingQueueLength) (x.ReceivingCommandQueueLength) 
+            (x.SendQueueSize) (x.RecvQueueSize) 
+            (x.UnProcessedCmdInBytes) x.ConnectionStatus
 
     member val private CloseDone = ref 0 with get
     /// <summary>
@@ -947,11 +979,12 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     abstract Close : unit -> unit
     default x.Close() =
         if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
-            // Logger.LogStackTrace(LogLevel.MildVerbose)
-            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo))
+            Logger.LogStackTrace(LogLevel.MildVerbose)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, x.StatusInfo)
             MemoryStreamB.DumpStreamsInUse()
             MemoryStreamB.MemStack.DumpInUse(LogLevel.MildVerbose)
             x.ONet.BufStackRecv.DumpInUse(LogLevel.MildVerbose)
@@ -1622,7 +1655,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             Seq.iter2 (fun (q: NetworkCommandQueue) s -> q.SetSendSpeed(s) ) channelLists nSendingRate
         x.AdjustSpeed.ExecOnce(adjustSendSpeeds)
     /// Maximum Number of Channels to monitor 
-    static member val private MaxChannelsToMonitor = 20 with get, set
+    static member val private MaxChannelsToMonitor = 200 with get, set
     /// Channel monitor levels 
     static member val private ChannelMonitorLevel = LogLevel.MildVerbose with get, set
     /// Interval in seconds to monitor channel connectivity (in Ms)
@@ -1662,7 +1695,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             let numInitBufs = Math.Min(DeploymentSettings.InitNetworkSocketAsyncEventArgBuffers, int maxNumStackBufs)
             let bufSize = bufSize // make it unmutable so it can be captured by closure
             let maxNumStackBufs = maxNumStackBufs
-            Logger.LogF(LogLevel.Info, fun _ -> sprintf "Initialize network stack with initial buffers: %d max buffers: %d buffer size: %d" numInitBufs maxNumStackBufs bufSize)
+            Logger.LogF(LogLevel.Info, fun _ -> sprintf "Initialize network stack with initial buffers: %d max buffers: %d buffer size: %d network threads: %d" numInitBufs maxNumStackBufs bufSize DeploymentSettings.NumNetworkThreads)
             x.InitStack(numInitBufs, bufSize, int maxNumStackBufs)
             // for internal queues of SocketAsyncEventArgs in genericnetwork.fs
             // since flow control takes into account NetworkCommand->SocketAsyncEventArgs and reverse conversion

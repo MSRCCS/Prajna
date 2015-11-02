@@ -78,9 +78,6 @@ type ILoggerProvider =
     /// For the specifed "log id", whether the specified "log level" is enabled
     abstract member IsEnabled : string*LogLevel -> bool
 
-    // The maximum log level enabled for a log id
-    abstract member MaxLogLevelEnabled :  string -> LogLevel
-
     /// Takes two parameters: log level, log Message
     abstract member Log : LogLevel*string -> unit
 
@@ -327,10 +324,6 @@ type internal DefaultLogger () =
             // DefaultLogger does not support "log id" yet, returns true at Info level
             logLevel <= defaultLogLevel
 
-        member this.MaxLogLevelEnabled(logId : string) =
-            // DefaultLogger does not support "log id" yet, returns true at Info level
-            defaultLogLevel            
-
         member this.Log (logLevel : LogLevel, message : string) =
             EmitLogEntry(logLevel, message)
 
@@ -351,7 +344,31 @@ type internal DefaultLogger () =
             GC.SuppressFinalize(x)
 
 /// Logger
-type Logger internal ()=    
+type Logger internal ()=
+    // the internal logger
+    static let mutable logger = (new DefaultLogger()) :> ILoggerProvider
+    
+    static let mutable defaultLogIdLogLevel = LogLevel.Info
+
+    static let calculateDefaultLogIdLogLevel () = 
+        // Assume if a more verbose level is enabled, the less verbose levels are also enabled 
+        if logger.IsEnabled(Logger.DefaultLogId, LogLevel.ExtremeVerbose) then
+            LogLevel.ExtremeVerbose
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.WildVerbose) then
+            LogLevel.WildVerbose
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.MediumVerbose) then
+            LogLevel.MediumVerbose
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.MildVerbose) then
+            LogLevel.MildVerbose
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.Info) then
+            LogLevel.Info
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.Warning) then
+            LogLevel.Warning
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.Error) then
+            LogLevel.Error
+        else
+            LogLevel.Fatal
+
     // Note: the type contains APIs that can be shared by both F#/C# APIs
     static let jobTimerCollection = ConcurrentDictionary<Guid,int64>()
 
@@ -361,11 +378,13 @@ type Logger internal ()=
     static member val ShowTimeForJobId = true with get, set
 
     /// The logger provider that is used for logging
-    static member val LoggerProvider : ILoggerProvider =  // Note: DefaultLogger is IDisposable. However, it is assigned to a static member of Logger class
-                                                          // thus it will only be finalized/disposed when the appdomain unloads. It should be OK.
-                                                          let logger = (new DefaultLogger()) :> ILoggerProvider
-                                                          logger 
-                                                          with get, set
+    static member LoggerProvider
+            with get() = logger
+            and set (value) = logger <- value
+                              defaultLogIdLogLevel <- calculateDefaultLogIdLogLevel()
+
+    // Remember the allowed log level for DefaultLogId, so we can have a fast path for checking it in log functions
+    static member DefaultLogIdLogLevel with get() = defaultLogIdLogLevel
 
     /// Parse the arguments that configure the behavior of the logger
     static member ParseArgs(args : string[]) =
@@ -375,15 +394,9 @@ type Logger internal ()=
         let result = Logger.LoggerProvider.GetArgsUsage()
         printfn "%s" result
 
-    static member DefaultLogLevel() =
-        Logger.LoggerProvider.MaxLogLevelEnabled(Logger.DefaultLogId)
-
-    static member DefaultLogLevel(logId) =
-        Logger.LoggerProvider.MaxLogLevelEnabled(logId)
-
     /// Log "message" if logLevel <= Logger.DefaultLogLevel                                                                    
     static member inline Log(logLevel : LogLevel, message : string) =
-        if Logger.LoggerProvider.IsEnabled(Logger.DefaultLogId, logLevel) then
+        if logLevel <= Logger.DefaultLogIdLogLevel then
             Logger.LoggerProvider.Log(logLevel, message)
 
     /// Log "message" using "logId"                                                              
@@ -404,7 +417,7 @@ type Logger internal ()=
 
     /// Log "message" using "jobID"                                                              
     static member inline Log(jobId: Guid, logLevel : LogLevel, message : string) =
-        if Logger.LoggerProvider.IsEnabled(Logger.DefaultLogId, logLevel) then
+        if logLevel <= Logger.DefaultLogIdLogLevel then
             Logger.Log(Logger.DefaultLogId, jobId, logLevel, message)
 
     /// Log stack trace if logLevel <= Logger.DefaultLogLevel

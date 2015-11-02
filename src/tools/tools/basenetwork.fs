@@ -120,23 +120,33 @@ type [<AbstractClass>] NetUtils() =
             let asyncOper = sock.ReceiveAsync(e)
             if (not asyncOper && (0 = e.BytesTransferred)) then
                 (true, asyncOper)
+                //(false, asyncOper)
             else
                 (false, asyncOper)
-        with
-            | :? ObjectDisposedException as ex -> (true, true)
-            | :? SocketException as ex when (e.SocketError = SocketError.ConnectionReset || true) -> (true, true)
+        with ex ->
+            //Logger.LogF(LogLevel.Error, fun _ -> sprintf "Socket %A encounters exception %A error %A" sock.RemoteEndPoint ex e.SocketError)
+            match ex with
+                | :? ObjectDisposedException as ex -> (true, true)
+                | :? SocketException as ex when (e.SocketError = SocketError.ConnectionReset || true) -> (true, true)
+                | _ -> reraise()
+                       (true, true)
 
     static member internal SendAsync(sock : Socket, e : SocketAsyncEventArgs) =
         try
             let asyncOper = sock.SendAsync(e)
             if (not asyncOper && (0 = e.BytesTransferred)) then
                 Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Send %d bytes to %s， asyncOper %A, socketError: %A" e.BytesTransferred (sock.RemoteEndPoint.ToString()) asyncOper e.SocketError))
-                (true, asyncOper)
+                //(true, asyncOper)
+                (false, asyncOper)
             else
                 (false, asyncOper)
-        with
-            | :? ObjectDisposedException as ex -> (true, true)
-            | :? SocketException as ex when (e.SocketError = SocketError.ConnectionReset || true) -> (true, true)
+        with ex ->
+            //Logger.LogF(LogLevel.Error, fun _ -> sprintf "Socket %A encounters exception %A error %A" sock.RemoteEndPoint ex e.SocketError)
+            match ex with
+                | :? ObjectDisposedException as ex -> (true, true)
+                | :? SocketException as ex when (e.SocketError = SocketError.ConnectionReset || true) -> (true, true)
+                | _ -> reraise()
+                       (true, true)
 
     // From https://msdn.microsoft.com/en-us/library/ms145160(v=vs.110).aspx
     // If you are using a connection-oriented protocol, Send will block until all of the bytes in the buffer are sent, unless a time-out was set by using Socket.SendTimeout
@@ -175,8 +185,15 @@ type [<AbstractClass>] NetUtils() =
         let (closed, asyncOper) = NetUtils.SendAsync(conn.Socket, e)
         if (closed) then
             conn.Close()
+            true
         else if (not asyncOper) then
-            fn e
+            if (e.BytesTransferred > 0) then
+                fn e
+                true
+            else
+                false // no data transferred
+        else
+            true
 
     static member internal SyncSendOrClose(conn : IConn, buf : byte[], offset : int, count : int) =
         let (closed, sent) = NetUtils.SendSync(conn.Socket, buf, offset, count)
@@ -234,7 +251,7 @@ type GenericVal<'V>(conn : IConn) as x =
         if (e.Offset + e.BytesTransferred <> sizeof<'V>) then
             let newOffset = e.Offset + e.BytesTransferred
             e.SetBuffer(newOffset, (sizeof<'V>)-newOffset)
-            NetUtils.SendOrClose(xConn, x.AsyncSendValueCb, e)
+            NetUtils.SendOrClose(xConn, x.AsyncSendValueCb, e) |> ignore
         else
             let (callback, state) = e.UserToken :?> (obj->unit)*obj
             callback(state)
@@ -251,7 +268,7 @@ type GenericVal<'V>(conn : IConn) as x =
         let valBuf = Prajna.Tools.Serialize.ConvertFrom<'V>(value)
         Buffer.BlockCopy(valBuf, 0, eSendVal.Buffer, 0, sizeof<'V>)
         eSendVal.SetBuffer(0, sizeof<'V>) // reset
-        NetUtils.SendOrClose(xConn, x.AsyncSendValueCb, eSendVal)
+        NetUtils.SendOrClose(xConn, x.AsyncSendValueCb, eSendVal) |> ignore
 
     interface IDisposable with
         /// Releases all resources used by the current instance.
@@ -345,7 +362,7 @@ type GenericBuf(conn : IConn, maxBufferSize : int) as x =
         if (e.Offset + e.BytesTransferred <> sendBufferSize) then
             let newOffset = e.Offset + e.BytesTransferred
             e.SetBuffer(newOffset, sendBufferSize-newOffset)
-            NetUtils.SendOrClose(xConn, x.AsyncSendBufCb, e)
+            NetUtils.SendOrClose(xConn, x.AsyncSendBufCb, e) |> ignore
         else
             let (callbackO, state) = e.UserToken :?> (Option<obj->unit>)*obj
             match callbackO with
@@ -370,7 +387,7 @@ type GenericBuf(conn : IConn, maxBufferSize : int) as x =
             sendBufferSize <- bufferSize
             eSendBuf.SetBuffer(0, bufferSize)
             Buffer.BlockCopy(buf, bufferOffset, eSendBuf.Buffer, 0, bufferSize)
-            NetUtils.SendOrClose(xConn, x.AsyncSendBufCb, eSendBuf)
+            NetUtils.SendOrClose(xConn, x.AsyncSendBufCb, eSendBuf) |> ignore
         else
             Logger.LogF( LogLevel.Error, (fun _ -> sprintf "Send size %d larger than maximum allowed %d - connection closes" bufferSize eSendBuf.Buffer.Length))
             xConn.Close()            
@@ -413,7 +430,7 @@ type GenericBuf(conn : IConn, maxBufferSize : int) as x =
             let sizeBuf = BitConverter.GetBytes(bufferSize)
             Buffer.BlockCopy(sizeBuf, 0, eSendBuf.Buffer, 0, sizeBuf.Length)
             Buffer.BlockCopy(buf, bufferOffset, eSendBuf.Buffer, sizeBuf.Length, bufferSize)
-            NetUtils.SendOrClose(xConn, x.AsyncSendBufCb, eSendBuf)
+            NetUtils.SendOrClose(xConn, x.AsyncSendBufCb, eSendBuf) |> ignore
         else
             Logger.LogF( LogLevel.Error, (fun _ -> sprintf "Send size %d larger than maximum allowed %d - connection closes" (bufferSize+sizeof<int>) eSendBuf.Buffer.Length))
             xConn.Close()
@@ -778,10 +795,11 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     let bCloseDone = ref -1
     let bTerminateDone = ref -1
     let processors = ConcurrentDictionary<string, ('T->ManualResetEvent)*bool>(StringComparer.Ordinal)
-    let count = ref -1
+    let processorCount = ref -1
     let waitTimeMs = 0
-    let mutable bMultipleInit = false
     let lockObj = Object()
+    let mutable bStartedProcessing = false
+    let [<VolatileField>] mutable bMultipleInit = false
     let [<VolatileField>] mutable isTerminated = false
     let [<VolatileField>] mutable bInProcessing = false
     let [<VolatileField>] mutable procCount = 0
@@ -1032,6 +1050,20 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         let wc = new WaitCallback(wrappedFunc)
         System.Threading.ThreadPool.QueueUserWorkItem(wc, wc) |> ignore
 
+    static member internal ExecTP(threadPool : ThreadPoolWithWaitHandles<'TP>) =
+        // now allow closing of threadpool
+        let (ret, value) = SharedComponentState.SharedState.TryGetValue(threadPool)
+        if (ret) then
+            value.AllowClose <- true
+            if (value.Items.Count = 0) then
+               threadPool.HandleDoneExecution.Set() |> ignore
+        else
+            threadPool.HandleDoneExecution.Set() |> ignore
+
+    static member internal ThreadPoolWait (tp : ThreadPoolWithWaitHandles<'TP>) =
+        tp.WaitForAll( -1 ) // use with EnqueueRepeatableFunction in AddWorkItem
+        //tp.HandleDoneExecution.WaitOne( -1 ) // for other cases
+
     /// Add work item on pool, but don't necessarily start it until ExecTP is called
     /// <param name="threadPool">The thread pool to execute upon</param>
     /// <param name="tpKey">A key to identify the processing component</param>
@@ -1053,20 +1085,10 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                     if (bDone) then
                         threadPool.HandleDoneExecution.Set() |> ignore
                 Some(fnFinish)
-        //Component<'T>.StartOnSystemThreadPool func compBase threadPool
+        //Component<'T>.StartOnSystemThreadPool func finishCb
         threadPool.EnqueueRepeatableFunction func cts tpKey infoFunc
         //Component<'T>.StartProcessOnOwnThread func tpKey finishCb infoFunc
         //Prajna.Tools.ThreadPool.Current.AddWorkItem(func, finishCb, infoFunc(tpKey))
-
-    static member internal ExecTP(threadPool : ThreadPoolWithWaitHandles<'TP>) =
-        // now allow closing of threadpool
-        let (ret, value) = SharedComponentState.SharedState.TryGetValue(threadPool)
-        if (ret) then
-            value.AllowClose <- true
-            if (value.Items.Count = 0) then
-               threadPool.HandleDoneExecution.Set() |> ignore
-        else
-            threadPool.HandleDoneExecution.Set() |> ignore
 
     /// Start component processing on threadpool - internal as ThreadPoolWithWaitHandles is not internal
     /// <param name="threadPool>The thread pool to execute upon</param>
@@ -1077,12 +1099,15 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                   (cts : CancellationToken)
                                   (tpKey : 'TP)
                                   (infoFunc : 'TP -> string) : unit =
-        proc <- Component.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
-        compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        Component<'T>.StartOnSystemThreadPool proc None
-        //Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
-        //Component<'T>.StartProcessOnOwnThread proc tpKey finishCb infoFunc
-        //Prajna.Tools.ThreadPool.Current.AddWorkItem(proc, None, infoFunc(tpKey))
+        lock (lockObj) (fun _ ->
+            proc <- Component.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
+            compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
+            Component<'T>.StartOnSystemThreadPool proc None
+            //Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
+            //Component<'T>.StartProcessOnOwnThread proc tpKey finishCb infoFunc
+            //Prajna.Tools.ThreadPool.Current.AddWorkItem(proc, None, infoFunc(tpKey))
+            bStartedProcessing <- true
+        )
 
     /// Start work item on pool
     /// <param name="threadPool">The thread pool to execute upon</param>
@@ -1134,8 +1159,9 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         // avoid frequent lock with first check
         if (bMultipleInit = false) then
             lock (lockObj) (fun() ->
-                if (bMultipleInit = false) then
-                    x.InitMultipleProcess()                 
+                if (bStartedProcessing && bMultipleInit = false) then
+                    x.InitMultipleProcess()
+                    bMultipleInit <- true
             )
 
     /// Register a processor for the component with name
@@ -1144,26 +1170,31 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// <param name="processItem">A function which does processing, returns event if cannot complete</param>
     member x.RegisterProc(name : string, processItem) =
         x.CheckAndInitMultipleProcess()
+        let cnt = Interlocked.Increment(processorCount)
+        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Registering processor %d : %s to %A" cnt name x)
         processors.[name] <- (processItem, false)
 
-    /// Register a processor for the component - same as RegisterProc, but default name is created and returned
+    /// Get or add a new processor for the component with name
+    /// If this is used, the Proc property does not need to be set
+    /// <param name="name">The name of the processing component - used for unregistering</param>
     /// <param name="processItem">A function which does processing, returns event if cannot complete</param>
-    /// <returns>The internal name of the processor - can use for unregistering</returns>
-    member x.GetOrAddProc(name: string, processItem : 'T->ManualResetEvent) =
-        x.CheckAndInitMultipleProcess() 
-        processors.GetOrAdd( name, fun _ -> if Interlocked.Increment( count ) <> 0 then 
-                                                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Registering processor %d" (!count+1)))
-                                            (processItem, false)
-                                            ) |> ignore
+    member x.GetOrAddProc(name: string, processItem : 'T->ManualResetEvent) : unit =
+        let addFn (name : string) =
+            x.CheckAndInitMultipleProcess()
+            let cnt = Interlocked.Increment(processorCount)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Registering processor %d : %s to %A" cnt name x)
+            (processItem, false)
+        processors.GetOrAdd(name, addFn) |> ignore
 
     /// Register a processor for the component - same as RegisterProc, but default name is created and returned
     /// <param name="processItem">A function which does processing, returns event if cannot complete</param>
     /// <returns>The internal name of the processor - can use for unregistering</returns>
     member x.AddProc(processItem : 'T->ManualResetEvent) =
-        if (!count <> -1) then
-            Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Registering processor %d" (!count+1)))
-        let name = sprintf "Listener:%d:%d" compBase.ComponentId (Interlocked.Increment(count))
-        x.RegisterProc(name, processItem)
+        x.CheckAndInitMultipleProcess()
+        let cnt = Interlocked.Increment(processorCount)
+        let name = sprintf "Listener:%d:%d" compBase.ComponentId cnt
+        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Registering processor %d : %s to %A" cnt name x)
+        processors.[name] <- (processItem, false)
         name
 
     /// Unregister a processor for the component

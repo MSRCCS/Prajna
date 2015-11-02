@@ -222,7 +222,7 @@ type DeploymentSettings() =
     static member val internal DefaultIOMaxQueue = 100 with get, set
     /// ReSerialization For Cache
     static member val internal DefaultIOQueueReadUnblocking = 2 with get, set
-    static member val internal DefaultIOQueueWriteUnblocking = 100 with get, set
+    //static member val internal DefaultIOQueueWriteUnblocking = 100 with get, set
     /// Track seen partitions
     static member val internal TrackSeenKeyValue = false with get, set
     /// Save Initial Metadata?
@@ -263,9 +263,10 @@ type DeploymentSettings() =
     static member val MaxNetworkStackMemoryPercentage = 0.5 with get, set
     /// The buffer size used by SocketAsyncEventArgs
     static member val NetworkSocketAsyncEventArgBufferSize = 128000 with get, set
+    //static member val NetworkSocketAsyncEventArgBufferSize = 256000 with get, set // for sort benchmark
     /// The initial # of buffers in SocketAsyncEventArg stack
     static member val InitNetworkSocketAsyncEventArgBuffers = 128 with get, set
-    //static member val InitNetworkSocketAsyncEventArgBuffers = 8*1024 // for sort benchmark
+    //static member val InitNetworkSocketAsyncEventArgBuffers = 8*1024*8 // for sort benchmark
     /// The size of network command queue for sending
     static member val NetworkCmdSendQSize = 100 with get, set
     /// The size of network command queue for receiving
@@ -276,7 +277,7 @@ type DeploymentSettings() =
     static member val NetworkSARecvQSize = 100 with get, set
     /// The initial # of buffers for shared memory pool used by BufferListStream
     static member val InitBufferListNumBuffers = 128 with get, set
-    //static member val InitBufferListNumBuffers = 8*1024 with get, set // for sort benchmark
+    //static member val InitBufferListNumBuffers = 8*1024*8 with get, set // for sort benchmark
     /// The buffer size of buffers in shared memory pool used by BufferListStream
     static member val BufferListBufferSize = 64000 with get, set
     /// Number of threads for network processing

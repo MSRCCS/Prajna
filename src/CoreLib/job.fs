@@ -751,13 +751,7 @@ and
     /// Number of blobs
     member x.NumBlobs with get() = if Utils.IsNull x.Blobs then 0 else x.Blobs.Length
     /// Version String
-//    member x.VersionString with get() = VersionToString( x.Version )
     member x.VersionString with get() = VersionToString( x.Version )
-    // Metadata Timeout Limit ( in second )
-    // deprecated, please use DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit 
-    // member val RemoteContainerEstablishmentTimeoutLimit = DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit with get, set
-    /// Total length of sending queue that is allowed outstanding. 
-    member val SendingQueueLimit = 1024 * 1024 * 100 with get, set
         
     member x.KeepLive() = 
         lastLive = clock.ElapsedTicks
@@ -2093,6 +2087,13 @@ and
     /// Initialize the avaliablity vector
     member x.InitializeAvailability() = 
         // current peer availability vector 
+        // dump blob mapping
+        Logger.LogF(DeploymentSettings.TraceLevelBlobAvailability, fun _ ->
+            let sb = new System.Text.StringBuilder()
+            for i = 0 to x.NumBlobs-1 do
+                sb.Append(sprintf "%d BlobName: %s BlobType: %A" i x.Blobs.[i].Name x.Blobs.[i].TypeOf) |> ignore
+            sb.ToString()
+        )
         availThis <- BlobAvailability( x.NumBlobs )
         // Initialize availability vector 
         for blobi = 0 to x.NumBlobs - 1 do

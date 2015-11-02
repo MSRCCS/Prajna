@@ -84,12 +84,6 @@ type ILoggerProvider =
     /// Takes three parameters: log id, log level, log Message
     abstract member Log : string*LogLevel*string -> unit
 
-    /// Takes three parameters: JobID, log level, log Message
-    abstract member Log : Guid*LogLevel*string -> unit
-
-    /// Takes four parameters: log id, JobID, log level, log Message
-    abstract member Log : string*Guid*LogLevel*string -> unit
-
     /// Parse arguments that configs the behavior of the LoggerProvider
     abstract member ParseArgs : string[] -> unit
 
@@ -120,12 +114,7 @@ type internal DefaultLogger () =
     let mutable logFile = null 
     let mutable logListener : TextWriterTraceListener = null
     let mutable shouldShowStackTrace = false
-    /// When true, each job will show the elapse time from the first item in the job
-    /// Note this feature will consume a small amount of memory for each job (Guid, int64). 
-    /// The option should be turned off for all services. 
-    let mutable shouldShowTimeForJobID = true
-    /// Services
-    let jobTimerCollection = ConcurrentDictionary<Guid,int64>()
+    let mutable defaultLogLevel = LogLevel.Info
 
     let CreateNewLogFile( ) = 
         let extName = Path.GetExtension( logFileName ) 
@@ -179,6 +168,26 @@ type internal DefaultLogger () =
         if Utils.IsNotNull toRemove then 
             Trace.Listeners.Remove( toRemove )
 
+    let ParseLogLevel (s:string) =
+        match s with
+            | Prefixi "0" _ 
+            | Prefixi "fatal" _ -> LogLevel.Fatal
+            | Prefixi "1" _
+            | Prefixi "err" _ -> LogLevel.Error
+            | Prefixi "2" _
+            | Prefixi "warn" _ -> LogLevel.Warning
+            | Prefixi "3" _
+            | Prefixi "info" _ -> LogLevel.Info
+            | Prefixi "4" _
+            | Prefixi "mild" _ -> LogLevel.MildVerbose
+            | Prefixi "5" _
+            | Prefixi "med" _  -> LogLevel.MediumVerbose
+            | Prefixi "6" _
+            | Prefixi "wild" _ -> LogLevel.WildVerbose
+            | Prefixi "7" _
+            | Prefixi "extreme" _ -> LogLevel.ExtremeVerbose
+            | _ ->   failwith (sprintf "Unsupported log level: %s" s)
+
     /// To parse the configuration for the logger
     /// -log FILENAME : add FILENAME to trace log
     /// -con          : show trace on console (default: console will be attached if no log file is specified )
@@ -213,6 +222,13 @@ type internal DefaultLogger () =
                 | Prefixi "-vstack" _ 
                     -> args.[i] <- String.Empty
                        shouldShowStackTrace <- true
+                | Prefixi "-verbose" _ 
+                    -> args.[i] <- String.Empty
+                       if i+1 < args.Length then 
+                          defaultLogLevel <- ParseLogLevel (args.[i+1])
+                          args.[i + 1] <- String.Empty
+                       else
+                          failwith "Incorrect Arguments"
                 | _ 
                     -> ()
             i <- i+1
@@ -224,6 +240,7 @@ type internal DefaultLogger () =
 
     /// Return usage information for ParseArguments
     let usage = "-log FILENAME : add FILENAME to trace log.\n\
+        -verbose      : set default log level.\n\
         -con          : show trace on console(default: console will be attached if no log file is specified ).\n\
         -nocon        : do not show trace on console.\n\
         -vnoflush     : turn off auto flush.\n\
@@ -296,9 +313,6 @@ type internal DefaultLogger () =
         Trace.WriteLine <| sb.ToString()
         FlushImpl()
 
-    member this.ShowTimeForJobID with get() = shouldShowTimeForJobID
-                                 and set( b ) = shouldShowTimeForJobID <- b
-
     interface ILoggerProvider with
         member this.ParseArgs(args : string[]) =
             ParseArguments(args)
@@ -308,34 +322,14 @@ type internal DefaultLogger () =
 
         member this.IsEnabled(logId : string, logLevel : LogLevel) =
             // DefaultLogger does not support "log id" yet, returns true at Info level
-            logLevel <= LogLevel.Info
+            logLevel <= defaultLogLevel
 
         member this.Log (logLevel : LogLevel, message : string) =
             EmitLogEntry(logLevel, message)
 
-        member this.Log (jobID: Guid, logLevel : LogLevel, message : string) =
-            // DefaultLogger does not support "log id" yet
-            if shouldShowTimeForJobID then 
-                let curTicks = DateTime.UtcNow.Ticks 
-                let firstTicks = jobTimerCollection.GetOrAdd( jobID, curTicks)
-                let elapseInMs = (curTicks-firstTicks)/(TimeSpan.TicksPerMillisecond)
-                EmitLogEntry(logLevel, sprintf "JobID=%A(%dms),%s" jobID elapseInMs message)
-            else
-                EmitLogEntry(logLevel, sprintf "JobID=%A,%s" jobID message)
-
         member this.Log (logId : string, logLevel : LogLevel, message : string) =
             // DefaultLogger does not support "log id" yet
             EmitLogEntry(logLevel, message)
-        
-        member this.Log (logId : string, jobID: Guid, logLevel : LogLevel, message : string) =
-            // DefaultLogger does not support "log id" yet
-            if shouldShowTimeForJobID then 
-                let curTicks = DateTime.UtcNow.Ticks 
-                let firstTicks = jobTimerCollection.GetOrAdd( jobID, curTicks)
-                let elapseInMs = (curTicks-firstTicks)/(TimeSpan.TicksPerMillisecond)
-                EmitLogEntry(logLevel, sprintf "JobID=%A(%dms),%s" jobID elapseInMs message)
-            else
-                EmitLogEntry(logLevel, sprintf "JobID=%A,%s" jobID message)
 
         member this.Flush () = 
             FlushImpl()
@@ -350,69 +344,59 @@ type internal DefaultLogger () =
             GC.SuppressFinalize(x)
 
 /// Logger
-type Logger internal ()=    
+type Logger internal ()=
+    // the internal logger
+    static let mutable logger = (new DefaultLogger()) :> ILoggerProvider
+    
+    static let mutable defaultLogIdLogLevel = LogLevel.Info
+
+    static let calculateDefaultLogIdLogLevel () = 
+        // Assume if a more verbose level is enabled, the less verbose levels are also enabled 
+        if logger.IsEnabled(Logger.DefaultLogId, LogLevel.ExtremeVerbose) then
+            LogLevel.ExtremeVerbose
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.WildVerbose) then
+            LogLevel.WildVerbose
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.MediumVerbose) then
+            LogLevel.MediumVerbose
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.MildVerbose) then
+            LogLevel.MildVerbose
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.Info) then
+            LogLevel.Info
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.Warning) then
+            LogLevel.Warning
+        elif logger.IsEnabled(Logger.DefaultLogId, LogLevel.Error) then
+            LogLevel.Error
+        else
+            LogLevel.Fatal
+
     // Note: the type contains APIs that can be shared by both F#/C# APIs
+    static let jobTimerCollection = ConcurrentDictionary<Guid,int64>()
 
     /// Default log id
     static member val DefaultLogId = "Default" with get
 
+    static member val ShowTimeForJobId = true with get, set
+
     /// The logger provider that is used for logging
-    static member val LoggerProvider : ILoggerProvider =  // Note: DefaultLogger is IDisposable. However, it is assigned to a static member of Logger class
-                                                          // thus it will only be finalized/disposed when the appdomain unloads. It should be OK.
-                                                          let logger = (new DefaultLogger()) :> ILoggerProvider
-                                                          logger 
-                                                          with get, set
+    static member LoggerProvider
+            with get() = logger
+            and set (value) = logger <- value
+                              defaultLogIdLogLevel <- calculateDefaultLogIdLogLevel()
 
-    /// Global default logging level
-    static member val DefaultLogLevel : LogLevel = LogLevel.Info with get, set
-    
-    static member private ParseLogLevel (s:string) =
-        match s with
-            | Prefixi "0" _ 
-            | Prefixi "fatal" _ -> LogLevel.Fatal
-            | Prefixi "1" _
-            | Prefixi "err" _ -> LogLevel.Error
-            | Prefixi "2" _
-            | Prefixi "warn" _ -> LogLevel.Warning
-            | Prefixi "3" _
-            | Prefixi "info" _ -> LogLevel.Info
-            | Prefixi "4" _
-            | Prefixi "mild" _ -> LogLevel.MildVerbose
-            | Prefixi "5" _
-            | Prefixi "med" _  -> LogLevel.MediumVerbose
-            | Prefixi "6" _
-            | Prefixi "wild" _ -> LogLevel.WildVerbose
-            | Prefixi "7" _
-            | Prefixi "extreme" _ -> LogLevel.ExtremeVerbose
-            | _ ->   failwith (sprintf "Unsupported log level: %s" s)
-
-    static member val CommonUsage = "-verbose logLevel  : set default log level.\n"
+    // Remember the allowed log level for DefaultLogId, so we can have a fast path for checking it in log functions
+    static member DefaultLogIdLogLevel with get() = defaultLogIdLogLevel
 
     /// Parse the arguments that configure the behavior of the logger
     static member ParseArgs(args : string[]) =
-        // Parse the generic arguments
-        let mutable i = 0
-        while i < args.Length do
-            match args.[i] with 
-            | Prefixi "-verbose" _ 
-                -> args.[i] <- String.Empty
-                   if i+1 < args.Length then 
-                      Logger.DefaultLogLevel <- Logger.ParseLogLevel (args.[i+1])
-                      args.[i + 1] <- String.Empty
-                   else
-                      failwith "Incorrect Arguments"
-            | _ -> ()
-            i <- i + 1
-        // Parse LoggerProvider's specific arguments
         Logger.LoggerProvider.ParseArgs(args)
 
     static member PrintArgsUsage() =
-        let result = Logger.CommonUsage +  Logger.LoggerProvider.GetArgsUsage()
+        let result = Logger.LoggerProvider.GetArgsUsage()
         printfn "%s" result
 
     /// Log "message" if logLevel <= Logger.DefaultLogLevel                                                                    
     static member inline Log(logLevel : LogLevel, message : string) =
-        if logLevel <= Logger.DefaultLogLevel then
+        if logLevel <= Logger.DefaultLogIdLogLevel then
             Logger.LoggerProvider.Log(logLevel, message)
 
     /// Log "message" using "logId"                                                              
@@ -420,15 +404,21 @@ type Logger internal ()=
         if Logger.LoggerProvider.IsEnabled(logId, logLevel) then
             Logger.LoggerProvider.Log(logId, logLevel, message)
 
-    /// Log "message" using "jobID"                                                              
-    static member inline Log(jobID: Guid, logLevel : LogLevel, message : string) =
-        if logLevel <= Logger.DefaultLogLevel then
-            Logger.LoggerProvider.Log(jobID, logLevel, message)
-
     /// Log "message" using "logId" and jobID
-    static member inline Log(logId: string, jobID: Guid, logLevel : LogLevel, message : string) =
+    static member Log(logId: string, jobId: Guid, logLevel : LogLevel, message : string) =
         if Logger.LoggerProvider.IsEnabled(logId, logLevel) then
-            Logger.LoggerProvider.Log(logId, jobID, logLevel, message)
+            if Logger.ShowTimeForJobId then 
+                let curTicks = DateTime.UtcNow.Ticks 
+                let firstTicks = jobTimerCollection.GetOrAdd( jobId, curTicks)
+                let elapseInMs = (curTicks-firstTicks)/(TimeSpan.TicksPerMillisecond)
+                Logger.Log(logId, logLevel, sprintf "JobID=%A(%dms),%s" jobId elapseInMs message)
+            else
+                Logger.Log(logId, logLevel, sprintf "JobID=%A,%s" jobId message)
+
+    /// Log "message" using "jobID"                                                              
+    static member inline Log(jobId: Guid, logLevel : LogLevel, message : string) =
+        if logLevel <= Logger.DefaultLogIdLogLevel then
+            Logger.Log(Logger.DefaultLogId, jobId, logLevel, message)
 
     /// Log stack trace if logLevel <= Logger.DefaultLogLevel
     static member LogStackTrace(logLevel : LogLevel) =

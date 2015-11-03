@@ -1510,17 +1510,19 @@ and [<AllowNullLiteral>]
 
     // wait for all streams to confirm closing
     member internal x.BaseWaitForCloseAllStreamsViaHandle( waithandles, jbInfo, tstart ) = 
-        if not (Utils.IsNull x.ThreadPool) then 
+        let threadPool = x.ThreadPool
+        if not (Utils.IsNull threadPool) then             
+            let threadPoolName = threadPool.ThreadPoolName
             let closeDownstream() =
-                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Done wait for handle done execution for ThreadPoolWithWaitHandles:%s" x.ThreadPool.ThreadPoolName))
+                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Done wait for handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName))
                 Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s CanCloseDownstreamEvent set" x.ParamType x.Name x.VersionString ))
                 x.CanCloseDownstreamEvent.Set() |> ignore
 
             let contWaitAllJobDone() = 
                 Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s waiting for ThreadPool Jobs" x.ParamType x.Name x.VersionString ))
-                let event = x.ThreadPool.WaitForAllNonBlocking()
-                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Starting wait for handle done execution for ThreadPoolWithWaitHandles:%s" x.ThreadPool.ThreadPoolName))
-                ThreadPoolWait.WaitForHandle (fun _ -> sprintf "Wait For handle done execution for ThreadPoolWithWaitHandles:%s" x.ThreadPool.ThreadPoolName) event closeDownstream null
+                let event = threadPool.WaitForAllNonBlocking()
+                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Starting wait for handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName))
+                ThreadPoolWait.WaitForHandle (fun _ -> sprintf "Wait For handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName) event closeDownstream null
 
             Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s wait for upstream close events & threadpool jobs" x.ParamType x.Name x.VersionString ))
             x.BaseWaitForUpstreamEvents waithandles contWaitAllJobDone

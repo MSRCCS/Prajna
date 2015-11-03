@@ -983,21 +983,26 @@ and [<AllowNullLiteral; Serializable>]
                         )
         )
 
+    member val JobFinishedFlag = ref 0 with get
+
     /// OnJobFinish govern freeing of the resource of the Task object. 
     /// It has been registered when the Task is first established, and will garantee to execute when job is done or cancelled
     member x.OnJobFinish() = 
-        if Utils.IsNotNull x.Blobs then
-            for i=0 to x.NumBlobs-1 do
-                if (Utils.IsNotNull x.Blobs.[i]) then
-                    if (Utils.IsNotNull x.Blobs.[i].Hash) then
-                        BlobFactory.remove x.Blobs.[i].Hash
-                    if (Utils.IsNotNull x.Blobs.[i].Stream) then
-                        (x.Blobs.[i].Stream :> IDisposable).Dispose()
-        if (Utils.IsNotNull x.MetadataStream) then
-            (x.MetadataStream :> IDisposable).Dispose()
-        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
-        Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
-        MemoryStreamB.DumpStreamsInUse()
+        if Interlocked.CompareExchange( x.JobFinishedFlag, 1, 0 ) = 0 then 
+            let blobs = x.Blobs
+            if Utils.IsNotNull blobs then
+                for i=0 to x.NumBlobs-1 do
+                    if (Utils.IsNotNull blobs.[i]) then
+                        if (Utils.IsNotNull blobs.[i].Hash) then
+                            BlobFactory.remove x.Blobs.[i].Hash
+                        if (Utils.IsNotNull blobs.[i].Stream) then
+                            (blobs.[i].Stream :> IDisposable).Dispose()
+            let metadataStream = x.MetadataStream
+            if (Utils.IsNotNull metadataStream) then
+                (metadataStream :> IDisposable).Dispose()
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" Cluster.Connects.BufStackRecv.StackSize Cluster.Connects.BufStackRecv.GetStack.Size)
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "In blob factory: %d" BlobFactory.Current.Collection.Count)
+            MemoryStreamB.DumpStreamsInUse()
 
 /// Read, Job (DSet) 
     member x.DSetReadAsSeparateApp( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) = 
@@ -2463,6 +2468,7 @@ and [<AllowNullLiteral; Serializable>]
     /// Unload all Cluster, DSet, GV, this is particularly important for static reference in DStreamFactory
     member x.UnloadAll() = 
         DStreamFactory.RemoveDStream( x.JobID )
+        x.OnJobFinish()
         x.Blobs <- null
         x.DStreams.Clear()
         x.SrcDSet.Clear()

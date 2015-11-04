@@ -347,7 +347,7 @@ type internal DefaultLogger () =
 type Logger internal ()=
     // the internal logger
     static let mutable logger = (new DefaultLogger()) :> ILoggerProvider
-    
+       
     static let mutable defaultLogIdLogLevel = LogLevel.Info
 
     static let calculateDefaultLogIdLogLevel () = 
@@ -368,7 +368,7 @@ type Logger internal ()=
             LogLevel.Error
         else
             LogLevel.Fatal
-
+    
     // Note: the type contains APIs that can be shared by both F#/C# APIs
     static let jobTimerCollection = ConcurrentDictionary<Guid,int64>()
 
@@ -389,6 +389,7 @@ type Logger internal ()=
     /// Parse the arguments that configure the behavior of the logger
     static member ParseArgs(args : string[]) =
         Logger.LoggerProvider.ParseArgs(args)
+        defaultLogIdLogLevel <- calculateDefaultLogIdLogLevel()
 
     static member PrintArgsUsage() =
         let result = Logger.LoggerProvider.GetArgsUsage()

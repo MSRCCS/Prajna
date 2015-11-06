@@ -163,29 +163,27 @@ type internal HDDStream() =
 
     member private x.ConstructPathNameInternal( pathnames, bCreate ) = 
         let allPathnames = seq { 
-//                            for drive in DriveInfo.GetDrives() do
-//                                if drive.IsReady && drive.DriveType=DriveType.Fixed && drive.Name.Length>1 && Char.ToUpper(drive.Name.Chars(0))<>'C' then  
-                              for drive in DeploymentSettings.GetAllDataDrivesInfo() do
-                                    let nameArray = seq { 
-                                        yield drive.Name
-                                        yield DeploymentSettings.DataFolder
-                                        yield! pathnames }
-                                    let patharr = nameArray |> Seq.toArray
-                                    /// Create Directory along the way if any subdirectory doesn't exist. 
-                                    /// We call StringTools.DirectoryInfoCreateIfNonExist so that the 
-                                    /// directory created is always accessable by everyone.                                     
-                                    if bCreate then 
-                                        let bDirExist = ref true
-                                        for i=1 to patharr.Length-1 do
-                                            let pathname = Path.Combine( patharr.[0..i] )
-                                            let bDirInfo = FileTools.DirectoryInfoCreateIfNotExists( pathname )
-                                            bDirExist := bDirInfo.Exists
-                                        if !bDirExist then 
-                                            yield ( Path.Combine( patharr) , drive.TotalFreeSpace )
-                                    else
-                                        let fullpathname = Path.Combine( patharr)
-                                        if Directory.Exists(fullpathname) then 
-                                            yield ( fullpathname, drive.TotalFreeSpace )
+                             for (name, totalFreeSpace) in DeploymentSettings.GetAllDataDrivesInfo() do
+                                   let nameArray = seq { 
+                                       yield name
+                                       yield DeploymentSettings.DataFolder
+                                       yield! pathnames }
+                                   let patharr = nameArray |> Seq.toArray
+                                   /// Create Directory along the way if any subdirectory doesn't exist. 
+                                   /// We call StringTools.DirectoryInfoCreateIfNonExist so that the 
+                                   /// directory created is always accessable by everyone.
+                                   if bCreate then 
+                                       let bDirExist = ref true
+                                       for i=1 to patharr.Length-1 do
+                                           let pathname = Path.Combine( patharr.[0..i] )
+                                           let bDirInfo = FileTools.DirectoryInfoCreateIfNotExists( pathname )
+                                           bDirExist := bDirInfo.Exists
+                                       if !bDirExist then 
+                                           yield ( Path.Combine( patharr) ,totalFreeSpace )
+                                   else
+                                       let fullpathname = Path.Combine( patharr)
+                                       if Directory.Exists(fullpathname) then 
+                                           yield ( fullpathname, totalFreeSpace )
                         }
         allPathnames |> Seq.toArray
     member val private cachedPathnames = ConcurrentDictionary<_,(string*int64)[]>() with get

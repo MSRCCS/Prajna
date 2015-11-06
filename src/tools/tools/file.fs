@@ -247,6 +247,7 @@ module  FileTools =
             Logger.LogF(LogLevel.MediumVerbose,  fun _ -> sprintf "WriteBytesToFileConcurrentPCompare: verify file '%s'" filename)
             let nVerified = ref 0
             let mutable lastTicksRead = (PerfADateTime.UtcNowTicks())
+            let mutable backOff = 10.
             let maxVerifiedOnce = 1<<<20
             let bufread = Array.zeroCreate<_> maxVerifiedOnce
             /// Try to verify the bytestream being written to the new file 
@@ -263,14 +264,15 @@ module  FileTools =
                             // Can't open for read, may wait
                             let curTicks = (PerfADateTime.UtcNowTicks())
                             let secondsElapse = int (( curTicks - lastTicksRead ) / TimeSpan.TicksPerSecond)
-                            if secondsElapse > 4 + ( len >>> 20 ) then 
+                            if secondsElapse > 5 + ( len >>> 20 ) then 
                                 message := sprintf "WriteBytesToFileConcurrentP: timeout to wait for file %s to be readable (towrite=%dB, wait %d sec), last exception is %A"
                                                         filename len secondsElapse e
                                 nVerified := -1 
                                 bDone <- true
                             else
-                                Threading.Thread.Sleep( 10 )
-                    retFileStream                            
+                                Threading.Thread.Sleep( TimeSpan.FromMilliseconds(backOff) )
+                                backOff <- backOff * 2.
+                    retFileStream
                 let mutable bDoneVerify = (Utils.IsNull fileStream)
                 while not bDoneVerify do 
                     let filelen = int (fileStream.Seek( 0L, SeekOrigin.End ))

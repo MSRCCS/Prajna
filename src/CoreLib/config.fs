@@ -174,10 +174,11 @@ type internal ThreadsInformation() =
     static member ThreadCollectionInfo() = 
         let proc = Process.GetCurrentProcess()
         let threads = proc.Threads
-        let infos = seq {
-            for thread in threads do
-                yield sprintf "%d(%A)" (thread.Id) (thread.ThreadState)
-            }
+        let infos = [|
+                for thread in threads do
+                    if Utils.IsNotNull thread then
+                        yield sprintf "%d(%A)" (thread.Id) (thread.ThreadState)
+            |]
         ( String.concat ", " infos )
 
 type internal MemoryStatus() = 

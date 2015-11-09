@@ -21,9 +21,9 @@ open System.Collections.Generic
 #else
 #load "packages/SourceLink.Fake/tools/Fake.fsx"
 open SourceLink
-#endif
 #r @"packages/LibGit2Sharp/lib/net40/LibGit2Sharp.dll"
 open LibGit2Sharp
+#endif
 
 // --------------------------------------------------------------------------------------
 // START TODO: Provide project-specific details below
@@ -71,25 +71,29 @@ let curDir = __SOURCE_DIRECTORY__
 
 // Try to find out the owner from the remote URL that "origin" points to, if fails, return None
 let getGitOwnerFromOrigin () = 
-    if Repository.IsValid(curDir) then
-        try
-            use repo = new Repository(curDir)
-            let origin = repo.Network.Remotes |> Seq.tryFind (fun r -> r.Name = "origin")
-            match origin with
-            | Some v -> let uri = System.Uri(v.Url)
-                        let isValid = uri.Segments.Length = 3 &&
-                                        let seg2 = uri.Segments.[2]
-                                        String.Compare(seg2, project, StringComparison.InvariantCultureIgnoreCase) = 0 ||
-                                        String.Compare(seg2, project + ".git", StringComparison.InvariantCultureIgnoreCase) = 0
-                        if not isValid then failwith( sprintf "Unexpected segments: %A" uri.Segments)
-                        let owner = uri.Segments.[1].TrimEnd([| '/' |])
-                        owner |> Some
-            | None -> None
-        with
-        | e ->  trace(sprintf "Fail to get the owner from origin: %s" e.Message)
-                None
-    else
-        None
+#if MONO
+    None
+#else
+    try
+      if Repository.IsValid(curDir) then
+              use repo = new Repository(curDir)
+              let origin = repo.Network.Remotes |> Seq.tryFind (fun r -> r.Name = "origin")
+              match origin with
+              | Some v -> let uri = System.Uri(v.Url)
+                          let isValid = uri.Segments.Length = 3 &&
+                                          let seg2 = uri.Segments.[2]
+                                          String.Compare(seg2, project, StringComparison.InvariantCultureIgnoreCase) = 0 ||
+                                          String.Compare(seg2, project + ".git", StringComparison.InvariantCultureIgnoreCase) = 0
+                          if not isValid then failwith( sprintf "Unexpected segments: %A" uri.Segments)
+                          let owner = uri.Segments.[1].TrimEnd([| '/' |])
+                          owner |> Some
+              | None -> None
+      else
+          None
+    with
+    | e ->  trace(sprintf "Fail to get the owner from origin: %s" e.Message)
+            None
+#endif
 
 // Git configuration (used for publishing documentation in gh-pages branch)
 // The profile where the project is posted

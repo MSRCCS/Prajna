@@ -52,14 +52,17 @@ type internal DetailedConfig() =
     static do Logger.Log( LogLevel.MildVerbose, "start to get detailed config information" )
     static let storageSpace = 
         let totalFreeSpace = ref 0L
-        let list = [ for drive in DriveInfo.GetDrives() do
-                        if drive.IsReady then 
-                            let name = drive.Name
-                            let freeSpace = drive.AvailableFreeSpace
-                            totalFreeSpace := !totalFreeSpace + freeSpace
-                            yield (name, freeSpace)
-                   ]
-        (  totalFreeSpace, list )
+        try
+            let list = [ for drive in DriveInfo.GetDrives() do
+                            if drive.IsReady then 
+                                let name = drive.Name
+                                let freeSpace = drive.AvailableFreeSpace
+                                totalFreeSpace := !totalFreeSpace + freeSpace
+                                yield (name, freeSpace)
+                       ]
+            (  totalFreeSpace, list )
+        with
+            |_ -> ( totalFreeSpace, [])
 
     static let memSpace = 
         if not DeploymentSettings.RunningOnMono then
@@ -81,14 +84,17 @@ type internal DetailedConfig() =
 
     static let storageCapacity = 
         let totalCapacity = ref 0L
-        let list = [ for drive in DriveInfo.GetDrives() do
-                        if drive.IsReady then 
-                            let name = drive.Name
-                            let capacity = drive.TotalSize
-                            totalCapacity := !totalCapacity + capacity
-                            yield (name, capacity)
-                   ]
-        (  totalCapacity, list )
+        try
+            let list = [ for drive in DriveInfo.GetDrives() do
+                            if drive.IsReady then 
+                                let name = drive.Name
+                                let capacity = drive.TotalSize
+                                totalCapacity := !totalCapacity + capacity
+                                yield (name, capacity)
+                       ]
+            (  totalCapacity, list )
+        with
+            |_ -> ( totalCapacity, [])
 
     static let sMAC = 
         let list = [ for nic in Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces() do

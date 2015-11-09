@@ -104,11 +104,19 @@ type DeploymentSettings() =
     static member val internal ExcludedDrives = ConcurrentDictionary<_,_>( excludedDrivesForDataStorage, StringComparer.OrdinalIgnoreCase ) with get
     static member private GetAllDataDrivesInfoImpl() = 
         let drivesInfo = DriveInfo.GetDrives() 
-        drivesInfo |> Seq.filter ( fun dInfo -> dInfo.IsReady && dInfo.DriveType=DriveType.Fixed ) 
-                   |> Seq.filter( fun dInfo -> not (DeploymentSettings.ExcludedDrives.ContainsKey( dInfo.Name )) )
+        if DeploymentSettings.RunningOnMono then 
+            // Note: Environment.SpecialFolder.UserProfile is not necessarily be on the same drive mounted with "/"
+            //       .Net API seems unable to get such information, and will need to use something in Mono.Unix namespace in the future
+            //       to make it right.
+            let drive = drivesInfo |> Seq.find(fun dInfo -> dInfo.Name = "/")
+            seq { yield ((Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)), drive.TotalFreeSpace) }
+        else            
+            drivesInfo |> Seq.filter ( fun dInfo -> dInfo.IsReady && dInfo.DriveType=DriveType.Fixed ) 
+                       |> Seq.filter( fun dInfo -> not (DeploymentSettings.ExcludedDrives.ContainsKey( dInfo.Name )) )
+                       |> Seq.map (fun dInfo -> (dInfo.Name, dInfo.TotalFreeSpace))
     static member val GetAllDataDrivesInfo = DeploymentSettings.GetAllDataDrivesInfoImpl with get, set
     static member private  GetAllDrivesImpl() = 
-        DeploymentSettings.GetAllDataDrivesInfoImpl() |> Seq.map( fun dInfo -> dInfo.Name )
+        DeploymentSettings.GetAllDataDrivesInfoImpl() |> Seq.map( fun dInfo -> dInfo |> fst )
     /// Is data drive 
     static member private IsDataDriveImpl(driveName:string) = 
         if driveName.EndsWith( """:\""", StringComparison.Ordinal) then 

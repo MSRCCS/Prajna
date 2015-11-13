@@ -243,14 +243,6 @@ during a data analytical jobs. They shoould not be used by programmer.</p>
         </tr>
         <tr>
           <td class="type-name">
-            <a href="prajna-core-jobinformation.html">JobInformation</a>
-          </td>
-          <td class="xmldoc"><p>Internal data structure to pass data analytical job related information 
-Class exposed because of being used in an Abstract function</p>
-</td>
-        </tr>
-        <tr>
-          <td class="type-name">
             <a href="prajna-core-joblistener.html">JobListener</a>
           </td>
           <td class="xmldoc"></td>
@@ -393,6 +385,50 @@ run and hold cached data.</p>
         </tr>
         <tr>
           <td class="type-name">
+            <a href="prajna-service-defaultserializerfordistributedfunction.html">DefaultSerializerForDistributedFunction</a>
+          </td>
+          <td class="xmldoc"><p>Govern the behavior of the default serialization to be used</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-distributedfunctionbuiltinprovider.html">DistributedFunctionBuiltInProvider</a>
+          </td>
+          <td class="xmldoc"><p>For built in Prajna functions.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-distributedfunctionprovider.html">DistributedFunctionProvider</a>
+          </td>
+          <td class="xmldoc"><p>Infromation of distributed Function Provider 
+To use distributed function,</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-distributedfunctionstore.html">DistributedFunctionStore</a>
+          </td>
+          <td class="xmldoc"><p>Representing a single registered distributed function
+DistributedFunctionStore provides a central location for handling distributed functions.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-distributedfunctionstoreasync.html">DistributedFunctionStoreAsync</a>
+          </td>
+          <td class="xmldoc"><p>Distributed function store with Async interface.</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-registereddistributedfunction.html">RegisteredDistributedFunction</a>
+          </td>
+          <td class="xmldoc"><p>Representing a single registered distributed function</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
             <a href="prajna-service-workerroleentrypointunit.html">WorkerRoleEntryPointUnit</a>
           </td>
           <td class="xmldoc"><p>WorkerRoleEntryPoint can be extended to run a Prajna worker service. The worker service will extend the class WorkerRoleEntryPoint with the following functions:
@@ -458,6 +494,14 @@ This class is a local manifestation of ContractServersInfo that is to be used.</
         </tr>
         <tr>
           <td class="type-name">
+            <a href="prajna-service-csharp-distributedfunctionprovider.html">DistributedFunctionProvider</a>
+          </td>
+          <td class="xmldoc"><p>Infromation of distributed Function Provider 
+To use distributed function,</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
             <a href="prajna-service-csharp-remoteinstance.html">RemoteInstance</a>
           </td>
           <td class="xmldoc"><p>Launching a PrajnaInstance on a group of remote nodes.
@@ -515,6 +559,21 @@ This class is a local manifestation of ContractServersInfo that is to be used.</
             <a href="prajna-service-fsharp-contractstore.html">ContractStore</a>
           </td>
           <td class="xmldoc"><p>ContractStore provides a central location for export/import contract</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-defaultserializerfordistributedfunction.html">DefaultSerializerForDistributedFunction</a>
+          </td>
+          <td class="xmldoc"><p>Govern the behavior of the default serialization to be used</p>
+</td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-service-fsharp-distributedfunctionprovider.html">DistributedFunctionProvider</a>
+          </td>
+          <td class="xmldoc"><p>Infromation of distributed Function Provider 
+To use distributed function</p>
 </td>
         </tr>
         <tr>
@@ -603,7 +662,7 @@ will be serialized and send over the network to be executed on Prajna platform. 
         </tr>
         <tr>
           <td class="type-name">
-            <a href="prajna-tools-binaryserializer.html">BinarySerializer</a>
+            <a href="prajna-tools-bufferliststream-1.html">BufferListStream<'T></a>
           </td>
           <td class="xmldoc"></td>
         </tr>
@@ -677,6 +736,12 @@ The current implementation of expandableBuffer is not threadsafe, and should not
         </tr>
         <tr>
           <td class="type-name">
+            <a href="prajna-tools-memorystreamb.html">MemoryStreamB</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
             <a href="prajna-tools-rbufpart-1.html">RBufPart<'T></a>
           </td>
           <td class="xmldoc"></td>
@@ -698,9 +763,22 @@ resultant random number is different based on different salt value.</p>
         </tr>
         <tr>
           <td class="type-name">
+            <a href="prajna-tools-refcntlist-2.html">RefCntList<'T, 'TBase></a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
             <a href="prajna-tools-refcountbase.html">RefCountBase</a>
           </td>
           <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="type-name">
+            <a href="prajna-tools-referencecomparer-1.html">ReferenceComparer<'T></a>
+          </td>
+          <td class="xmldoc"><p>Construct a comparer that uses Object.ReferenceEquals to compare object.</p>
+</td>
         </tr>
         <tr>
           <td class="type-name">
@@ -794,6 +872,12 @@ For performance reason, it is important to only put light function in this loop.
         <tr>
           <td class="module-name">
             <a href="prajna-tools-genericserialization.html">GenericSerialization</a>
+          </td>
+          <td class="xmldoc"></td>
+        </tr>
+        <tr>
+          <td class="module-name">
+            <a href="prajna-tools-hash.html">Hash</a>
           </td>
           <td class="xmldoc"></td>
         </tr>

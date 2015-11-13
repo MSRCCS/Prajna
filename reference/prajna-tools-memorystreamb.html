@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>MemoryStreamB - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="https://github.com/MSRCCS/Prajna">Prajna</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+
+
+<h1>MemoryStreamB</h1>
+<div class="xmldoc">
+</div>
+  <h3>Constructors</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Constructor</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1113', 1113)" onmouseover="showTip(event, '1113', 1113)">
+            new(ms, offset)
+          </code>
+          <div class="tip" id="1113">
+            <strong>Signature:</strong> (ms:MemoryStreamB * offset:int64) -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1487-1487" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1114', 1114)" onmouseover="showTip(event, '1114', 1114)">
+            new(ms)
+          </code>
+          <div class="tip" id="1114">
+            <strong>Signature:</strong> ms:MemoryStreamB -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1484-1484" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1115', 1115)" onmouseover="showTip(event, '1115', 1115)">
+            new(ms, position, count)
+          </code>
+          <div class="tip" id="1115">
+            <strong>Signature:</strong> (ms:MemoryStreamB * position:int64 * count:int64) -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1479-1479" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1116', 1116)" onmouseover="showTip(event, '1116', 1116)">
+            new(buf, index, count, b1, b2)
+          </code>
+          <div class="tip" id="1116">
+            <strong>Signature:</strong> (buf:byte [] * index:int * count:int * b1:bool * b2:bool) -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1473-1473" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1117', 1117)" onmouseover="showTip(event, '1117', 1117)">
+            new(buf, index, count, b)
+          </code>
+          <div class="tip" id="1117">
+            <strong>Signature:</strong> (buf:byte [] * index:int * count:int * b:bool) -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1470-1470" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1118', 1118)" onmouseover="showTip(event, '1118', 1118)">
+            new(buf, b)
+          </code>
+          <div class="tip" id="1118">
+            <strong>Signature:</strong> (buf:byte [] * b:bool) -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1465-1465" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1119', 1119)" onmouseover="showTip(event, '1119', 1119)">
+            new(buf)
+          </code>
+          <div class="tip" id="1119">
+            <strong>Signature:</strong> (buf:byte []) -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1462-1462" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1120', 1120)" onmouseover="showTip(event, '1120', 1120)">
+            new(buf, index, count)
+          </code>
+          <div class="tip" id="1120">
+            <strong>Signature:</strong> (buf:byte [] * index:int * count:int) -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1456-1456" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1121', 1121)" onmouseover="showTip(event, '1121', 1121)">
+            new()
+          </code>
+          <div class="tip" id="1121">
+            <strong>Signature:</strong> unit -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1451-1451" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1122', 1122)" onmouseover="showTip(event, '1122', 1122)">
+            new(size)
+          </code>
+          <div class="tip" id="1122">
+            <strong>Signature:</strong> size:int -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1444-1444" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1123', 1123)" onmouseover="showTip(event, '1123', 1123)">
+            new(defaultBufSize, toAvoidConfusion)
+          </code>
+          <div class="tip" id="1123">
+            <strong>Signature:</strong> (defaultBufSize:int * toAvoidConfusion:byte) -&gt; MemoryStreamB<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1439-1439" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Instance members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Instance member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1124', 1124)" onmouseover="showTip(event, '1124', 1124)">
+            ReadArr(len)
+          </code>
+          <div class="tip" id="1124">
+            <strong>Signature:</strong> len:int -&gt; &#39;T []<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1643-1643" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1125', 1125)" onmouseover="showTip(event, '1125', 1125)">
+            ReadArrWLen()
+          </code>
+          <div class="tip" id="1125">
+            <strong>Signature:</strong> unit -&gt; &#39;T []<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1638-1638" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1126', 1126)" onmouseover="showTip(event, '1126', 1126)">
+            ReadDouble()
+          </code>
+          <div class="tip" id="1126">
+            <strong>Signature:</strong> unit -&gt; float<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1635-1635" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1127', 1127)" onmouseover="showTip(event, '1127', 1127)">
+            ReadInt16()
+          </code>
+          <div class="tip" id="1127">
+            <strong>Signature:</strong> unit -&gt; int16<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1612-1612" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1128', 1128)" onmouseover="showTip(event, '1128', 1128)">
+            ReadInt32()
+          </code>
+          <div class="tip" id="1128">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1615-1615" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1129', 1129)" onmouseover="showTip(event, '1129', 1129)">
+            ReadInt64()
+          </code>
+          <div class="tip" id="1129">
+            <strong>Signature:</strong> unit -&gt; int64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1618-1618" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1130', 1130)" onmouseover="showTip(event, '1130', 1130)">
+            ReadSByte()
+          </code>
+          <div class="tip" id="1130">
+            <strong>Signature:</strong> unit -&gt; sbyte<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1610-1610" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1131', 1131)" onmouseover="showTip(event, '1131', 1131)">
+            ReadSingle()
+          </code>
+          <div class="tip" id="1131">
+            <strong>Signature:</strong> unit -&gt; float32<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1632-1632" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1132', 1132)" onmouseover="showTip(event, '1132', 1132)">
+            ReadToStream(fh, count)
+          </code>
+          <div class="tip" id="1132">
+            <strong>Signature:</strong> (fh:Stream * count:int64) -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1594-1594" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1133', 1133)" onmouseover="showTip(event, '1133', 1133)">
+            ReadUByte()
+          </code>
+          <div class="tip" id="1133">
+            <strong>Signature:</strong> unit -&gt; byte<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1621-1621" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1134', 1134)" onmouseover="showTip(event, '1134', 1134)">
+            ReadUInt16()
+          </code>
+          <div class="tip" id="1134">
+            <strong>Signature:</strong> unit -&gt; uint16<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1623-1623" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1135', 1135)" onmouseover="showTip(event, '1135', 1135)">
+            ReadUInt32()
+          </code>
+          <div class="tip" id="1135">
+            <strong>Signature:</strong> unit -&gt; uint32<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1626-1626" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1136', 1136)" onmouseover="showTip(event, '1136', 1136)">
+            ReadUInt64()
+          </code>
+          <div class="tip" id="1136">
+            <strong>Signature:</strong> unit -&gt; uint64<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1629-1629" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1137', 1137)" onmouseover="showTip(event, '1137', 1137)">
+            WriteArrWLen(v)
+          </code>
+          <div class="tip" id="1137">
+            <strong>Signature:</strong> (v:&#39;T []) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1570-1570" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1138', 1138)" onmouseover="showTip(event, '1138', 1138)">
+            WriteDouble(v)
+          </code>
+          <div class="tip" id="1138">
+            <strong>Signature:</strong> v:Double -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1568-1568" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1139', 1139)" onmouseover="showTip(event, '1139', 1139)">
+            WriteFromStreamAlign(fh, count, align)
+          </code>
+          <div class="tip" id="1139">
+            <strong>Signature:</strong> (fh:Stream * count:int64 * align:int) -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1526-1526" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1140', 1140)" onmouseover="showTip(event, '1140', 1140)">
+            WriteInt16(v)
+          </code>
+          <div class="tip" id="1140">
+            <strong>Signature:</strong> v:int16 -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1552-1552" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1141', 1141)" onmouseover="showTip(event, '1141', 1141)">
+            WriteInt32(v)
+          </code>
+          <div class="tip" id="1141">
+            <strong>Signature:</strong> v:int32 -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1554-1554" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1142', 1142)" onmouseover="showTip(event, '1142', 1142)">
+            WriteInt64(v)
+          </code>
+          <div class="tip" id="1142">
+            <strong>Signature:</strong> v:int64 -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1556-1556" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1143', 1143)" onmouseover="showTip(event, '1143', 1143)">
+            WriteSByte(v)
+          </code>
+          <div class="tip" id="1143">
+            <strong>Signature:</strong> v:SByte -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1550-1550" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1144', 1144)" onmouseover="showTip(event, '1144', 1144)">
+            WriteSingle(v)
+          </code>
+          <div class="tip" id="1144">
+            <strong>Signature:</strong> v:Single -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1566-1566" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1145', 1145)" onmouseover="showTip(event, '1145', 1145)">
+            WriteUByte(v)
+          </code>
+          <div class="tip" id="1145">
+            <strong>Signature:</strong> v:byte -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1558-1558" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1146', 1146)" onmouseover="showTip(event, '1146', 1146)">
+            WriteUInt16(v)
+          </code>
+          <div class="tip" id="1146">
+            <strong>Signature:</strong> v:uint16 -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1560-1560" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1147', 1147)" onmouseover="showTip(event, '1147', 1147)">
+            WriteUInt32(v)
+          </code>
+          <div class="tip" id="1147">
+            <strong>Signature:</strong> v:uint32 -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1562-1562" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '1148', 1148)" onmouseover="showTip(event, '1148', 1148)">
+            WriteUInt64(v)
+          </code>
+          <div class="tip" id="1148">
+            <strong>Signature:</strong> v:uint64 -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/bufferliststream.fs#L1564-1564" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="Prajna" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <!--<li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>-->
+            <li><a href="https://github.com/MSRCCS/Prajna/wiki/Use-Prajna">For Users</a></li>
+            <li><a href="https://github.com/MSRCCS/Prajna/wiki/Contribute">For Contributors</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/paper/Prajna_v1.pdf">Prajna Paper</a></li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+            <li><a href="https://github.com/MSRCCS/Prajna/wiki">Wiki</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

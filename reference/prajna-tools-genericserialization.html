@@ -54,11 +54,11 @@
             AddFormatter (guid, fmt)
           </code>
           <div class="tip" id="19">
-            <strong>Signature:</strong> (guid:Guid * fmt:(unit -&gt; IFormatter)) -&gt; unit -&gt; IFormatter<br />
+            <strong>Signature:</strong> (guid:Guid * fmt:(ISurrogateSelector -&gt; IFormatter)) -&gt; ISurrogateSelector -&gt; IFormatter<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L317-317" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L88-88" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
@@ -76,7 +76,7 @@
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L294-294" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L68-68" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
@@ -95,7 +95,7 @@
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L299-299" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L73-73" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
@@ -106,14 +106,14 @@
         <td class="member-name">
 
           <code onmouseout="hideTip(event, '22', 22)" onmouseover="showTip(event, '22', 22)">
-            GetDefaultFormatter ()
+            GetDefaultFormatter surrogateSelector
           </code>
           <div class="tip" id="22">
-            <strong>Signature:</strong> unit -&gt; IFormatter<br />
+            <strong>Signature:</strong> surrogateSelector:ISurrogateSelector -&gt; IFormatter<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L320-320" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L91-91" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
@@ -124,14 +124,14 @@
         <td class="member-name">
 
           <code onmouseout="hideTip(event, '23', 23)" onmouseover="showTip(event, '23', 23)">
-            GetFormatter guid
+            GetFormatter (guid, surrogateSelector)
           </code>
           <div class="tip" id="23">
-            <strong>Signature:</strong> guid:Guid -&gt; IFormatter<br />
+            <strong>Signature:</strong> (guid:Guid * surrogateSelector:ISurrogateSelector) -&gt; IFormatter<br />
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L315-315" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L86-86" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>
@@ -149,7 +149,7 @@
                       </div>
         </td>
         <td class="xmldoc">
-            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L297-297" class="github-link">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/tools/tools/customserialize.fs#L71-71" class="github-link">
               <img src="../content/img/github.png" class="normal" />
               <img src="../content/img/github-blue.png" class="hover" />
             </a>

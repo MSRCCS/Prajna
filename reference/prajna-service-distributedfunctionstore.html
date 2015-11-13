@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>DistributedFunctionStore - Prajna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content=""/>
+    <meta name="author" content="Cloud Computing & Storage Group, Microsoft Research"/>
+
+    <script src="https://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet"/>
+
+    <link type="text/css" rel="stylesheet" href="/Prajna/content/style.css" />
+    <script type="text/javascript" src="/Prajna/content/tips.js"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="https://github.com/MSRCCS/Prajna">Prajna</a></li>
+          <li><a href="http://github.com/MSRCCS/Prajna">github page</a></li>
+        </ul>
+        <h3 class="muted"><a href="/Prajna/index.html">Prajna</a></h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          
+
+
+
+<h1>DistributedFunctionStore</h1>
+<div class="xmldoc">
+<p>Representing a single registered distributed function
+DistributedFunctionStore provides a central location for handling distributed functions.</p>
+</div>
+  <h3>Instance members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Instance member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '866', 866)" onmouseover="showTip(event, '866', 866)">
+            ConcurrentCapacity()
+          </code>
+          <div class="tip" id="866">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L573-573" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Capacity of the DistributedFunctionStore</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '867', 867)" onmouseover="showTip(event, '867', 867)">
+            ConcurrentCapacity()
+          </code>
+          <div class="tip" id="867">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L573-573" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Capacity of the DistributedFunctionStore</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '868', 868)" onmouseover="showTip(event, '868', 868)">
+            NumberOfRegistered()
+          </code>
+          <div class="tip" id="868">
+            <strong>Signature:</strong> unit -&gt; int<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L720-720" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Number of registered distributed functions.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '869', 869)" onmouseover="showTip(event, '869', 869)">
+            RegisterAction(name, act)
+          </code>
+          <div class="tip" id="869">
+            <strong>Signature:</strong> (name:string * act:(&#39;T -&gt; unit)) -&gt; IDisposable<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L788-788" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register an action Action<'T>
+ name of the action, for debugging purpose  An action of type Action<'T> to be registered</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '870', 870)" onmouseover="showTip(event, '870', 870)">
+            RegisterAction(...)
+          </code>
+          <div class="tip" id="870">
+            <strong>Signature:</strong> (name:string * capacity:int * privateID:Guid * domainID:Guid * act:(&#39;T -&gt; unit) * bReload:bool) -&gt; IDisposable<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L762-762" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register an action Action<'T>
+ name of the action, for debugging purpose  Concurrency level, if larger than 1, multiple action can be executed at the same time, if less than or equal to 0, no capacity control is exercised  private ID of the provider  ID of the particular function/action  An action of type Action<'T> to be registered  Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '871', 871)" onmouseover="showTip(event, '871', 871)">
+            RegisterFunction(name, func)
+          </code>
+          <div class="tip" id="871">
+            <strong>Signature:</strong> (name:string * func:(unit -&gt; &#39;TResult)) -&gt; IDisposable<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L852-852" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register a function Func<'TResult>
+ name of the function  A function of type Func<'TResult> to be registered</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '872', 872)" onmouseover="showTip(event, '872', 872)">
+            RegisterFunction(...)
+          </code>
+          <div class="tip" id="872">
+            <strong>Signature:</strong> (name:string * capacity:int * privateID:Guid * domainID:Guid * func:(unit -&gt; &#39;TResult) * bReload:bool) -&gt; IDisposable<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L838-838" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register a function Func<'TResult>
+ name of the action  Concurrency level, if larger than 1, multiple action can be executed at the same time, if less than or equal to 0, no capacity control is exercised  private ID of the provider  ID of the particular function/action  A function of type Func<'T,'TResult> to be registered  Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '873', 873)" onmouseover="showTip(event, '873', 873)">
+            RegisterFunction(name, func)
+          </code>
+          <div class="tip" id="873">
+            <strong>Signature:</strong> (name:string * func:(&#39;T -&gt; &#39;TResult)) -&gt; IDisposable<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L826-826" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register as a function Func<'T,'TResult>
+ name of the action  A function of type Func<'T,'TResult> to be registered</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '874', 874)" onmouseover="showTip(event, '874', 874)">
+            RegisterFunction(...)
+          </code>
+          <div class="tip" id="874">
+            <strong>Signature:</strong> (name:string * capacity:int * privateID:Guid * domainID:Guid * func:(&#39;T -&gt; &#39;TResult) * bReload:bool) -&gt; IDisposable<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L800-800" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register as a function Func<'T,'TResult>
+ name of the action  Concurrency level, if larger than 1, multiple action can be executed at the same time, if less than or equal to 0, no capacity control is exercised  private ID of the provider  ID of the particular function/action  A function of type Func<'T,'TResult> to be registered  Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '875', 875)" onmouseover="showTip(event, '875', 875)">
+            RegisterProvider(provider)
+          </code>
+          <div class="tip" id="875">
+            <strong>Signature:</strong> provider:DistributedFunctionProvider -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L624-624" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register a provider, use this provider as the default.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '876', 876)" onmouseover="showTip(event, '876', 876)">
+            RegisterUnitAction(name, act)
+          </code>
+          <div class="tip" id="876">
+            <strong>Signature:</strong> (name:string * act:(unit -&gt; unit)) -&gt; IDisposable<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L750-750" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register an action without input and output parameter.
+ name of the action  An action to be registered</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '877', 877)" onmouseover="showTip(event, '877', 877)">
+            RegisterUnitAction(...)
+          </code>
+          <div class="tip" id="877">
+            <strong>Signature:</strong> (name:string * capacity:int * privateID:Guid * domainID:Guid * act:(unit -&gt; unit) * bReload:bool) -&gt; IDisposable<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L737-737" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Register an action without input and output parameter. 
+ name of the action  Concurrency level, if larger than 1, multiple action can be executed at the same time, if less than or equal to 0, no capacity control is exercised  private ID of the provider  ID of the particular function/action  An action of type to be registered  Whether allows Action reloading. If bReload is false, Prajna will throw an exception if an item of same name already exists in contract store.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '878', 878)" onmouseover="showTip(event, '878', 878)">
+            TryImportActionLocal(name)
+          </code>
+          <div class="tip" id="878">
+            <strong>Signature:</strong> name:string -&gt; &#39;T -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L952-952" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Try import an action to execution</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '879', 879)" onmouseover="showTip(event, '879', 879)">
+            TryImportFunctionLocal(name)
+          </code>
+          <div class="tip" id="879">
+            <strong>Signature:</strong> name:string -&gt; &#39;T -&gt; &#39;TResult<br />
+                          <strong>Type parameters:</strong> 'T, 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L1059-1059" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Try import a function to execution</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '880', 880)" onmouseover="showTip(event, '880', 880)">
+            TryImportFunctionLocal(name)
+          </code>
+          <div class="tip" id="880">
+            <strong>Signature:</strong> name:string -&gt; unit -&gt; &#39;TResult<br />
+                          <strong>Type parameters:</strong> 'TResult          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L1000-1000" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Try import an function with no input parameter</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '881', 881)" onmouseover="showTip(event, '881', 881)">
+            TryImportUnitActionLocal(name)
+          </code>
+          <div class="tip" id="881">
+            <strong>Signature:</strong> name:string -&gt; unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L905-905" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Try import an action to execution</p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Static members</h3>
+  <table class="table table-bordered member-list">
+    <thead>
+      <tr><td>Static member</td><td>Description</td></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '882', 882)" onmouseover="showTip(event, '882', 882)">
+            Current
+          </code>
+          <div class="tip" id="882">
+            <strong>Signature:</strong> DistributedFunctionStore<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L580-580" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Access the common DistributedFunctionStore for the address space.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '883', 883)" onmouseover="showTip(event, '883', 883)">
+            DefaultSerializerTag()
+          </code>
+          <div class="tip" id="883">
+            <strong>Signature:</strong> unit -&gt; DefaultSerializerForDistributedFunction<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L582-582" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Default tag for the codec</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '884', 884)" onmouseover="showTip(event, '884', 884)">
+            DefaultSerializerTag()
+          </code>
+          <div class="tip" id="884">
+            <strong>Signature:</strong> unit -&gt; unit<br />
+                      </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L582-582" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Default tag for the codec</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '885', 885)" onmouseover="showTip(event, '885', 885)">
+            InstallCustomizedSerializer(...)
+          </code>
+          <div class="tip" id="885">
+            <strong>Signature:</strong> (fmt:string * serializeFunc:(&#39;T * Stream -&gt; unit) * deserializeFunc:(Stream -&gt; &#39;T)) -&gt; unit<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L585-585" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Install Serializer, only one serializer should be installed per type. 
+User should call this to supply its own serializer/deserializer if desired.</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td class="member-name">
+
+          <code onmouseout="hideTip(event, '886', 886)" onmouseover="showTip(event, '886', 886)">
+            InstallDefaultSerializer()
+          </code>
+          <div class="tip" id="886">
+            <strong>Signature:</strong> unit -&gt; Guid * Guid []<br />
+                          <strong>Type parameters:</strong> 'T          </div>
+        </td>
+        <td class="xmldoc">
+            <a href="http://github.com/MSRCCS/Prajna/tree/master/src/CoreLib/distributedfunction.fs#L591-591" class="github-link">
+              <img src="../content/img/github.png" class="normal" />
+              <img src="../content/img/github-blue.png" class="hover" />
+            </a>
+          <p>Install Default Serializer</p>
+
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+        </div>
+        <div class="span3">
+          <img src="/Prajna/img/logo.png" alt="Prajna" style="width:150px;margin:10px" />  
+          <ul class="nav nav-list" id="menu" style="margin-top: 20px;">
+            <li class="nav-header">Prajna</li>
+            <li><a href="/Prajna/index.html">Home page</a></li>
+            <li class="divider"></li>
+            <li><a href="http://nuget.org/packages/Prajna">Get Library via NuGet</a></li>
+            <li><a href="http://github.com/MSRCCS/Prajna">Source Code on GitHub</a></li>
+            <li><a href="/Prajna/license.html">License</a></li>
+            <li><a href="/Prajna/release-notes.html">Release Notes</a></li>
+            
+            <li class="nav-header">Getting started</li>
+            <!--<li><a href="/Prajna/tutorial.html">Sample tutorial</a></li>-->
+            <li><a href="https://github.com/MSRCCS/Prajna/wiki/Use-Prajna">For Users</a></li>
+            <li><a href="https://github.com/MSRCCS/Prajna/wiki/Contribute">For Contributors</a></li>
+
+            <li class="nav-header">Documentation</li>
+            <li><a href="/Prajna/paper/Prajna_v1.pdf">Prajna Paper</a></li>
+            <li><a href="/Prajna/reference/index.html">API Reference</a></li>
+            <li><a href="https://github.com/MSRCCS/Prajna/wiki">Wiki</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="http://github.com/MSRCCS/Prajna"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"/></a>
+  </body>
+  </html>

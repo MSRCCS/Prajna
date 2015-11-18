@@ -28,7 +28,7 @@
         Aug. 2015
 	
  ---------------------------------------------------------------------------*)
-namespace Prajna.Service.Tests
+namespace Prajna.Core.Tests
 
 open System
 open System.Collections.Generic
@@ -99,6 +99,15 @@ type DistributedFunctionTest() =
         let incrementAction, finalValueFunc = DistributedFunctionTest.IncrementAction()
         // The distributed action will be deregistered at the end of the call (use) 
         use disposer = DistributedFunctionStore.Current.RegisterUnitAction( name, incrementAction )
+        let schemas = disposer.GetSchemas()
+        Assert.GreaterOrEqual( Seq.length schemas, 1 )
+        for schema in schemas do 
+            let provider, domainID, schemaIn, schemaOut = schema
+            let infoIn = JobDependencies.GetSchemaInformation( schemaIn )
+            let infoOut = JobDependencies.GetSchemaInformation( schemaOut )
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "Register Action of %s, schemaIn = %s, schemaOut = %s" name infoIn infoOut )
+            Assert.IsNullOrEmpty( infoIn )
+            Assert.IsNullOrEmpty( infoOut )
         let executeUnitAction = DistributedFunctionStore.Current.TryImportUnitActionLocal( name )
         let ticks = DateTime.UtcNow.Ticks 
         Parallel.For( 0, niterations, Action<int>(fun _ -> executeUnitAction() ) ) |> ignore 
@@ -145,6 +154,16 @@ type DistributedFunctionTest() =
         let addFunc, numberAddedFunc = DistributedFunctionTest.Add2Function(addValue)
         // The function should be installed always (let, dispose is not called). 
         let disposer = DistributedFunctionStore.Current.RegisterFunction<_,_>( name, addFunc )
+        let schemas = disposer.GetSchemas()
+        Assert.GreaterOrEqual( Seq.length schemas, 3 )
+        for schema in schemas do 
+            let provider, domainID, schemaIn, schemaOut = schema
+            let infoIn = JobDependencies.GetSchemaInformation( schemaIn )
+            let infoOut = JobDependencies.GetSchemaInformation( schemaOut )
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "Register Distributed Function of %s, schemaIn = %s, schemaOut = %s" name infoIn infoOut )
+            Assert.IsNotNullOrEmpty( infoIn )
+            Assert.IsNotNullOrEmpty( infoOut )
+
         let executeFunction = DistributedFunctionStore.Current.TryImportFunctionLocal<int,int>( name )
         let ticks = DateTime.UtcNow.Ticks 
         Parallel.For( 0, niterations, Action<int>(fun i -> Assert.AreEqual( executeFunction(i), i+addValue) ) ) |> ignore 

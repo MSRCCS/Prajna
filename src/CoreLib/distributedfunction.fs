@@ -184,7 +184,7 @@ type internal SchemaJSonHelper<'T>() =
     static member SchemaID() = 
         let schemaStr = "System.Runtime.Serialization.Json.DataContractJsonSerializer:" + typeof<'T>.AssemblyQualifiedName
         let hash = HashStringToGuid(schemaStr)
-        hash
+        hash, schemaStr
     static member Encoder(o:'T, ms:Stream) = 
         let fmt = DataContractJsonSerializer( typeof<'T> )
         fmt.WriteObject( ms, o )
@@ -201,7 +201,7 @@ type internal SchemaBinaryFormatterHelper<'T>() =
     static member SchemaID() = 
         let schemaStr = "System.Runtime.Serialization.Formatters.Binary.BinaryFormatter:" + typeof<'T>.AssemblyQualifiedName
         let hash = HashStringToGuid(schemaStr)
-        hash
+        hash, schemaStr
     static member Encoder(o:'T, ms:Stream) = 
         let fmt = Runtime.Serialization.Formatters.Binary.BinaryFormatter()
         fmt.Serialize( ms, o )
@@ -218,7 +218,7 @@ type internal SchemaPrajnaFormatterHelper<'T>() =
     static member SchemaID() =
         let schemaStr = "Prajna.Tools.BinarySerializer:" + typeof<'T>.AssemblyQualifiedName
         let hash = HashStringToGuid(schemaStr)
-        hash
+        hash, schemaStr
     static member Encoder(o:'T, ms:Stream) =
         let fmt = Prajna.Tools.BinarySerializer() :> IFormatter
         fmt.Serialize( ms, o )
@@ -527,12 +527,15 @@ type internal SafeConcurrentDictionary =
         else
             false
 
-/// Representing a single registered distributed function
-type RegisteredDistributedFunction internal ( disposeFunc: bool -> unit, getSchema: unit -> seq<Guid*Guid*Guid*Guid> ) = 
+/// Representing a single registered distributed function. Two key functions of the RegisteredDistributedFunction class are:
+/// 1. Implement IDisposable interface, when disposed, the registered function no longer respond to the distributed Function call. 
+///    Note if registered distributed function goes out of scope, the disposeFunc is called with (false) input, 
+/// 2. GetSchemas, return a 4-tuple that identified the provider, domain, schemaIn and schemaOut of the function registered. 
+type RegisteredDistributedFunction internal ( disposeFunc: bool -> unit, schemas: seq<Guid*Guid*Guid*Guid> ) = 
     /// Get all schemas in the form of a provideID, domainID, schemaInID, schemaOutID tuple of the particular distributed function
     /// These schemas can be used by a remote App (potentially on different platform) to invoke the distributed function 
-    member x.GetAllSchemas() = 
-        getSchema()
+    member x.GetSchemas() = 
+        schemas
     /// To be extended
     interface IDisposable with 
         member this.Dispose() = 
@@ -542,26 +545,25 @@ type RegisteredDistributedFunction internal ( disposeFunc: bool -> unit, getSche
         disposeFunc( false )
 
 /// Representing a single registered distributed function
-#if false
-type RegisteredDistributedFunctionOne ( publicID, domainID, schemaInID, schemaOutID ) = 
+type internal RegisteredDistributedFunctionOne ( publicID, domainID, schemaIn, schemaOut ) = 
     inherit RegisteredDistributedFunction( 
         ( fun disposing -> if disposing then 
-                              DistributedFunctionStore.Current.Unregister( publicID, domainID, schemaInID, schemaOutID ) ),
-        ( fun _ -> 
-            [| (publicID, domainID, schemaInID, schemaOutID) |] )
+                              // Only unregister function from DistributedFunctionStore if the Disposing API 
+                              DistributedFunctionStore.Unregister( publicID, domainID, schemaIn, schemaOut ) ),
+        ( [| (publicID, domainID, schemaIn, schemaOut) |] )
        )
-    /// Get all schemas in the form of a provideID, domainID, schemaInID, schemaOutID tuple of the particular distributed function
-    /// These schemas can be used by a remote App (potentially on different platform) to invoke the distributed function 
-    member x.GetAllSchemas() = 
-        getSchema()
-    /// To be extended
-    interface IDisposable with 
-        member this.Dispose() = 
-            disposeFunc( true )
-            GC.SuppressFinalize( this )
-    override x.Finalize() = 
-        disposeFunc( false )
-#endif
+
+/// Representing multiple registered distributed function
+and internal RegisteredDistributedFunctionMultiple ( schemas: seq<Guid*Guid*Guid*Guid> ) = 
+    inherit RegisteredDistributedFunction( 
+        ( fun disposing -> if disposing then 
+                              // Only unregister function from DistributedFunctionStore if the Disposing API 
+                              for tuple in schemas do 
+                                let publicID, domainID, schemaIn, schemaOut = tuple
+                                DistributedFunctionStore.Unregister( publicID, domainID, schemaIn, schemaOut ) 
+        ),
+        schemas
+       )
 
         
 /// DistributedFunctionStore provides a central location for handling distributed functions. 
@@ -582,27 +584,28 @@ and DistributedFunctionStore internal () as thisStore =
     static member val DefaultSerializerTag = DefaultSerializerForDistributedFunction.JSonSerializer with get, set
     /// Install Serializer, only one serializer should be installed per type. 
     /// User should call this to supply its own serializer/deserializer if desired. 
-    static member InstallCustomizedSerializer<'T>( fmt: string, serializeFunc, deserializeFunc ) = 
+    static member InstallCustomizedSerializer<'T>( fmt: string, serializeFunc, deserializeFunc, bInstallByDefault ) = 
         let ty = typeof<'T>
+        let info = fmt + ":" + ty.FullName
         let typeID = HashStringToGuid( fmt + ":" + ty.FullName )
-        JobDependencies.InstallSerializer<'T>( typeID, serializeFunc )
-        JobDependencies.InstallDeserializer<'T>( typeID, deserializeFunc )
+        JobDependencies.InstallSerializer<'T>( typeID, serializeFunc, info, bInstallByDefault )
+        JobDependencies.InstallDeserializer<'T>( typeID, deserializeFunc, info )
     /// Install Default Serializer
     static member InstallDefaultSerializer<'T>() = 
-        let typeIDPrajna = SchemaPrajnaFormatterHelper<'T>.SchemaID()
-        let typeIDBinary = SchemaBinaryFormatterHelper<'T>.SchemaID()
-        let typeIDJSon = SchemaJSonHelper<'T>.SchemaID()
+        let typeIDPrajna, strPrajna = SchemaPrajnaFormatterHelper<'T>.SchemaID()
+        let typeIDBinary, strBinary = SchemaBinaryFormatterHelper<'T>.SchemaID()
+        let typeIDJSon, strJSon = SchemaJSonHelper<'T>.SchemaID()
         let mutable schemas = [| typeIDPrajna; typeIDBinary; typeIDJSon |] 
         let schemaID = 
             match DistributedFunctionStore.DefaultSerializerTag with 
             | DefaultSerializerForDistributedFunction.PrajnaSerializer ->
-                JobDependencies.InstallSerializer<'T>( typeIDPrajna, SchemaPrajnaFormatterHelper<'T>.Encoder )
+                JobDependencies.InstallSerializer<'T>( typeIDPrajna, SchemaPrajnaFormatterHelper<'T>.Encoder, strPrajna, false )
                 typeIDPrajna
             | DefaultSerializerForDistributedFunction.BinarySerializer -> 
-                JobDependencies.InstallSerializer<'T>( typeIDBinary, SchemaBinaryFormatterHelper<'T>.Encoder )
+                JobDependencies.InstallSerializer<'T>( typeIDBinary, SchemaBinaryFormatterHelper<'T>.Encoder, strBinary, false )
                 typeIDBinary
             | DefaultSerializerForDistributedFunction.JSonSerializer -> 
-                JobDependencies.InstallSerializer<'T>( typeIDJSon, SchemaJSonHelper<'T>.Encoder )
+                JobDependencies.InstallSerializer<'T>( typeIDJSon, SchemaJSonHelper<'T>.Encoder, strJSon, false )
                 typeIDJSon
             | DefaultSerializerForDistributedFunction.Customized -> 
                 // Programmer will implement serializer themselves. 
@@ -613,10 +616,10 @@ and DistributedFunctionStore internal () as thisStore =
                 customizedSchemaID
             | _ -> 
                 failwith (sprintf "DistributedFunctionStore: unrecognized default serializer tag %A" DistributedFunctionStore.DefaultSerializerTag )
-
         // Install all possible deserializer
-        JobDependencies.InstallDeserializer<'T>( typeIDBinary, SchemaBinaryFormatterHelper<'T>.Decoder )    
-        JobDependencies.InstallDeserializer<'T>( typeIDJSon, SchemaJSonHelper<'T>.Decoder )
+        JobDependencies.InstallDeserializer<'T>( typeIDPrajna, SchemaPrajnaFormatterHelper<'T>.Decoder, strPrajna )
+        JobDependencies.InstallDeserializer<'T>( typeIDBinary, SchemaBinaryFormatterHelper<'T>.Decoder, strBinary )
+        JobDependencies.InstallDeserializer<'T>( typeIDJSon, SchemaJSonHelper<'T>.Decoder, strJSon )
         schemaID, schemas
     /// Collection of providers 
     member val internal ProviderCollection = ConcurrentDictionary<Guid, DistributedFunctionProvider>() with get
@@ -659,16 +662,11 @@ and DistributedFunctionStore internal () as thisStore =
                 if not(Object.ReferenceEquals( insertedObj, existingObj )) then 
                     Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "DistributedFunctionStore, export of function failed, with provider privateID %A, domain %A, schema %A and %A, item of same signature already exists " 
                                                                         privateID domainID schemaIn schemaOut ))
-            let dispose = 
-                { new IDisposable with 
-                        member this.Dispose() = 
-                            x.Unregister( publicID, domainID, schemaIn, schemaOut )
-                }
+            let ret = new RegisteredDistributedFunctionOne( publicID, domainID, schemaIn, schemaOut )
             // Return a disposable interface if the caller wants to unregister 
-            dispose
-                
+            ret :> RegisteredDistributedFunction
     /// Unregister an function
-    member internal x.Unregister( publicID, domainID, schemaIn, schemaOut ) = 
+    member internal x.Unregister( publicID: Guid, domainID: Guid, schemaIn: Guid, schemaOut:Guid ) = 
             let bExist, providerStore = x.ExportedCollections.TryGetValue( publicID ) 
             if bExist then 
                 let bExist, domainStore = providerStore.TryGetValue( domainID )
@@ -689,7 +687,9 @@ and DistributedFunctionStore internal () as thisStore =
                                 let bRemove = SafeConcurrentDictionary.TryRemoveIfEmpty( providerStore, domainID, domainStore )
                                 if bRemove then 
                                     SafeConcurrentDictionary.TryRemoveIfEmpty( x.ExportedCollections, publicID, providerStore ) |> ignore  
-
+    /// Unregister a function
+    static member Unregister( publicID: Guid, domainID: Guid, schemaIn: Guid, schemaOut:Guid ) = 
+        DistributedFunctionStore.Current.Unregister( publicID, domainID, schemaIn, schemaOut )        
     /// Clean Up 
     member internal x.CleanUp(timeOut:int) = 
         for pair0 in x.ExportedCollections do 
@@ -771,15 +771,10 @@ and DistributedFunctionStore internal () as thisStore =
         /// For export, we will install all possible schemas 
         for schemaIn in schemaInCollection do 
             let disposeInterface = x.RegisterInternal( privateID, domainID, schemaIn, schemaOut, obj, bReload )
-            lst.Add( disposeInterface ) 
-        let dispose = 
-            { new IDisposable with 
-                    member this.Dispose() = 
-                        for item in lst do 
-                            item.Dispose() 
-            }
-            // Return a disposable interface if the caller wants to unregister 
-        dispose
+            lst.AddRange( disposeInterface.GetSchemas() ) 
+        let ret = new RegisteredDistributedFunctionMultiple( lst )
+        // Return a disposable interface if the caller wants to unregister 
+        ret :> RegisteredDistributedFunction
     /// <summary>
     /// Register an action Action&lt;'T>
     /// <param name="name"> name of the action, for debugging purpose </param>
@@ -809,15 +804,10 @@ and DistributedFunctionStore internal () as thisStore =
         let lst = List<_>()
         for schemaIn in schemaInCollection do 
             let disposeInterface = x.RegisterInternal( privateID, domainID, schemaIn, schemaOut, obj, bReload )
-            lst.Add( disposeInterface ) 
-        let dispose = 
-            { new IDisposable with 
-                    member this.Dispose() = 
-                        for item in lst do 
-                            item.Dispose() 
-            }
-            // Return a disposable interface if the caller wants to unregister 
-        dispose
+            lst.AddRange( disposeInterface.GetSchemas() ) 
+        let ret = new RegisteredDistributedFunctionMultiple( lst )
+        // Return a disposable interface if the caller wants to unregister 
+        ret :> RegisteredDistributedFunction
     /// <summary>
     /// Register as a function Func&lt;'T,'TResult>
     /// <param name="name"> name of the action </param>
@@ -1162,15 +1152,9 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
         /// For export, we will install all possible schemas 
         for schemaIn in schemaInCollection do 
             let disposeInterface = store.RegisterInternal( privateID, domainID, schemaIn, schemaOut, obj, bReload )
-            lst.Add( disposeInterface ) 
-        let dispose = 
-            { new IDisposable with 
-                    member this.Dispose() = 
-                        for item in lst do 
-                            item.Dispose() 
-            }
-        // Return a disposable interface if the caller wants to unregister 
-        dispose
+            lst.AddRange( disposeInterface.GetSchemas() ) 
+        let ret = new RegisteredDistributedFunctionMultiple( lst )
+        ret :> RegisteredDistributedFunction
     /// <summary>
     /// Register an action Action&lt;'T>
     /// <param name="name"> name of the action, for debugging purpose </param>
@@ -1209,15 +1193,10 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
         let lst = List<_>()
         for schemaIn in schemaInCollection do 
             let disposeInterface = store.RegisterInternal( privateID, domainID, schemaIn, schemaOut, obj, bReload )
-            lst.Add( disposeInterface ) 
-        let dispose = 
-            { new IDisposable with 
-                    member this.Dispose() = 
-                        for item in lst do 
-                            item.Dispose() 
-            }
-            // Return a disposable interface if the caller wants to unregister 
-        dispose
+            lst.AddRange( disposeInterface.GetSchemas() ) 
+        let ret = new RegisteredDistributedFunctionMultiple( lst )
+        // Return a disposable interface if the caller wants to unregister 
+        ret :> RegisteredDistributedFunction
     /// <summary>
     /// Register as a function Func&lt;'T,'TResult>
     /// <param name="name"> name of the action </param>

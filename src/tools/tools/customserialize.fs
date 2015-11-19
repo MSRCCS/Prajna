@@ -36,6 +36,7 @@ open System.Runtime.CompilerServices
 open System.Reflection
 open System.Runtime.Serialization
 open System.Collections.Concurrent
+open Prajna.Tools.FSharp
 
 [<Serializable>]
 type internal NullObjectForSerialization() = 
@@ -121,14 +122,16 @@ and internal CustomizedSerialization() =
     /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
     /// run a customized deserializer function to deserialize the object. </param>
     /// <param name="encodeFunc"> Customized Serialization function that encodes the 'Type to a bytestream.  </param>
-    static member InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*Stream->unit ) = 
+    /// <param name="bInstallAsDefault"> If true, the installed serializer will be used for default serialization.  </param>
+    static member InstallSerializer<'Type >( id: Guid, encodeFunc: 'Type*Stream->unit, bInstallAsDefault ) = 
         if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
             failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
         else
             let fullname = typeof<'Type>.FullName
             let wrappedEncodeFunc (o:Object, ms ) = 
-                encodeFunc ( o :?> 'Type, ms )    
-            CustomizedSerialization.EncoderCollectionByName.Item( fullname ) <- id 
+                encodeFunc ( o :?> 'Type, ms )
+            if bInstallAsDefault then 
+                CustomizedSerialization.EncoderCollectionByName.Item( fullname ) <- id 
             CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
     /// <summary>
     /// Install a customized serializer, in raw format of storage and no checking
@@ -137,8 +140,10 @@ and internal CustomizedSerialization() =
     /// run a customized deserializer function to deserialize the object. </param>
     /// <param name="fullname"> Type name of the object. </param>
     /// <param name="wrappedEncodeFunc"> Customized Serialization function that encodes an Object to a bytestream.  </param>
-    static member InstallSerializer( id: Guid, fullname, wrappedEncodeFunc ) = 
-        CustomizedSerialization.EncoderCollectionByName.Item( fullname ) <- id 
+    /// <param name="bInstallAsDefault"> If true, the installed serializer will be used for default serialization.  </param>
+    static member InstallSerializer( id: Guid, fullname, wrappedEncodeFunc, bInstallAsDefault  ) = 
+        if bInstallAsDefault then 
+            CustomizedSerialization.EncoderCollectionByName.Item( fullname ) <- id 
         CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
     /// A schema has been requested, the deserializer of the particular schema hasn't been installed, 
     /// However, the developer has claimed that an alternative deserializer (of a different schema) will be able to handle the deserialization of the object. 
@@ -162,6 +167,7 @@ and internal CustomizedSerialization() =
     /// Get the Installed Serializer SchemaID of a certain type 
     static member GetInstalledSchemaID<'Type>( ) = 
         CustomizedSerialization.GetInstalledSchemaID( typeof<'Type>.FullName )
+    
 
     /// <summary>
     /// Install a customized deserializer, with a unique GUID that identified the use of the deserializer in the bytestream. 
@@ -197,13 +203,14 @@ and internal CustomizedSerialization() =
     ///         please note that the customized serializer/deserializer will not be triggered on the derivative type. You may need to install additional 
     ///         serializer if multiple derivative type share the same customzied serializer/deserializer. </param>
     /// <param name="del"> An action delegate that perform the serialization function. </param>
-    static member InstallSerializerDelegate( id: Guid, fulltypename, del: CustomizedSerializerAction ) = 
+    static member InstallSerializerDelegate( id: Guid, fulltypename, del: CustomizedSerializerAction, bInstallAsDefault ) = 
         if id = Guid.Empty || id = CustomizedSerialization.NullObjectGuid then 
             failwith ( sprintf "Guid %A has been reserved, please generate a different guid" id )
         else
             let wrappedEncodeFunc( o:Object, ms:Stream ) = 
                 del.Invoke( o, ms ) 
-            CustomizedSerialization.EncoderCollectionByName.Item( fulltypename ) <- id
+            if bInstallAsDefault then 
+                CustomizedSerialization.EncoderCollectionByName.Item( fulltypename ) <- id
             CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
     /// <summary> 
     /// InstallDeserializerDelegate allows language other than F# to install its own type deserialization implementation. 
@@ -323,9 +330,10 @@ and private CustomizedSerializationSurrogateSelector(getNewMs : unit->MemoryStre
                     CustomizedSerialization.EncoderCollectionByGuid.TryGetValue( guidEncoder, encoder ) |> ignore 
                 if bExistDecoder then 
                     CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( guidDecoder, decoder ) |> ignore 
-                if Utils.IsNull( !encoder ) && Utils.IsNull( !decoder ) then 
+                if Utils.IsNull( !encoder ) || Utils.IsNull( !decoder ) then 
                     null 
                 else
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Install a customized surrogate for type %s" fullname )
                     CustomizedSerializationSurrogate(fullname, !encoder, !decoder, getNewMs, getNewMsWithBuf) :> ISerializationSurrogate
             else      
                 // Use CSharpDisplayClassSerializationSurrogate if we see a type:

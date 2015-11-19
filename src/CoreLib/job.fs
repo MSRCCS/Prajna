@@ -1853,10 +1853,11 @@ and
             stream.Seek( pos, SeekOrigin.Begin ) |> ignore // Reset the pointer in case the stream needs to be read again. 
             bDecodeSuccessful
         with
-        | e -> 
-            let msg = sprintf "DecodeFromBlob: blob %d (%s) failed to be decoded, blob stream is of length %dB, exception %A " blobi blob.Name streamlen e
+        | ex -> 
+            let msg = sprintf "DecodeFromBlob: blob %d (%s) failed to be decoded, blob stream is of length %dB, exception %A " blobi blob.Name streamlen ex
             Logger.Log( LogLevel.Error, msg )
-            failwith msg
+            ex.Data.Add( "DecodeFromBlob", msg)
+            reraise()
             false
     /// Send blob to host, always use non hash version here.  
     member x.SendBlobToHost( queue:NetworkCommandQueue, blobi ) = 

@@ -593,6 +593,10 @@ type BackEndInstance< 'StartParamType
                     let reqID = Guid( buf ) 
                     ms.ReadBytes( buf ) |> ignore
                     let serviceID = Guid( buf ) 
+                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "to parse request from %s req %A of service %A %dB, Rtt = %f ms." 
+                                                                           (LocalDNS.GetShowInfo( queue.RemoteEndPoint )) 
+                                                                           reqID serviceID
+                                                                           (ms.Length) (health.GetRtt()) ) )
                     let requestObject = ms.DeserializeObjectWithTypeName()
                     Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "from %s received request %A %dB, Rtt = %f ms." 
                                                                            (LocalDNS.GetShowInfo( queue.RemoteEndPoint )) 

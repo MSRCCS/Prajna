@@ -577,6 +577,8 @@ and DistributedFunctionStore internal () as thisStore =
     member val internal CurrentProviderID = Guid.Empty with get, set
     /// Current provider, public ID 
     member val internal PublicProviderID = Guid.Empty with get, set
+    /// Hold all servers that we expect the registered distributed function to be called from
+    member val internal ExportedServerCollection = ContractServerInfoLocal() with get
 
     /// Access the common DistributedFunctionStore for the address space. 
     static member val Current = DistributedFunctionStore() with get
@@ -1083,6 +1085,9 @@ and DistributedFunctionStore internal () as thisStore =
                 else 
                     !res
             wrappedFunction
+    /// Allow the registered distributed function to be called by a set of servers/server groups
+    member x.ExportTo(serversInfo:ContractServersInfo) = 
+        ()
 
 /// Distributed function store with Async interface. 
 type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =

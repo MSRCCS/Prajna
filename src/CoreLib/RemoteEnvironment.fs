@@ -43,3 +43,7 @@ type RemoteExecutionEnvironment() =
     /// Obtain the folder of the service store
     static member GetServiceFolder() = 
         DeploymentSettings.ServiceFolder
+    /// Is the current execution environment a remote container
+    static member IsContainer() = 
+        RemoteExecutionEnvironment.ContainerName.StartsWith("AppDomain:") || 
+        RemoteExecutionEnvironment.ContainerName.StartsWith("Exe:")

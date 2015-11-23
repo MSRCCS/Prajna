@@ -70,6 +70,7 @@
     <Compile Include="mem.fs" />
     <Compile Include="serialize.fs" />
     <Compile Include="hash.fs" />
+    <Compile Include="process.fs" />
     <None Include="paket.references" />
   </ItemGroup>
   <ItemGroup>

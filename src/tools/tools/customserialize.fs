@@ -129,7 +129,7 @@ and internal CustomizedSerialization() =
         else
             let fullname = typeof<'Type>.FullName
             let wrappedEncodeFunc (o:Object, ms ) = 
-                encodeFunc ( o :?> 'Type, ms )
+                encodeFunc ( o :?> 'Type, ms )    
             if bInstallAsDefault then 
                 CustomizedSerialization.EncoderCollectionByName.Item( fullname ) <- id 
             CustomizedSerialization.EncoderCollectionByGuid.Item( id ) <- wrappedEncodeFunc
@@ -167,7 +167,7 @@ and internal CustomizedSerialization() =
     /// Get the Installed Serializer SchemaID of a certain type 
     static member GetInstalledSchemaID<'Type>( ) = 
         CustomizedSerialization.GetInstalledSchemaID( typeof<'Type>.FullName )
-    
+
 
     /// <summary>
     /// Install a customized deserializer, with a unique GUID that identified the use of the deserializer in the bytestream. 
@@ -334,6 +334,8 @@ and private CustomizedSerializationSurrogateSelector(getNewMs : unit->MemoryStre
                     null 
                 else
                     Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Install a customized surrogate for type %s" fullname )
+                    // JinL: if either encoder or decoder is null, the CustomizedSerializationSurrogate will lead to a StackOverFlow exception, which is 
+                    // difficult to debug/trace
                     CustomizedSerializationSurrogate(fullname, !encoder, !decoder, getNewMs, getNewMsWithBuf) :> ISerializationSurrogate
             else      
                 // Use CSharpDisplayClassSerializationSurrogate if we see a type:

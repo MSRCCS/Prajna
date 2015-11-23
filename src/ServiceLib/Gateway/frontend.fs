@@ -979,7 +979,7 @@ type FrontEndInstance< 'StartParamType
         msRequest.SerializeObjectWithTypeName( reqHolder.ReqObject )
         health.WriteEndMark( msRequest )
         queue.ToSend( ControllerCommand( ControllerVerb.Request, ControllerNoun.QueryReply), msRequest )
-        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "send req %s to backend %s, to return (%s, %s) " (reqID.ToString()) (LocalDNS.GetShowInfo( queue.RemoteEndPoint)) (health.ExpectedLatencyInfo()) (health.QueueInfo()) ))
+        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "send req %A of service %A to backend %s, to return (%s, %s) " reqID serviceInstanceBasic.ServiceID (LocalDNS.GetShowInfo( queue.RemoteEndPoint)) (health.ExpectedLatencyInfo()) (health.QueueInfo()) ))
         // Timing 
         reqHolder.ReplyCollection.Item( queue.RemoteEndPointSignature) <- ref ( (PerfADateTime.UtcNowTicks()), 0L , null )
         true

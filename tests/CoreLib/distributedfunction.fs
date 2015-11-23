@@ -207,3 +207,4 @@ type DistributedFunctionTest() =
         let cnt1 = DistributedFunctionStore.Current.NumberOfRegistered()
         Logger.LogF( LogLevel.Info, fun _ -> sprintf "Number of distributed functions registered is %d(before) and %d (after)." cnt0 cnt1 )
         Assert.Greater( cnt1, cnt0 )
+

@@ -1149,7 +1149,7 @@ type [<AllowNullLiteral>]
     member val internal ResolvedServerNameToIP = ConcurrentDictionary<string, int64 >( StringComparer.OrdinalIgnoreCase ) with get
     /// A list of connected server 
     member val internal ConnectedServerCollection = ConcurrentDictionary<int64, bool >( ) with get
-    member val internal CTS = new CancellationTokenSource() with get 
+    member val internal CTS = SafeCTSWrapper() with get 
     /// Servers whose information is as part of the cluster
     member val internal ServerInCluster = ConcurrentDictionary<_, bool >( StringComparer.Ordinal) with get
     /// Return each server as a single entry in the cluster. 
@@ -1202,7 +1202,8 @@ type [<AllowNullLiteral>]
     /// <param name="bAutoConnect"> true, automatically connect to the server that is resolved. 
     ///                             false, no action is done. </param>
     member x.DNSResolveOnce( bAutoConnect ) = 
-      if not x.CTS.IsCancellationRequested then
+      use token = x.CTS.Token
+      if Utils.IsNotNull token then
         let mutable bResovleAgain = false
         let mutable nTrafficManager = 0 
         let lstServers = List<_>()
@@ -1210,7 +1211,7 @@ type [<AllowNullLiteral>]
         let mutable bEncounterOneTrafficManager = false
         let mutable bEncounterSingleServer = false
         let mutable cnt = x.ToBeResolvedServerCollection.Count
-        while cnt > 0 && x.ToBeResolvedServerCollection.TryDequeue( refValue ) && not x.CTS.IsCancellationRequested do 
+        while cnt > 0 && x.ToBeResolvedServerCollection.TryDequeue( refValue ) && not token.IsCancellationRequested do 
             cnt <- cnt - 1
             match !refValue with 
             | TrafficManager ( serverName, port ) -> 
@@ -1241,7 +1242,7 @@ type [<AllowNullLiteral>]
                         for ch in channels do 
                             x.AddConnectedChannel( ch, fun _ -> sprintf "ContractServerInfoLocal:Loopback to %A" (LocalDNS.GetShowInfo(ch.RemoteEndPoint)) )
         for tuple in lstServers do 
-          if not x.CTS.IsCancellationRequested then 
+          if not token.IsCancellationRequested then 
             let servername, port = tuple
             try 
                 let entry = 
@@ -1308,8 +1309,8 @@ type [<AllowNullLiteral>]
         if bResovleAgain then 
             x.DNSResolveOnce(bAutoConnect)
         else
-            if nTrafficManager >= 0 && not (x.CTS.IsCancellationRequested) then 
-                let bStatus = x.CTS.Token.WaitHandle.WaitOne( x.InternalToResolveAllInMillisecond / nTrafficManager ) 
+            if nTrafficManager >= 0 && not (token.IsCancellationRequested) then 
+                let bStatus = token.WaitHandle.WaitOne( x.InternalToResolveAllInMillisecond / nTrafficManager ) 
                 if not bStatus then 
                     x.DNSResolveOnce(bAutoConnect)
 
@@ -1323,7 +1324,8 @@ type [<AllowNullLiteral>]
     /// Start a continuous DNS resolve process, because DNS resolve has blocking operation, the process is placed on its own thread, rather than schedule on a timer or task 
     member x.RepeatedDNSResolve(bAutoConnect) = 
         if Interlocked.CompareExchange( x.RepeatedDNSResolveInProccess, 1, 0) = 0 then 
-            if not (x.CTS.IsCancellationRequested) then 
+            use token = x.CTS.Token
+            if Utils.IsNotNull token then 
                 // Remove all objects in the Concurrent Queue
                 let refObj = ref Unchecked.defaultof<_>
                 while ( x.ToBeResolvedServerCollection.TryDequeue( refObj ) ) do

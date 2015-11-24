@@ -2443,7 +2443,7 @@ type internal SingleCreation<'U>() =
 type internal SafeCTSWrapper(t:TimeSpan) as thisInstance = 
     let refCount = ref 0 
     let refDisposed = ref 0 
-    let ctsRef = ref ( new CancellationTokenSource(t) ) 
+    let ctsRef = ref ( if t = TimeSpan.MaxValue then new CancellationTokenSource() else new CancellationTokenSource(t) ) 
     let cancellationRegistration = (!ctsRef).Token.Register(Action(thisInstance.DecrementAndCheckForDisposeCTS ) )
     /// Initializes a new instance of the SafeCTSWrapper class.
     new () = 

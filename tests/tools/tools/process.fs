@@ -32,6 +32,7 @@ namespace Prajna.Tools.Tests
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open System.Collections.Generic
 open System.Runtime.Serialization
 open System.IO
@@ -39,6 +40,7 @@ open System.IO
 open NUnit.Framework
 
 open Prajna.Tools
+open Prajna.Tools.FSharp
 
 [<TestFixture(Description = "Tests for process.fs")>]
 type ProcessTests () =
@@ -64,3 +66,37 @@ type ProcessTests () =
             let refV = arr.[i]
             let value = Volatile.Read( refV )
             Assert.AreEqual(value, expValue)
+
+    member internal x.TestSafeCTSWrapperOnce(num, cancelAfterMS:int) =
+        let cts = SafeCTSWrapper(cancelAfterMS)
+        Parallel.For( 0, num, fun (i:int) state ->   use token = cts.Token 
+                                                     if Utils.IsNotNull token then 
+                                                        token.WaitHandle.WaitOne( i ) |> ignore 
+        ) |> ignore 
+        cts
+
+    // Test for SafeCTSWrapper
+    [<Test(Description = "Test for class SafeCTSWrapper")>]
+    member x.ProcessSafeCTSWrapper() =
+        let num = 10
+        let tries = 5
+        let cancelAfterMs = 2
+        let maxWait = 10000L
+        let ctsArray = Array.zeroCreate<_> tries
+        let res = Parallel.For( 0, tries, fun i state -> ctsArray.[i] <- x.TestSafeCTSWrapperOnce( num,cancelAfterMs)
+                              )
+        let mutable confirmDisposed = false
+        let ticksStart = DateTime.UtcNow.Ticks
+        while not confirmDisposed && ( DateTime.UtcNow.Ticks - ticksStart )/TimeSpan.TicksPerMillisecond < maxWait do
+            confirmDisposed <- true
+            for i = 0 to tries - 1 do 
+                let cts = ctsArray.[i]
+                if Utils.IsNull cts || not cts.IsDisposed then 
+                    confirmDisposed <- false
+            if not confirmDisposed then 
+                // Wait for job to finish and the disposing to kick in
+                Thread.Sleep( 10 )
+        if confirmDisposed then 
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "SafeCTSWrapper resource disposed after %d ms" (( DateTime.UtcNow.Ticks - ticksStart )/TimeSpan.TicksPerMillisecond) )
+        else
+            Assert.Fail( sprintf "SafeCTSWrapper resource failes to be disposed after %d ms" (( DateTime.UtcNow.Ticks - ticksStart )/TimeSpan.TicksPerMillisecond) )

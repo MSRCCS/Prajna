@@ -265,7 +265,7 @@ type MonitorInstance< 'StartParamType
         let mutable cntCur = 0 
         while not (x.EvTerminated.WaitOne(0)) do 
             // Resolve for server, if there is any 
-            x.ServerInfo.DNSResolveOnce()
+            x.ServerInfo.DNSResolveOnce(false)
             let col = x.ServerInfo.GetServerCollection()
             for pair in col do
                 x.MonitoredServers.GetOrAdd( pair.Key, fun _ -> OneServerPerformance(pair.Key, pair.Value) ) |> ignore 

@@ -517,6 +517,7 @@ type internal RemoteInstance() =
                     and 'RType :> WorkerRoleInstance > serviceName (param:'StartParamType) ( func: unit -> 'RType )  =
         let wrappedFunc () = 
             func() :> WorkerRoleInstance
+        let current = NetworkConnections.Current
         param.NewInstanceFunc <- wrappedFunc
         let tuple = Service.startServiceLocallyWithParam serviceName (WorkerRoleInstanceService<'StartParamType>()) param
         localInstances.Item( serviceName) <- tuple 

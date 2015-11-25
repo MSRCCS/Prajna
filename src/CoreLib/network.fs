@@ -220,6 +220,17 @@ type internal NetworkPerformance() =
         let guid = ms.ReadGuid()
         guid = NetworkPerformance.BlobIntegrityGuid
 
+/// Discriminative union that identifies the type of connection
+type internal NetworkCommandQueueType = 
+    // Loopback connection
+    | Loopback 
+    // Outgoing connection
+    | Outgoing
+    // Incoming connection
+    | Incoming
+    // Unknown
+    | Unknown
+
 
 /// An extension to GenericConn to process NetworkCommand
 /// GenericConn is an internal object which contains Send/Recv Components to process SocketAsyncEventArgs objects
@@ -235,7 +246,7 @@ type internal NetworkPerformance() =
 ///            CompSend of GenericConn                 CompSend of NetworkCommandQueue
 ///            network<-SocketAsyncEventArgs           SocketAsyncEventArgs<-NetworkCommand
 ///                                                    Application writes to NetworkCommand queue using ToSend
-type [<AllowNullLiteral>] NetworkCommandQueue() as x =
+type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
     static let count = ref -1
     static let MagicNumber = System.Guid("45F9F0E2-AAF1-4F38-82AB-75B876E282C9")
     static let MagicNumberBuf = MagicNumber.ToByteArray()
@@ -351,6 +362,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     new ( soc : Socket, onet : NetworkConnections ) as x = 
         new NetworkCommandQueue(onet)
         then
+            x.SetConnectionType( Incoming )
             x.ConnectionStatusSet <- ConnectionStatus.Connected
             let eip = soc.RemoteEndPoint :?> IPEndPoint
             x.Port <- eip.Port
@@ -364,6 +376,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     new ( machineName : string, port : int, onet : NetworkConnections ) as x = 
         new NetworkCommandQueue(onet)
         then
+            x.SetConnectionType( Outgoing )
             x.MachineName <- machineName
             x.Port <- port
             x.ConnectionStatusSet <- ConnectionStatus.ResolveDNS
@@ -379,12 +392,25 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     new ( addr: IPAddress, port : int, onet : NetworkConnections ) as x = 
         new NetworkCommandQueue(onet)
         then
+            x.SetConnectionType( Outgoing )
             let name = LocalDNS.GetHostByAddress( addr.GetAddressBytes(), true )
             x.MachineName <- if Utils.IsNull name then addr.ToString() else name
             x.Port <- port    
             x.ConnectionStatusSet <- ConnectionStatus.BeginConnect
             x.BeginConnect(addr, port)
-    //instead of overloading, use static member for clarity
+    member val internal ConnectionType = NetworkCommandQueueType.Unknown with get, set
+    // Set the connection type of the queue, if it hasn't been set before 
+    member internal x.SetConnectionType( ty: NetworkCommandQueueType ) = 
+        match x.ConnectionType with 
+        | Unknown -> 
+            match ty with 
+            | Loopback -> 
+                x.MachineName <- "Loopback"
+            | _ -> 
+                ()
+            x.ConnectionType <- ty
+        | _ -> 
+            ()    
     // 4. Constructor for loopback connect
     // caller needs to be responsible for disposing the returned NetworkCommandQueue
     static member LoopbackConnect(port : int, onet : NetworkConnections, requireAuth : bool, myguid : Guid, rsaParam : byte[]*byte[], pwd : string) =
@@ -401,7 +427,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(snd rsaParam, pwd)
                 let connList : ConcurrentDictionary<Guid, byte[]*byte[]> = x.ONet.AllowedConnections
                 connList.[myguid] <- (x.MyAuthRSA |> Crypt.RSAToPublicKey, x.MyExchangeRSA |> Crypt.RSAToPublicKey)
-            x.MachineName <- "Loopback"
+            x.SetConnectionType( Loopback )
             x.Port <- port
             socket <- new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
             if not (x.ONet.IpAddr.Equals("")) then
@@ -436,7 +462,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(snd rsaParam, pwd)
             let connList : ConcurrentDictionary<Guid, byte[]*byte[]> = x.ONet.AllowedConnections
             connList.[myguid] <- (x.MyAuthRSA |> Crypt.RSAToPublicKey, x.MyExchangeRSA |> Crypt.RSAToPublicKey)
-        x.MachineName <- "Loopback"
+        x.SetConnectionType( Loopback )
 
     static member private EndResolveDNS (addr : IPAddress, success : bool, o : obj) =
         let (x, port) = o :?> NetworkCommandQueue*int
@@ -1827,6 +1853,18 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     member x.GetAllChannels() = 
         // channelsCollection.Values :> seq<_>
         channelsCollection |> Seq.map( fun pair -> pair.Value )
+    /// Get all loopback channels 
+    member internal x.GetAllChannelsOfType( ty: NetworkCommandQueueType ) = 
+        channelsCollection |> Seq.choose( fun pair -> if pair.Value.ConnectionType = ty then 
+                                                        Some pair.Value
+                                                      else
+                                                        None )
+    /// Get all loopback channels
+    member internal x.GetLoopbackChannels() = 
+        x.GetAllChannelsOfType( NetworkCommandQueueType.Loopback )
+    /// Get all outgoing channels
+    member internal x.GetOutgoingChannels() = 
+        x.GetAllChannelsOfType( NetworkCommandQueueType.Outgoing )
     /// Monitor information
     member private x.MonitorChannels( channelLists ) = 
         Logger.LogF(NetworkConnections.ChannelMonitorLevel, fun _ -> 

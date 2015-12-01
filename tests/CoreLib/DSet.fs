@@ -264,28 +264,32 @@ type DSetTests () =
 
     [<Test(Description = "Test for DSet.execute and DSet.executeN")>]
     member x.DSetExecuteTest() =      
-        let guid = Guid.NewGuid().ToString("D") 
-        let d = DSet<_> ( Name = guid, Cluster = cluster)
+        if Prajna.Test.Common.TestEnvironment.Environment.Value.IsRemoteCluster then
+            // This test current is not designed to be ran on remote cluster
+            ()
+        else
+            let guid = Guid.NewGuid().ToString("D") 
+            let d = DSet<_> ( Name = guid, Cluster = cluster)
 
-        d |> DSet.executeN 4 (fun n ->
-                               let tmpFile = Path.Combine(Path.GetTempPath(), (sprintf "%s-%i-%i-%i.txt" guid (Process.GetCurrentProcess().Id) AppDomain.CurrentDomain.Id n))
-                               use file = File.Create(tmpFile)
-                               ()
-                             )
+            d |> DSet.executeN 4 (fun n ->
+                                   let tmpFile = Path.Combine(Path.GetTempPath(), (sprintf "%s-%i-%i-%i.txt" guid (Process.GetCurrentProcess().Id) AppDomain.CurrentDomain.Id n))
+                                   use file = File.Create(tmpFile)
+                                   ()
+                                 )
 
-        let di = new DirectoryInfo(Path.GetTempPath())
-        let files = di.GetFiles((sprintf "%s*.txt" guid))
-        Assert.IsNotEmpty(files)
-        Assert.AreEqual(cluster.NumNodes * 4, files.Length)
+            let di = new DirectoryInfo(Path.GetTempPath())
+            let files = di.GetFiles((sprintf "%s*.txt" guid))
+            Assert.IsNotEmpty(files)
+            Assert.AreEqual(cluster.NumNodes * 4, files.Length)
 
-        d |> DSet.execute (fun _ ->
-                               for i in 0..3 do
-                                let tmpFile = Path.Combine(Path.GetTempPath(), (sprintf "%s-%i-%i-%i.txt" guid (Process.GetCurrentProcess().Id) AppDomain.CurrentDomain.Id i))
-                                File.Delete(tmpFile)
-                          )
+            d |> DSet.execute (fun _ ->
+                                   for i in 0..3 do
+                                    let tmpFile = Path.Combine(Path.GetTempPath(), (sprintf "%s-%i-%i-%i.txt" guid (Process.GetCurrentProcess().Id) AppDomain.CurrentDomain.Id i))
+                                    File.Delete(tmpFile)
+                              )
 
-        let files = di.GetFiles((sprintf "%s*.txt" guid))
-        Assert.IsEmpty(files)
+            let files = di.GetFiles((sprintf "%s*.txt" guid))
+            Assert.IsEmpty(files)
 
     [<Test(Description = "Test for DSet.filter")>]
     member x.DSetFilterTest() =   
@@ -351,13 +355,19 @@ type DSetTests () =
                                 Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Test %s: to create file %s" testName path))
                                 use fs = File.Create(path)
                                 ())
-
       
-        for i in 0..(defaultDSetSize - 1) do
-            let fName = sprintf "%s-%i.txt" guid i
-            let path = Path.Combine(Path.GetTempPath(), fName)
-            Assert.IsTrue(File.Exists(path))
-            File.Delete path
+        let d2 =
+            defaultDSet 
+            |> DSet.identity
+            |> DSet.map(fun v ->  
+                                  let fName = sprintf "%s-%i.txt" guid v
+                                  let path = Path.Combine(Path.GetTempPath(), fName)
+                                  let r = if File.Exists(path) then 1 else 0
+                                  if r = 1 then File.Delete path
+                                  r)
+        let a2 = d2.ToSeq() |> Array.ofSeq 
+        Assert.AreEqual(defaultDSetSize, a2.Length)
+        a2 |> Array.iter( fun v -> Assert.AreEqual(1, v))
 
     [<Test(Description = "Test for DSet.init")>]
     member x.DSetInitTest() =  
@@ -481,12 +491,15 @@ type DSetTests () =
         Assert.AreEqual(defaultDSetSize, r.Length)
         r |> Array.sort |> Array.iteri (fun i v -> Assert.AreEqual(i * i, v))
        
-        for i in 0..(defaultDSetSize - 1) do
-            let fName = sprintf "%s-%i.txt" guid (i * i)
-            let path = Path.Combine(Path.GetTempPath(), fName)
-            Assert.IsTrue(File.Exists(path))
-            File.Delete path
-
+        let d2 =
+            d |> DSet.map(fun v -> let fName = sprintf "%s-%i.txt" guid v
+                                   let path = Path.Combine(Path.GetTempPath(), fName)
+                                   let r = if File.Exists(path) then 1 else 0
+                                   if r = 1 then File.Delete path
+                                   r)
+        let a2 = d2.ToSeq() |> Array.ofSeq 
+        Assert.AreEqual(defaultDSetSize, a2.Length)
+        a2 |> Array.iter( fun v -> Assert.AreEqual(1, v))
 
     member x.MapiTest numPartitions numRowsPerPartition sLimit (mapiFunc : DSet<int*int> -> DSet<int * int64 * (int * int)>) =
         let guid = Guid.NewGuid().ToString("D") 
@@ -1097,12 +1110,18 @@ type DSetTests () =
         Assert.AreEqual(defaultDSetSize, r0.Length)
         r0 |> Array.sort |> Array.iteri (fun i v -> Assert.AreEqual(i * i, v))
        
-        for i in 0..(ds.Length - 1) do
-            for j in 0..(defaultDSetSize - 1) do
-                let fName = sprintf "%s-%i-%i.txt" guid i (j * j)
-                let path = Path.Combine(Path.GetTempPath(), fName)
-                Assert.IsTrue(File.Exists(path))
-                File.Delete path
+        ds 
+        |> Array.iteri (fun i d -> let d2 =
+                                          d
+                                          |> DSet.map(fun v ->  
+                                                                let fName = sprintf "%s-%i-%i.txt" guid i v
+                                                                let path = Path.Combine(Path.GetTempPath(), fName)
+                                                                let r = if File.Exists(path) then 1 else 0
+                                                                if r = 1 then File.Delete path
+                                                                r)
+                                   let a2 = d2.ToSeq() |> Array.ofSeq 
+                                   Assert.AreEqual(defaultDSetSize, a2.Length)
+                                   a2 |> Array.iter( fun v -> Assert.AreEqual(1, v)))
 
     [<Test(Description = "Test: create 2 child DSets with bypass")>]
     member x.DSetBypassTest() =
@@ -1308,11 +1327,17 @@ type DSetTests () =
         Assert.AreEqual(defaultDSetSize, c)
 
         // Verify files are created 
-        for i in 0..(defaultDSetSize - 1) do
-            let fName = sprintf "%s-%i.txt" guid i
-            let path = Path.Combine(Path.GetTempPath(), fName)
-            Assert.IsTrue(File.Exists(path))
-            File.Delete path
+        let d2 =
+            d
+            |> DSet.map(fun v ->  
+                                  let fName = sprintf "%s-%i.txt" guid v
+                                  let path = Path.Combine(Path.GetTempPath(), fName)
+                                  let r = if File.Exists(path) then 1 else 0
+                                  if r = 1 then File.Delete path
+                                  r)
+        let a2 = d2.ToSeq() |> Array.ofSeq 
+        Assert.AreEqual(defaultDSetSize, a2.Length)
+        a2 |> Array.iter( fun v -> Assert.AreEqual(1, v))
 
         let d2 = d1 |> DSet.map (fun v -> v + v)
 
@@ -1326,8 +1351,16 @@ type DSetTests () =
         // Note: cacheInMemory is a hint, it does not ensure the DSet being cached. Thus strictly speaking, it's still possible
         // to trigger evaluation of transformations before the cache operation. However, in the setting of unit test, we assume
         // there are enough resource, thus the cache will always happen.
-        let files = Directory.GetFiles(Path.GetTempPath(), sprintf "%s-*.txt" guid)
-        Assert.IsEmpty(files)
+        let d3 =
+            d
+            |> DSet.map(fun v ->  
+                                  let fName = sprintf "%s-%i.txt" guid v
+                                  let path = Path.Combine(Path.GetTempPath(), fName)
+                                  let r = if File.Exists(path) then 0 else 1
+                                  r)
+        let a3 = d3.ToSeq() |> Array.ofSeq 
+        Assert.AreEqual(defaultDSetSize, a3.Length)
+        a3 |> Array.iter( fun v -> Assert.AreEqual(1, v))
 
     [<Test(Description = "Test: a DSet is reused")>]
     member x.DSetReuseTest1() = 

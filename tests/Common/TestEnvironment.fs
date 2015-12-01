@@ -16,6 +16,9 @@ type TestEnvironment private () =
 
     static let useAppDomainForDaemonsAndContainers = true
     static let clusterSize = 2
+    // To use a remote cluster, set "useRemoteCluster" to true, and provide a remote cluster list file
+    static let useRemoteCluster = false
+    static let RemoteClusterListFile = @"path-to-a-cluster-list-file"
 
     static let env = lazy(let _, minIOThs = ThreadPool.GetMinThreads()
                           // In UT, daemons/containers/app use the same process thus share the same thread pool
@@ -24,7 +27,6 @@ type TestEnvironment private () =
                           let e = new TestEnvironment()
                           AppDomain.CurrentDomain.DomainUnload.Add(fun _ -> (e :> IDisposable).Dispose())
                           e)
-
 
     do
         Environment.Init()
@@ -60,7 +62,7 @@ type TestEnvironment private () =
                    sprintf "%s -- # of TH: %i, GC Heap: %f MB, Private Memory: %f MB" 
                        msg (proc.Threads.Count) ((float (GC.GetTotalMemory(false))) / 1e6) (float proc.PrivateMemorySize64 / 1e6))
 
-    let localCluster =
+    let testCluster =
         Logger.Log( LogLevel.Info, "##### Setup LocalCluster for tests starts.... #####")
         reportProcessStatistics("Before local cluster is created")
         let sw = Stopwatch()
@@ -68,19 +70,26 @@ type TestEnvironment private () =
         DeploymentSettings.LocalClusterTraceLevel <- LogLevel.MediumVerbose
         // Sometimes the AppVeyor build VM is really slow on IO and need more time to establish the container
         DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit <- 240L
-        let cl =
-            if useAppDomainForDaemonsAndContainers then
-                Cluster(sprintf "local[%i]" clusterSize)
+
+        let useRealCluster = true
+
+        let cl = 
+            if useRemoteCluster then
+                Cluster(RemoteClusterListFile)
             else
-                let localClusterCfg = { Name = sprintf "LocalPP-%i" clusterSize
-                                        Version = (DateTime.UtcNow)
-                                        NumClients = clusterSize
-                                        ContainerInAppDomain = false
-                                        ClientPath = "PrajnaClient.exe" |> Some // Note: put the path of PrajnaClient here
-                                        NumJobPortsPerClient = 5 |> Some
-                                        PortsRange = (20000, 20011) |> Some
-                                      }
-                Cluster(localClusterCfg)
+                if useAppDomainForDaemonsAndContainers then
+                    Cluster(sprintf "local[%i]" clusterSize)
+                else
+                    let localClusterCfg = { Name = sprintf "LocalPP-%i" clusterSize
+                                            Version = (DateTime.UtcNow)
+                                            NumClients = clusterSize
+                                            ContainerInAppDomain = false
+                                            ClientPath = "PrajnaClient.exe" |> Some // Note: put the path of PrajnaClient here
+                                            NumJobPortsPerClient = 5 |> Some
+                                            PortsRange = (20000, 20011) |> Some
+                                          }
+                    Cluster(localClusterCfg)
+
         reportProcessStatistics("After local cluster is created")
         CacheService.Start(cl)
         sw.Stop()
@@ -99,7 +108,7 @@ type TestEnvironment private () =
             Logger.Log( LogLevel.Info, "##### Dispose test environment starts ..... #####") 
             reportProcessStatistics("Before closing containers")
             sw.Start()
-            CacheService.Stop(localCluster)
+            CacheService.Stop(testCluster)
             reportProcessStatistics("After closing containers")
             Prajna.Core.Environment.Cleanup()
             sw.Stop()
@@ -117,8 +126,11 @@ type TestEnvironment private () =
     override x.Finalize() = 
         dispose()
 
-    /// The local cluster for test
-    member x.LocalCluster with get() = localCluster
+    /// The cluster for test
+    member x.Cluster with get() = testCluster
+
+    /// Is cluster a remote cluster?
+    member x.IsRemoteCluster with get() = useRemoteCluster
 
     /// The test environment
     static member Environment with get() = env

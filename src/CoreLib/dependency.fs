@@ -158,7 +158,7 @@ type internal JobDependency() =
                     System.IO.File.Delete( jobLocation ) |> ignore 
                 with 
                 | e -> 
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "(May be OK) Fail to delete file %s" jobLocation )                    )
+                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "(May be OK) Fail to delete file %s: %A" jobLocation e)                    )
             if true then 
                 // copy file
                 //WriteBytesToFileCreate jobLocation (ReadBytesFromFile x.Location)

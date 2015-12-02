@@ -1640,3 +1640,19 @@ type DSetTests () =
             let sum = take (test*10)
             Assert.AreEqual( sum, test*10 )
 
+    [<Test(Description = "Repro for Issue 106")>]
+    [<Ignore("A known issue that should be fixed")>] // Remove Ignore when the bug is fixed
+    member x.DSetIssue106ReproTest() =
+        let numPartitions = 4
+        let guid = Guid.NewGuid().ToString("D")
+        let d = DSet<_> ( Name = guid, Cluster = cluster)
+               |> DSet.sourceI numPartitions (fun i -> seq { for i = 0 to 9 do 
+                                                                if i % 2 = 0 then yield true else yield false})
+
+        let r = d.ToSeq() |> Array.ofSeq |> Array.sort
+
+        Assert.IsNotEmpty(r)
+        Assert.AreEqual(numPartitions * 10, r.Length)
+        r |> Array.iteri(fun i v -> if i < r.Length / 2 then Assert.IsFalse(v) else Assert.IsTrue(v))
+
+

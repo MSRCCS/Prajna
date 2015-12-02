@@ -49,21 +49,25 @@ type CoreServiceTests () =
 
     [<Test(Description = "Start a service remotely")>]
     member x.PrajnaInstanceStart() =
-        let guid = Guid.NewGuid().ToString("D")
-        let param = WorkerRoleInstanceStartParam()
-        RemoteInstance.Start<_,_>( cluster, ("service " + guid), param, (fun _ -> Helper.RemoteFunc guid) )
+        if Prajna.Test.Common.TestEnvironment.Environment.Value.IsRemoteCluster then
+            // This test current is not designed to be ran on remote cluster
+            ()
+        else
+            let guid = Guid.NewGuid().ToString("D")
+            let param = WorkerRoleInstanceStartParam()
+            RemoteInstance.Start<_,_>( cluster, ("service " + guid), param, (fun _ -> Helper.RemoteFunc guid) )
 
-        let start = DateTime.UtcNow
-        let mutable cont = true
-        while cont do 
-            let stop = DateTime.UtcNow
-            let span = stop - start
-            if span > TimeSpan.FromMinutes(1.0) then
-                Assert.Fail("Cannot Find the expected files within 1 minute")
-            else
-                let files = Directory.GetFiles(Path.GetTempPath(), guid + "-*" )
-                if not (Array.isEmpty files) && files.Length = clusterSize then
-                    files |> Array.iter (fun f -> try File.Delete(f) with |_ -> ())
-                    cont <- false
+            let start = DateTime.UtcNow
+            let mutable cont = true
+            while cont do 
+                let stop = DateTime.UtcNow
+                let span = stop - start
+                if span > TimeSpan.FromMinutes(1.0) then
+                    Assert.Fail("Cannot Find the expected files within 1 minute")
                 else
-                    Thread.Sleep(TimeSpan.FromSeconds(1.0))
+                    let files = Directory.GetFiles(Path.GetTempPath(), guid + "-*" )
+                    if not (Array.isEmpty files) && files.Length = clusterSize then
+                        files |> Array.iter (fun f -> try File.Delete(f) with |_ -> ())
+                        cont <- false
+                    else
+                        Thread.Sleep(TimeSpan.FromSeconds(1.0))

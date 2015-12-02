@@ -282,6 +282,7 @@ and /// Information of Within Job cluster information.
             x.NodesInfo.[i] <- NodeWithInJobInfo.Unpack( ms ) 
         x
     member x.Validate( cl: Cluster ) = 
+        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ClusterJobInfo.Validate - %s:%s, %i:%i, %i:%i" x.Name cl.Name x.Version.Ticks cl.Version.Ticks x.NodesInfo.Length cl.NumNodes))
         x.Name=cl.Name && x.Version=cl.Version && x.NodesInfo.Length=cl.NumNodes
     override x.ToString() = 
         seq { 

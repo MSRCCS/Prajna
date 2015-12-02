@@ -704,8 +704,6 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
                 | None -> Path.Combine( folder, name + ".inf" )
         fname1
 
-        
-
     /// Construct the name to save the cluster info
     member x.ConstructClusterInfoFilename() = 
         ClusterInfo.ConstructClusterInfoFileNameWithVersion( x.Name, x.Version ) 
@@ -1021,10 +1019,13 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
                     match latestInfoFile with
                     | Some infoFile -> let clusterInfo, _ = ClusterInfo.Read(infoFile)
                                        match clusterInfo with
-                                       | Some info -> info.Version <- DateTime.MinValue
+                                       | Some info -> Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ClusterInfo.Persist (%s) - Read - %s:%i:%i" x.Name info.Name info.Version.Ticks (info.ListOfClients |> Array.length)))
+                                                      info.Version <- DateTime.MinValue
                                                       info = x
-                                       | None -> false
-                    | None -> false
+                                       | None -> Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ClusterInfo.Persist (%s) - Read %s failed" x.Name infoFile))
+                                                 false
+                    | None -> Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ClusterInfo.Persist (%s) - not found" x.Name))
+                              false
                 if not isSame then 
                     ClusterInfo.ConstructClusterInfoFileNameWithVersion( x.Name, DateTime.UtcNow ) |> Some
                 else 

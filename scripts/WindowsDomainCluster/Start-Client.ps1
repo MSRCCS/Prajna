@@ -83,6 +83,8 @@ $Sb = {
 
     $result = Invoke-WmiMethod -path win32_process -name create -argumentlist @($Cmd, $ClientLocation)
 
+    Start-Sleep -Seconds 1
+
     $Procs = Get-Process -Name $ClientNameWithoutExtension -ErrorAction SilentlyContinue
     if ($Procs)
     {
@@ -104,11 +106,14 @@ $Sb = {
 
 if ($Cred)
 {
-    $State = Invoke-Command -ComputerName $ComputerName -EnableNetworkAccess -Authentication CredSSP -Credential $Cred -ScriptBlock $Sb -ArgumentList @($ClientLocation, $Port, $JobPortRange, $MemorySize, $LogLevel, $LogDir, $Password, $ShutdownRunningClients)
-    Write-Output "Machine $ComputerName : Start-Client : $State"
+    $Session = New-PSSession -ComputerName $ComputerName -EnableNetworkAccess -Authentication CredSSP -Credential $Cred    
 }
 else
 {
-    $State = Invoke-Command -ComputerName $ComputerName -EnableNetworkAccess -ScriptBlock $Sb -ArgumentList @($ClientLocation, $Port, $JobPortRange, $MemorySize, $LogLevel, $LogDir, $Password, $ShutdownRunningClients)
-    Write-Output "Machine $ComputerName : Start-Client : $State"
+    $Session = New-PSSession -ComputerName $ComputerName -EnableNetworkAccess
 }
+
+$State = Invoke-Command -Session $Session -ScriptBlock $Sb -ArgumentList @($ClientLocation, $Port, $JobPortRange, $MemorySize, $LogLevel, $LogDir, $Password, $ShutdownRunningClients)
+Write-Output "Machine $ComputerName : Start-Client : $State"
+
+Remove-PSSession $Session

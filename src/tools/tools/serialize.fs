@@ -287,7 +287,20 @@ type internal SerTypeInfo(objType: Type) =
         else
             (fun obj -> ())
 
+    static member private GetSize<'T>() = sizeof<'T>
+
+    member val private Size = 
+        lazy
+            typeof<SerTypeInfo>
+                .GetMethod("GetSize", BindingFlags.Static ||| BindingFlags.NonPublic)
+                .GetGenericMethodDefinition()
+                .MakeGenericMethod(objType)
+                .Invoke(null, null) :?> int
+
+    member this.GetSize() = this.Size.Value
+
     member inline this.SerializedFields : FieldInfo[] = serializedFields.Value
+
 
 type internal TypeSerializer() =
 
@@ -345,11 +358,12 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         | _ -> failwith <| sprintf "Unknown primitive type %A" (obj.GetType())
 
     let writeMemoryBlittableArray (elType: Type, arrObj: Array, memStream: MemoryStream) =
+        let elemSize = (typeSerializer.GetSerTypeInfo elType).GetSize()
         match memStream with
             | :? BufferListStream<byte> as ms ->
-                ms.WriteArrT(arrObj, 0, arrObj.Length)
+                ms.WriteArrT(arrObj, 0, arrObj.Length, elemSize)
             | _ as memStream ->
-                let sizeInBytes = arrObj.Length * Marshal.SizeOf(elType)
+                let sizeInBytes = arrObj.Length * elemSize
                 let curPos = int memStream.Position
                 let newLen = int64 (curPos + sizeInBytes)
                 memStream.SetLength newLen
@@ -514,12 +528,13 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
         | _ -> failwith <| sprintf "Unknown primitive type %A" objType
 
     let readMemoryBlittableArray (elType: Type, arrObj: Array, memStream: MemoryStream) =
+        let elemSize = (typeSerializer.GetSerTypeInfo elType).GetSize()
         match memStream with
             | :? BufferListStream<byte> as ms ->
-                ms.ReadArrT(arrObj, 0, arrObj.Length) |> ignore
+                ms.ReadArrT(arrObj, 0, arrObj.Length, elemSize) |> ignore
             | _ as memStream ->
                 let buffer = memStream.GetBuffer()
-                let sizeInBytes = arrObj.Length * Marshal.SizeOf(elType)
+                let sizeInBytes = arrObj.Length * elemSize
                 Buffer.BlockCopy(buffer, int memStream.Position, arrObj, 0, sizeInBytes)
                 memStream.Position <- memStream.Position + int64 sizeInBytes
 

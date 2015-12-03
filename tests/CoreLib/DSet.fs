@@ -1641,7 +1641,6 @@ type DSetTests () =
             Assert.AreEqual( sum, test*10 )
 
     [<Test(Description = "Repro for Issue 106")>]
-    [<Ignore("A known issue that should be fixed")>] // Remove Ignore when the bug is fixed
     member x.DSetIssue106ReproTest() =
         let numPartitions = 4
         let guid = Guid.NewGuid().ToString("D")

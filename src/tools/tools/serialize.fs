@@ -238,7 +238,7 @@ type internal SerTypeInfo(objType: Type) =
     let serializedFields = 
         lazy 
             let bindingFlags = 
-                if (not objType.IsSerializable) && objType.IsDefined(typeof<System.Runtime.CompilerServices.CompilerGeneratedAttribute>, false) && objType.Name.Contains("<>c__DisplayClass") then
+                if objType.IsDefined(typeof<System.Runtime.CompilerServices.CompilerGeneratedAttribute>, false) && objType.Name.Contains("<>c__DisplayClass") then
                     Serialize.CSharpFuncFields
                 else
                     Serialize.AllInstance
@@ -271,8 +271,6 @@ type internal SerTypeInfo(objType: Type) =
     member inline this.IsPrimitive = objType.IsPrimitive
 
     member inline this.IsValueType = objType.IsValueType
-
-    member inline this.IsSerializable = objType.IsSerializable
 
     member val HaveSerializationCallbacks = 
         Option.isSome onSerializing || Option.isSome onSerialized 
@@ -471,41 +469,40 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         else
             let objType = obj.GetType()
             let surrogate = if surrogateSelector = null then null else surrogateSelector.GetSurrogate(objType, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
-            if surrogate <> null || objType.IsSerializable then
-                match marked.TryGetValue(obj) with
-                | true, position -> 
-                    stream.Write(byte ReferenceType.ObjectPosition)
-                    stream.Write position
-                | _ ->
-                    stream.Write(byte ReferenceType.InlineObject)
-                    let serTypeInfo = typeSerializer.GetSerTypeInfo objType
-                    typeSerializer.Serialize(serTypeInfo, stream)
-                    if surrogate <> null then
+            match marked.TryGetValue(obj) with
+            | true, position -> 
+                stream.Write(byte ReferenceType.ObjectPosition)
+                stream.Write position
+            | _ ->
+                stream.Write(byte ReferenceType.InlineObject)
+                let serTypeInfo = typeSerializer.GetSerTypeInfo objType
+                typeSerializer.Serialize(serTypeInfo, stream)
+                if surrogate <> null then
+                    marked.Add(obj, marked.Count)
+                    this.WriteSurrogateSerializedObject(surrogate, serTypeInfo.Type, obj)
+                else
+                    match obj with
+                    | :? Type as typeObj -> 
                         marked.Add(obj, marked.Count)
-                        this.WriteSurrogateSerializedObject(surrogate, serTypeInfo.Type, obj)
-                    else
-                        match obj with
-                        | :? Type as typeObj -> 
-                            marked.Add(obj, marked.Count)
-                            stream.Write typeObj.AssemblyQualifiedName
-                        | :? Array as arrObj -> 
-                            marked.Add(obj, marked.Count)
-                            this.WriteArray(objType, arrObj)
-                        | :? string as strObj ->  
-                            marked.Add(obj, marked.Count)
-                            stream.Write strObj  
-                        | :? ISerializable as customSerObj -> 
-                            // omitting marked.Add because custom serialization requires writing 
-                            // the SerInfo type before the actual object, so WriteCustomSerializedObject will do this
-                            this.WriteCustomSerializedObject(objType, customSerObj)
-                        | _ -> 
-                            marked.Add(obj, marked.Count)
-                            if serTypeInfo.HaveSerializationCallbacks then
-                                serTypeInfo.OnSerializing(obj, Serialize.theContext)
-                                this.WriteContents(serTypeInfo, obj)
-                                serTypeInfo.OnSerialized(obj, Serialize.theContext)
-                            else
-                                this.WriteContents(serTypeInfo, obj)
+                        stream.Write typeObj.AssemblyQualifiedName
+                    | :? Array as arrObj -> 
+                        marked.Add(obj, marked.Count)
+                        this.WriteArray(objType, arrObj)
+                    | :? string as strObj ->  
+                        marked.Add(obj, marked.Count)
+                        stream.Write strObj  
+                    | :? ISerializable as customSerObj -> 
+                        // omitting marked.Add because custom serialization requires writing 
+                        // the SerInfo type before the actual object, so WriteCustomSerializedObject will do this
+                        this.WriteCustomSerializedObject(objType, customSerObj)
+                    | _ -> 
+                        marked.Add(obj, marked.Count)
+                        if serTypeInfo.HaveSerializationCallbacks then
+                            serTypeInfo.OnSerializing(obj, Serialize.theContext)
+                            this.WriteContents(serTypeInfo, obj)
+                            serTypeInfo.OnSerialized(obj, Serialize.theContext)
+                        else
+                            this.WriteContents(serTypeInfo, obj)
 
 type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializer: TypeSerializer, surrogateSelector: ISurrogateSelector) as self =
 

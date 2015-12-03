@@ -3,6 +3,7 @@
 namespace Prajna.Tools.Tests
 
 open System
+open System.Linq
 open System.Collections.Generic
 open System.Runtime.Serialization
 open System.Runtime.InteropServices
@@ -276,5 +277,17 @@ module SerializationTests =
             for (k, o) in Seq.zip os.SS other.SS do
                 Assert.IsTrue <| k.NonRecursiveEquals(o)
 
+    [<AutoSerializable(false)>]
+    type MyType() =
+        member val Data1 = Array.init 10 byte
+        member val Data2 = Array.init 10 byte |> Array.rev
+        override this.Equals(other: obj) = 
+            match other with
+            | :? MyType as mt -> this.Data1 = mt.Data1 && this.Data2 = mt.Data2
+            | _ -> false
 
-
+    [<Test>]
+    let testNonSerializable() = 
+        testObject <| MyType()
+        
+    

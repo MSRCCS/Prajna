@@ -12,7 +12,7 @@ $UserName = "SomeOne"
 
 # Populate this variable with an array of machine names. 
 # It can be literls, or it can be code that generates an array of machine names from an external source (e.g. a CSV file)
-$ComputerNames =  @("OneNet19", "OneNet20")
+$ComputerNames =  @("Machine1", "Machine2")
 
 # The location of Prajna client binary
 $SourceLocation = Join-Path (Get-Location) "..\..\..\bin\Debugx64\Client"

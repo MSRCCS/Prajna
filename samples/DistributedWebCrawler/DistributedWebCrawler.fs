@@ -48,6 +48,8 @@ let Usage = "
     Usage: Distributed Web Crawler. Give a file where one of the column is a URL. The crawler will parallel launch N tasks to crawl the web and save the content to DKV. \n\
         You may choose to perform the distributed web crawl via either async workflow or tasks \n\
     Command line arguments:\n\
+    -cluster    Name of cluster used \n\
+    -clusterlst The cluster list file \n\
     -in         Copy into Prajna \n\
     -out        Copy outof Prajna \n\
     -local      Local directory. All files in the directories will be copy to (or from) remote \n\
@@ -88,6 +90,7 @@ let main orgargs =
     let args = Array.copy orgargs
     let parse = ArgumentParser(args)
     let PrajnaClusterFile = parse.ParseString( "-cluster", "" )
+    let PrajnaClusterListFile = parse.ParseString( "-clusterlst", "")
     let localdir = parse.ParseString( "-local", "" )
     let remoteDKVname = parse.ParseString( "-remote", "" )
     let bIn = parse.ParseBoolean( "-in", false )
@@ -120,7 +123,10 @@ let main orgargs =
     let bAllParsed = parse.AllParsed Usage
 
     if bAllParsed then 
-        Cluster.Start( null, PrajnaClusterFile )
+        if not (String.IsNullOrEmpty PrajnaClusterListFile) then
+            Cluster.StartCluster( PrajnaClusterListFile )
+        else
+            Cluster.StartCluster( PrajnaClusterFile )
         let cluster = Cluster.GetCurrent()
         if true then
             if bExe then 

@@ -48,6 +48,8 @@ open Prajna.Api.FSharp
 let Usage = "
     Usage: Distributed Sort. Distributedly generating random vector of bytearray and then sort the bytearray distributedly.  \n\
     Command line arguments:\n\
+    -cluster    Name of cluster used \n\
+    -clusterlst The cluster list file \n\
     -in         Copy into Prajna \n\
     -out        Copy outof Prajna \n\
     -local      Local directory. All files in the directories will be copy to (or from) remote \n\
@@ -160,6 +162,7 @@ let main orgargs =
     let args = Array.copy orgargs
     let parse = ArgumentParser(args)
     let PrajnaClusterFile = parse.ParseString( "-cluster", "" )
+    let PrajnaClusterListFile = parse.ParseString( "-clusterlst", "")
     let localdir = parse.ParseString( "-local", "" )
     let remoteDKVname = parse.ParseString( "-remote", "" )
     let nrep = parse.ParseInt( "-rep", 3 )
@@ -274,7 +277,10 @@ let main orgargs =
     let bAllParsed = parse.AllParsed Usage
 
     if bAllParsed then 
-        Cluster.Start( null, PrajnaClusterFile )
+        if not (String.IsNullOrEmpty PrajnaClusterListFile) then
+            Cluster.StartCluster( PrajnaClusterListFile )
+        else
+            Cluster.StartCluster( PrajnaClusterFile )
         let cluster = Cluster.GetCurrent()
         if true then
             if bExe then 

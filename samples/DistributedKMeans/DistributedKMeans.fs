@@ -112,6 +112,8 @@ let Usage = "
     Usage: Distributed KMeans. Distributedly generating random vector of NUM classes that conforms to Guassian distribution. Noises may be added to classes. \n\
         Perform mapreduce clustering on the vector (k-means are to be implemented) \n\
     Command line arguments:\n\
+    -cluster    Name of cluster used \n\
+    -clusterlst The cluster list file \n\
     -in         Copy into Prajna \n\
     -out        Copy outof Prajna \n\
     -local      Local directory. All files in the directories will be copy to (or from) remote \n\
@@ -319,6 +321,7 @@ let main orgargs =
     let parse = ArgumentParser(args)
     let bDistribute = parse.ParseBoolean( "-distribute", false )
     let PrajnaClusterFile = parse.ParseString( "-cluster", "" )
+    let PrajnaClusterListFile = parse.ParseString( "-clusterlst", "")
     let localdir = parse.ParseString( "-local", "" )
     let remotePatterns = parse.ParseString( "-pattern", "" )
     let remotesName = parse.ParseStrings( "-remotes", null )
@@ -372,7 +375,10 @@ let main orgargs =
         DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit <- 18000L
         JobDependencies.Current.JobDirectory <- "KmeansExt"
         Logger.Log( LogLevel.MildVerbose, ("attempt to load cluster information. "))
-        Cluster.Start( null, PrajnaClusterFile )
+        if not (String.IsNullOrEmpty PrajnaClusterListFile) then
+            Cluster.StartCluster( PrajnaClusterListFile )
+        else
+            Cluster.StartCluster( PrajnaClusterFile )
         let cluster = Cluster.GetCurrent()
         Logger.Log( LogLevel.MildVerbose, ("cluster established. "))
         JobDependencies.DefaultTypeOfJobMask <- JobTaskKind.AppDomainMask

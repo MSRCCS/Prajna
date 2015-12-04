@@ -18,7 +18,7 @@ $ComputerNames =  @("Machine1", "Machine2")
 $SourceLocation = Join-Path (Get-Location) "..\..\..\bin\Debugx64\Client"
 
 # The location where the Prajna client should be deployed on remote machines
-$ClientLocation = "C:\SomeOneDeployment\PrajnaClient"
+$ClientLocation = [IO.Path]::Combine("C:", $UserName + "Deployment", "PrajnaClient")
 
 # The port that the Prajna daemon uses
 $Port = 1005
@@ -52,7 +52,7 @@ $WebCrawlerUrlList = "image.list"
 # each line of the file contains tab separated information. The (WebCrawlerKey)th column contaisn the URL to be crawled. 
 $WebCrawlerKey = 4
 
-# The directory that contains log for DistributedLogAnalysis to analyze
+# The directory on remote machines that contains log for DistributedLogAnalysis to analyze
 $LogDirForAnalysis = "C:\Prajna\Log"
 
 ##############################################################################

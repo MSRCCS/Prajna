@@ -200,3 +200,6 @@ paket-files
 .paket/paket.exe
 docs/content/license.md
 docs/content/release-notes.md
+
+# make sure local customization would not be checked in accidentally
+scripts/WindowsDomainCluster/tests/Config.ps1

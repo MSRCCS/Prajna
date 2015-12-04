@@ -18,7 +18,7 @@ $ComputerNames =  @("Machine1", "Machine2")
 $SourceLocation = Join-Path (Get-Location) "..\..\..\bin\Debugx64\Client"
 
 # The location where the Prajna client should be deployed on remote machines
-$ClientLocation = [IO.Path]::Combine("C:", $UserName + "Deployment", "PrajnaClient")
+$ClientLocation = [IO.Path]::Combine("C:\", $UserName + "Deployment", "PrajnaClient")
 
 # The port that the Prajna daemon uses
 $Port = 1005

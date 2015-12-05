@@ -200,7 +200,11 @@ type internal ClientLauncher() =
         let allLogFiles = logdirInfo.GetFiles()
         let sortedLogFiles = allLogFiles |> Array.sortBy( fun fileinfo -> fileinfo.CreationTimeUtc.Ticks )
         for i=0 to sortedLogFiles.Length-DeploymentSettings.LogFileRetained do
-            sortedLogFiles.[i].Delete()    
+            try
+                sortedLogFiles.[i].Delete()    
+            with
+                // It's possible that a machine runs more than one clients, as a result, some log files may be still accessed by another client
+                | :? IOException -> Logger.Log( LogLevel.MediumVerbose, (sprintf "Cannot delete log file %s" sortedLogFiles.[i].FullName ))
 
         let PrajnaMasterFile = parse.ParseString( "-master", "" )
         let masterInfo = 

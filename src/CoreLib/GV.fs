@@ -1755,7 +1755,7 @@ type internal AggregateFunction<'K>( func: 'K -> 'K -> 'K ) =
             elif Utils.IsNotNull O1 then
                 O1
             else
-                Unchecked.defaultof<_>()
+                Unchecked.defaultof<_>
         wrapperFunc func )
     member val FoldStateFunc = func with get
 

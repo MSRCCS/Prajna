@@ -672,6 +672,7 @@ type internal ThreadTracking private () as this =
             let param = ThreadStartParam( thread, nameFunc(), action, cancelFunc, threadAffinity  )
             thread.Start( param )
             ThreadTracking.TrackingThreads.Enqueue( (thread, nameFunc(), cancelFunc, threadAffinity) )  
+            Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "Tracked thread started: id = %i, name = %s" thread.ManagedThreadId (nameFunc())) 
             thread
         else
             let msg = sprintf "ThreadTracking, launching a thread when CloseAllActiveThreads have been called ."

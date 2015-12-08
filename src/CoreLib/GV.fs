@@ -929,7 +929,10 @@ type internal JobInformation( jobID: Guid, bIsMainProject: bool, dSetName: strin
         ex.Data.Add( "@Partition", sprintf "%s(part: %d)" locinfo parti)
         let jobLifeCycleObj = JobLifeCycleCollectionContainer.TryFind( jobID )
         if Utils.IsNotNull jobLifeCycleObj then 
-            jobLifeCycleObj.CancelByException( ex )    
+            Logger.LogF( jobLifeCycleObj.JobID, LogLevel.Info, fun _ -> sprintf "At %s, partition %d encounter exception during execution, to cancel Job, exception: %A" locinfo parti ex)
+            jobLifeCycleObj.CancelByException( ex )
+        else
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "At %s, partition %d encounter exception during execution, JobLifeCycle object is not found, exception: %A" locinfo parti ex)
 
     /// Partition Failure
     /// A certain partition has failed to execute. 

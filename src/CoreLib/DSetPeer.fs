@@ -1441,13 +1441,14 @@ and [<AllowNullLiteral>]
                     let finalMeta = BlobMetadata( parti, Int64.MaxValue, !nSomeError + 1 )
                     pushChunkFunc( finalMeta, null )
                 with 
-                | e ->
-                    let msg = sprintf "Error in SyncReadChunk, with exception %A, stack %A " e (StackTrace (0, true))
-                    Logger.Log( LogLevel.Error, msg )
-                    if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
-                        use msError = new MemStream( 1024 )
-                        msError.WriteString( msg ) 
-                        x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+                | ex ->
+//                    let msg = sprintf "Error in SyncReadChunk, with exception %A, stack %A " ex (StackTrace (0, true))
+//                    Logger.Log( LogLevel.Error, msg )
+//                    if Utils.IsNotNull x.HostQueue && x.HostQueue.CanSend then 
+//                        use msError = new MemStream( 1024 )
+//                        msError.WriteString( msg ) 
+//                        x.HostQueue.ToSend( ControllerCommand( ControllerVerb.Error, ControllerNoun.Message ), msError )
+                    jbInfo.PartitionFailure( ex, "SyncReadChunk", parti )
                 null, true
         )
 

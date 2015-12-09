@@ -52,6 +52,7 @@ module SerializationTests =
     let testExplicitLayoutArray() = 
         let mutable p1 = new Point()
         p1.Rho <- 1.0f
+        let p1 = p1
         testObject <| Array.concat (Array.init 5 (fun _ -> [|p1; new Point()|]))
         
     [<Test>]

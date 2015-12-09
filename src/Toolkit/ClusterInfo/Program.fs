@@ -1,6 +1,7 @@
 // Learn more about F# at http://fsharp.net
 // See the 'F# Tutorial' project for more help.
 open System
+open System.IO
 open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.StringTools
@@ -10,6 +11,8 @@ open System.Text.RegularExpressions
 
 [<EntryPoint>]
 let main argv = 
+    MemoryStreamB.InitSharedPool()
+
     let parse = ArgumentParser(argv)
     let outputClusterFile = parse.ParseString( "-outcluster", "" )
     let inputClusterFiles = parse.ParseStrings( "-incluster", [||] )
@@ -91,7 +94,16 @@ let main argv =
                                 Some(Array.sub info.ListOfClients start (stop-start+1)))
             |> Seq.concat
             |> Seq.toArray
-        clusterInfo.Save(outputClusterFile)
+        if (File.Exists outputClusterFile) then
+            Console.Write("File {0} exists, overwrite:", outputClusterFile)
+            let resp = Console.ReadLine()
+            if (resp.ToLower().[0] = 'y') then
+                File.Delete(outputClusterFile)
+                clusterInfo.Save(outputClusterFile)
+            else
+                Console.WriteLine("File exists, not saving")
+        else
+            clusterInfo.Save(outputClusterFile)
 
     0 // return an integer exit code
 

@@ -125,9 +125,9 @@ and /// For backward dependency, trace back on what other DStream/DObject that t
     /// Each upstream DSet should have the same number of partitions. 
     /// CorrelatedMix should only be used in pull dataflow. 
     | CorrelatedMixFrom of System.Collections.Generic.List<DependentDSet>
-    /// UnionFrom mix multiple upstream DSet, the downstream DSet has number of partitions equal to the sum of all partitions of upstream DSet. 
-    /// Union should only be used in pull dataflow. 
-    | UnionFrom of System.Collections.Generic.List<DependentDSet>
+    /// MergeFrom mix multiple upstream DSet, the downstream DSet has number of partitions equal to the sum of all partitions of upstream DSet. 
+    /// Merge should only be used in pull dataflow. 
+    | MergeFrom of System.Collections.Generic.List<DependentDSet>
     /// MixInNode: the upper parents send information through repartitioning function, doesn't across networkk
     | MixFrom of DependentDSet
     /// Wild Mix: the upper parents sends information through repartitioning function, may cross network 
@@ -152,9 +152,9 @@ and internal DSetForwardDependency =
     /// Each upstream DSet should have the same number of partitions. 
     /// CorrelatedMix should only be used in pull dataflow. 
     | CorrelatedMixTo of DependentDSet
-    /// UnionTo mix multiple upstream DSet, the downstream DSet has number of partitions equal to the sum of all partitions of upstream DSet. 
-    /// Union should only be used in pull dataflow. 
-    | UnionTo of DependentDSet
+    /// MergeTo mix multiple upstream DSet, the downstream DSet has number of partitions equal to the sum of all partitions of upstream DSet. 
+    /// Merge should only be used in pull dataflow. 
+    | MergeTo of DependentDSet
     /// Mix within node, the upper parents send information through repartitioning function, doesn't across networkk
     | MixTo of DependentDSet
     /// Wild Mix: the upper parents sends information through repartitioning function, may cross network 
@@ -348,7 +348,7 @@ and [<Serializable; AllowNullLiteral>]
         match x.Dependency with  
         | CorrelatedMixFrom parents ->
             UseParent parents.[0]
-        | UnionFrom parents -> 
+        | MergeFrom parents -> 
             let parentObjects = parents |> Seq.map ( fun o -> o:> DependentDObject )
             AggregateParents (parentObjects)            
         | MixFrom oneParent
@@ -493,7 +493,7 @@ and [<Serializable; AllowNullLiteral>]
                                     let y = oneParent.TargetDSet
                                     x.ContentKey  <- (y.ContentKey)
                                 | CorrelatedMixFrom parents 
-                                | UnionFrom parents -> 
+                                | MergeFrom parents -> 
                                     ()
                                 | Bypass ( parent, brothers) -> 
                                     let y = parent.TargetDSet
@@ -595,10 +595,10 @@ and [<Serializable; AllowNullLiteral>]
                 x.Version <- oneParent.TargetDSet.Version
             if Utils.IsNotNull x.Mapping then 
                 x.bValidMetadata <- true
-        | UnionFrom parents -> 
+        | MergeFrom parents -> 
             x.GetMapping() |> ignore
             if not x.bVersionSet then 
-                // Version of the union is the maximum of all unioned DSets. 
+                // Version of the merge is the maximum of all merged DSets. 
                 x.Version <- DateTime.MinValue            
                 for pa in parents do 
                     if x.Version < pa.TargetDSet.Version then 
@@ -786,7 +786,7 @@ and [<Serializable; AllowNullLiteral>]
                 6, Seq.singleton ( pstream :> DependentDObject )
             | MixFrom parent -> 
                 7, Seq.singleton ( parent :> DependentDObject )
-            | UnionFrom parents -> 
+            | MergeFrom parents -> 
                 8, parents |> Seq.map ( fun x -> x :> DependentDObject )
             | StandAlone ->            
                 0, Seq.empty
@@ -829,7 +829,7 @@ and [<Serializable; AllowNullLiteral>]
                 x.Dependency <- MixFrom depDSetArray.[0]
             | 8 -> 
                 let depDSetArray = depDObjectArray |> Array.map( fun x -> DependentDSet(x) ) 
-                x.Dependency <- UnionFrom (List<_>( depDSetArray ))
+                x.Dependency <- MergeFrom (List<_>( depDSetArray ))
             | 9 -> 
                 let depDSetArray = depDObjectArray |> Array.map( fun x -> DependentDSet(x) ) 
                 x.Dependency <- HashJoinFrom ( depDSetArray.[0], depDSetArray.[1] )
@@ -875,7 +875,7 @@ and [<Serializable; AllowNullLiteral>]
                 6, seq [ child :> DependentDObject; cstream :> DependentDObject ]
             | CorrelatedMixTo ( child ) -> 
                 7, Seq.singleton ( child :> DependentDObject )
-            | UnionTo ( child ) -> 
+            | MergeTo ( child ) -> 
                 8, Seq.singleton ( child :> DependentDObject )
             | Discard ->
                 0, Seq.empty
@@ -914,7 +914,7 @@ and [<Serializable; AllowNullLiteral>]
             | 7 -> 
                 x.DependencyDownstream <- CorrelatedMixTo (DependentDSet( depDObjectArray.[0] ))
             | 8 -> 
-                x.DependencyDownstream <- UnionTo (DependentDSet( depDObjectArray.[0] ))
+                x.DependencyDownstream <- MergeTo (DependentDSet( depDObjectArray.[0] ))
             | 9 -> 
                 x.DependencyDownstream <- HashJoinTo (DependentDSet( depDObjectArray.[0] ))
             | 10 -> 
@@ -931,7 +931,7 @@ and [<Serializable; AllowNullLiteral>]
                                          "Source"; 
                                          "DecodeFrom"; 
                                          "MixFrom";
-                                         "UnionFrom"; 
+                                         "MergeFrom"; 
                                          "HashJoinFrom";
                                          "CrossJoinFrom" |] with get
     static member val internal DownStreamInfo = [| "Discard"; 
@@ -942,7 +942,7 @@ and [<Serializable; AllowNullLiteral>]
                                            "MixTo";
                                            "WildMixTo";
                                            "CorrelatedMixTo";
-                                           "UnionTo";
+                                           "MergeTo";
                                            "HashJoinTo";
                                            "CrossJoinTo" |] with get
     /// Setup Dependency hash
@@ -2134,7 +2134,7 @@ and [<Serializable; AllowNullLiteral>]
             dep.TargetDSet.ResetForRead( queue ) 
             pstream.TargetStream.ResetForRead(  )
         | CorrelatedMixFrom parents 
-        | UnionFrom parents->
+        | MergeFrom parents->
             for dep in parents do 
                 let parentDSet = dep.TargetDSet
                 if Utils.IsNotNull parentDSet then 
@@ -2168,7 +2168,7 @@ and [<Serializable; AllowNullLiteral>]
     member private x.PreBeginImpl( jbInfo, direction ) = 
         x.BasePreBegin( jbInfo, direction )
         match x.Dependency with 
-        | UnionFrom parents -> 
+        | MergeFrom parents -> 
             for pa in parents do 
                 let parentDSet = pa.TargetDSet
                 parentDSet.GetMapping() |> ignore
@@ -2363,7 +2363,7 @@ and [<Serializable; AllowNullLiteral>]
                         null, true
                     | CacheBlocked handle -> 
                         handle, false
-                | UnionFrom parents -> 
+                | MergeFrom parents -> 
                     let parenti, parentpart = x.MappingPartitionToParent.[ parti ] 
                     let parentDSet = parents.[parenti].TargetDSet
                     let wrapperFunc( meta, elemObject ) = 
@@ -2720,7 +2720,7 @@ and [<Serializable; AllowNullLiteral>]
                                                                    x.Name x.VersionString (meta.ToString()) ))
                 // Signal the end of the stream. 
                 childStream.SyncExecuteDownstream jbInfo parti meta null
-        | UnionTo oneChild
+        | MergeTo oneChild
         | CorrelatedMixTo oneChild 
         | HashJoinTo oneChild 
         | CrossJoinTo oneChild -> 
@@ -2743,7 +2743,7 @@ and [<Serializable; AllowNullLiteral>]
         | SaveTo _
         | EncodeTo _ 
         | CorrelatedMixTo _
-        | UnionTo _ 
+        | MergeTo _ 
         | HashJoinTo _ 
         | CrossJoinTo _ ->
             () 

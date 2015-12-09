@@ -197,7 +197,7 @@ type internal JobTraveseFromSource() =
                     | DecodeFrom parentStream -> 
                         Some dset.bValidMetadata 
                     | CorrelatedMixFrom parents 
-                    | UnionFrom parents -> 
+                    | MergeFrom parents -> 
                         let mutable bTraverese = true
                         let mutable bAllDependAvailable = true
                         for pa in parents do 
@@ -250,7 +250,7 @@ type internal JobTraveseFromSource() =
                 | MixTo child
                 | Passforward child 
                 | CorrelatedMixTo child 
-                | UnionTo child 
+                | MergeTo child 
                 | HashJoinTo child 
                 | CrossJoinTo child -> 
                     x.AddOneToFutureExamine( child.Target )
@@ -328,7 +328,7 @@ type internal JobTraverseBase() =
                         x.TraverseAllObjectsWDirection direction allObj pa0.Target action
                         x.TraverseAllObjectsWDirection direction allObj pa1.Target action
                     | CorrelatedMixFrom parents 
-                    | UnionFrom parents ->
+                    | MergeFrom parents ->
                         for parent in parents do 
                             x.TraverseAllObjectsWDirection direction allObj parent.Target action
                     | Bypass ( parent, brothers ) -> 
@@ -346,7 +346,7 @@ type internal JobTraverseBase() =
                     | MixTo child 
                     | Passforward child 
                     | CorrelatedMixTo child 
-                    | UnionTo child 
+                    | MergeTo child 
                     | HashJoinTo child
                     | CrossJoinTo child -> 
                         x.TraverseAllObjectsWDirection direction allObj child.Target action
@@ -414,7 +414,7 @@ type internal JobTraverseBase() =
                     | CrossJoinFrom (parent, _ ) -> 
                          x.FindDObject direction parent.Target action
                     | CorrelatedMixFrom parents 
-                    | UnionFrom parents -> 
+                    | MergeFrom parents -> 
                          x.FindDObject direction parents.[0].Target action
                     | DecodeFrom parent -> 
                          x.FindDObject direction parent.Target action
@@ -426,7 +426,7 @@ type internal JobTraverseBase() =
                     | WildMixTo ( child, _ )
                     | Passforward child 
                     | CorrelatedMixTo child 
-                    | UnionTo child 
+                    | MergeTo child 
                     | HashJoinTo child 
                     | CrossJoinTo child -> 
                         x.FindDObject direction child.Target action
@@ -2258,7 +2258,7 @@ and
                     dset.ReplicateBaseMetadata( parent.TargetDSet )
                     dset.bValidMetadata <- true
                 | CorrelatedMixFrom parents 
-                | UnionFrom parents ->
+                | MergeFrom parents ->
                     let parent = parents.[0]
                     dset.ReplicateBaseMetadata( parent.TargetDSet )
                     dset.bValidMetadata <- true

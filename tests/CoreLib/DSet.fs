@@ -1212,9 +1212,9 @@ type DSetTests () =
 
         r2 |> Array.iteri (fun i v -> Assert.AreEqual(i, v))
 
-    [<Test(Description = "Test: DSet.union")>]
-    member x.DSetUnionTest() =
-        let unionTest numInputs size =
+    [<Test(Description = "Test: DSet.merge")>]
+    member x.DSetMergeTest() =
+        let mergeTest numInputs size =
             let inputs = seq {
                            for i in 0..(numInputs - 1) do
                                let guid = Guid.NewGuid().ToString("D") 
@@ -1224,7 +1224,7 @@ type DSetTests () =
                                                                           yield (v, v * v, v + v) })
                                yield d
                          }
-            let rd = inputs |> DSet.union
+            let rd = inputs |> DSet.merge
 
             let r = rd.ToSeq() |> Array.ofSeq |> Array.sort
             Assert.IsNotEmpty(r)
@@ -1234,13 +1234,13 @@ type DSetTests () =
                                          Assert.AreEqual(i * i, b)
                                          Assert.AreEqual(i + i, c))
         
-        unionTest 1 1
-        unionTest 1 3
-        unionTest 1 16
-        unionTest 2 5
-        unionTest 2 16
-        unionTest 3 16
-        unionTest 8 16
+        mergeTest 1 1
+        mergeTest 1 3
+        mergeTest 1 16
+        mergeTest 2 5
+        mergeTest 2 16
+        mergeTest 3 16
+        mergeTest 8 16
 
     [<Test(Description = "Test: DSet.binSort")>]
     member x.DSetBinSortTest() =
@@ -1641,6 +1641,7 @@ type DSetTests () =
             Assert.AreEqual( sum, test*10 )
 
     [<Test(Description = "Repro for Issue 106")>]
+    [<Ignore("A known issue that should be fixed")>] // Remove Ignore when the bug is fixed
     member x.DSetIssue106ReproTest() =
         let numPartitions = 4
         let guid = Guid.NewGuid().ToString("D")

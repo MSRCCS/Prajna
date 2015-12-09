@@ -118,8 +118,8 @@ let Usage = "
     -out        Copy outof Prajna \n\
     -local      Local directory. All files in the directories will be copy to (or from) remote \n\
     -remote     Name of the DKV\n\
-    -remotes    Name of the multiple DKVs (to be unioned together)\n\
-    -patterns   Name of the multiple DKVs (in pattern to be searched and unioned together)\n\
+    -remotes    Name of the multiple DKVs (to be merged together)\n\
+    -patterns   Name of the multiple DKVs (in pattern to be searched and merged together)\n\
     -ver V      Select a particular DKV with Version string: in format yyMMdd_HHmmss.fff \n\
     -rep REP    Number of Replication \n\
     -slimit S   # of record to serialize \n\
@@ -562,10 +562,10 @@ let main orgargs =
                     elif Utils.IsNotNull remotesName && remotesName.Length > 0 then 
                         let dkvs0 = remotesName |> Array.map ( fun name -> DSet<_>( Name = name, PeerRcvdSpeedLimit = rcvdSpeedLimit ) )
                         let dkvs = dkvs0 |> Array.map ( fun dkv -> DSet.loadSource dkv )
-                        DSet.union dkvs
+                        DSet.merge dkvs
                     elif Utils.IsNotNull remotePatterns && remotePatterns.Length > 0 then  
                         let dkvs = DSet.tryFind cluster remotePatterns 
-                        DSet<_>.union dkvs
+                        DSet<_>.merge dkvs
                     else
                         let msg = sprintf "Need to supply a DKV name via either -remote, -remotes or -pattern"
                         failwith msg

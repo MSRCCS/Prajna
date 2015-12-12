@@ -23,7 +23,14 @@ type TestEnvironment private () =
     static let env = lazy(let _, minIOThs = ThreadPool.GetMinThreads()
                           // In UT, daemons/containers/app use the same process thus share the same thread pool
                           // make the min thread a bit higher 
-                          ThreadPool.SetMinThreads(Environment.ProcessorCount * 4, minIOThs) |> ignore
+                          if not Runtime.RunningOnMono then
+                              ThreadPool.SetMinThreads(Environment.ProcessorCount * 4, minIOThs) |> ignore
+                          else
+                              // Mono uses thread pool threads to wait for WaitHandles given to ThreadPool.RegisterWaitForSingleObject (CLR does not)
+                              // Also it seems under the pattern of repeatedly RegisterWait->wakeup->RegisterWait, Mono uses more thread pool threads and these threads do not 
+                              // quickly become available for new work items. 
+                              // As a result, a higher MinThreads threshold is needed (especially for tests)
+                              ThreadPool.SetMinThreads(Environment.ProcessorCount * 16, minIOThs) |> ignore
                           let e = new TestEnvironment()
                           AppDomain.CurrentDomain.DomainUnload.Add(fun _ -> (e :> IDisposable).Dispose())
                           e)
@@ -58,9 +65,11 @@ type TestEnvironment private () =
         GC.Collect()
         GC.WaitForPendingFinalizers()
         let proc = Process.GetCurrentProcess()
+        let maxThreads, maxIOThreads = ThreadPool.GetMaxThreads()
+        let availThreads, availIOThreads = ThreadPool.GetAvailableThreads()
         Logger.Log(LogLevel.Info, 
-                   sprintf "%s -- # of TH: %i, GC Heap: %f MB, Private Memory: %f MB" 
-                       msg (proc.Threads.Count) ((float (GC.GetTotalMemory(false))) / 1e6) (float proc.PrivateMemorySize64 / 1e6))
+                   sprintf "%s -- # of TH: %i, (%i, %i) ThreadPool THs, GC Heap: %f MB, Private Memory: %f MB" 
+                       msg (proc.Threads.Count) (maxThreads - availThreads) (maxIOThreads - availIOThreads) ((float (GC.GetTotalMemory(false))) / 1e6) (float proc.PrivateMemorySize64 / 1e6))
 
     let testCluster =
         Logger.Log( LogLevel.Info, "##### Setup LocalCluster for tests starts.... #####")

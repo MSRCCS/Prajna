@@ -391,13 +391,28 @@ module internal Process =
         else
             false
 
+    let private ItemCount = ref 0
+    let private AppDomainName = System.AppDomain.CurrentDomain.FriendlyName
+
+    let inline ReportThreadPoolWorkItem (info: unit -> string, shouldInc : bool) = 
+        Logger.Do(LogLevel.WildVerbose, fun _ ->
+            let ret =
+                if shouldInc then
+                    System.Threading.Interlocked.Increment(ItemCount)
+                else 
+                    System.Threading.Interlocked.Decrement(ItemCount)
+            let maxThreads, maxIOThreads = System.Threading.ThreadPool.GetMaxThreads()
+            let availThreads, availIOThreads = System.Threading.ThreadPool.GetAvailableThreads()
+            Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "%s: (%i, %i) ThreadPool THs, (%s: %i items)" (info()) (maxThreads - availThreads) (maxIOThreads - availIOThreads) AppDomainName ret)
+        )
+
     let ReportSystemThreadPoolStat () =
         let minThreads, minIOThreads = ThreadPool.GetMinThreads()
         let maxThreads, maxIOThreads = ThreadPool.GetMaxThreads()
         let availThreads, availIOThreads = ThreadPool.GetAvailableThreads()
-        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Minimum threads: %d Minimum I/O completion threads: %d" minThreads minIOThreads)
-        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Maximum threads: %d Maximum I/O completion threads: %d" maxThreads maxIOThreads)
-        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Available threads: %d Available I/O completion threads: %d" availThreads availIOThreads)
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Minimum threads: %d, Minimum I/O completion threads: %d" minThreads minIOThreads)
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Maximum threads: %d, Maximum I/O completion threads: %d" maxThreads maxIOThreads)
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Available threads: %d, Available I/O completion threads: %d" availThreads availIOThreads)
 
 
 type internal ExecutionMode = 
@@ -670,7 +685,9 @@ type internal ThreadTracking private () as this =
             thread.Name <- "PrajnaTrackedThread"
             // Storing name, instead of function as some parameter of the nameFunc() may not be available at the end of the thread. 
             let param = ThreadStartParam( thread, nameFunc(), action, cancelFunc, threadAffinity  )
+            Logger.LogF(LogLevel.WildVerbose, (fun _ -> sprintf "Start a tracked thread: %s" (nameFunc())))
             thread.Start( param )
+            Logger.LogF(LogLevel.WildVerbose, (fun _ -> sprintf "Started a tracked thread: %s" (nameFunc())))
             ThreadTracking.TrackingThreads.Enqueue( (thread, nameFunc(), cancelFunc, threadAffinity) )  
             Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "Tracked thread started: id = %i, name = %s" thread.ManagedThreadId (nameFunc())) 
             thread
@@ -1213,26 +1230,31 @@ type internal ThreadPoolWait() =
             let rwh = ThreadPool.RegisterWaitForSingleObject( handle, new WaitOrTimerCallback(ThreadPoolWait.CallBack), (infoFunc,handle,continuation,unblockHandle,jobObject) , -1, true )
             waitHandleCollection.Item(jobObject) <- ( rwh, infoFunc, ref DateTime.MinValue.Ticks, handle )
     static member private CallBack( state: Object ) (timeout:bool) = 
-        if not timeout then
-            try
-                let infoFunc,handle,continuation,unblockHandle,jobObject = state :?> ((unit->string)*WaitHandle*(unit->unit)*EventWaitHandle*Object)
-                continuation() 
-                if Utils.IsNotNull unblockHandle  then 
-                    // If there is an unblock handle, set it. 
-                    unblockHandle.Set() |> ignore  
-                let bExist, tuple = waitHandleCollection.TryGetValue( jobObject )
-                if bExist then 
-                    let rwh, _, _, _ = tuple 
-                    rwh.Unregister(null) |> ignore 
-                    waitHandleCollection.TryRemove( jobObject ) |> ignore 
-                else
-                    rwhToRemove.Enqueue( jobObject )
-            with 
-            | ex -> 
-                Logger.LogF( LogLevel.Error, fun _ -> sprintf "ThreadPoolWait.Callback, exception: %A" ex )
-                reraise()
-        else
-            failwith "ThreadPoolWait.Callback, timeout path reached (impossible execution route)"
+        try
+            Process.ReportThreadPoolWorkItem( (fun _ -> "Start execute as callback for RegisterWaitForSingleObject 2"), true)
+            if not timeout then
+                try
+                    let infoFunc,handle,continuation,unblockHandle,jobObject = state :?> ((unit->string)*WaitHandle*(unit->unit)*EventWaitHandle*Object)
+                    continuation() 
+                    if Utils.IsNotNull unblockHandle  then 
+                        // If there is an unblock handle, set it. 
+                        unblockHandle.Set() |> ignore  
+                    let bExist, tuple = waitHandleCollection.TryGetValue( jobObject )
+                    if bExist then 
+                        let rwh, _, _, _ = tuple 
+                        rwh.Unregister(null) |> ignore 
+                        waitHandleCollection.TryRemove( jobObject ) |> ignore 
+                    else
+                        rwhToRemove.Enqueue( jobObject )
+                with 
+                | ex -> 
+                    Logger.LogF( LogLevel.Error, fun _ -> sprintf "ThreadPoolWait.Callback, exception: %A" ex )
+                    reraise()
+            else
+                failwith "ThreadPoolWait.Callback, timeout path reached (impossible execution route)"
+        finally
+            Process.ReportThreadPoolWorkItem(( fun _ -> "End execute as callback for RegisterWaitForSingleObject 2"), false)
+
     static member private ToUnregister(o:Object) = 
         let requeue = List<_>()        
         while not rwhToRemove.IsEmpty do
@@ -2322,11 +2344,12 @@ type internal ExecuteUponOnce() =
             (!refWork).Invoke()     
             
 /// <summary> 
+/// Note: this lock-free version was not implemented correctly. Kept the code for future investigation
 /// ExecuteEveryTrigger holds a collection of delegate, each of the delegate will be called once when Trigger() is called by one parameter 'U. 
 /// We keep track of Trigger parameter 'U until a grace period (default 1sec). After 1sec after the class is constructed, we don't keep track of 'U that is beein called before, to release
 /// reference point hold by 'U.  
 /// </summary>
-type internal ExecuteEveryTrigger<'U>(traceLevel) = 
+type private ExecuteEveryTriggerIncorrect<'U>(traceLevel) = 
     // After grace period (1s), all executed works are dequeued to release memory. 
     let gracePeriodTicks = (PerfADateTime.UtcNowTicks()) + TimeSpan.TicksPerSecond 
     let toExecuteWorks = ConcurrentDictionary<'U, _>()
@@ -2341,14 +2364,14 @@ type internal ExecuteEveryTrigger<'U>(traceLevel) =
         for pair in pendingWorks do 
             let del = pair.Key
             let infoFunc = pair.Value
-            dic.TryAdd( del, infoFunc ) |> ignore
+            dic.TryAdd( del, infoFunc ) |> ignore        
         x.TryTrigger()
     /// <summary> 
     /// Register a delegate with of Action &lt;'U>
     /// </summary> 
     /// <param name="del"> Action &lt;'U> to be called when Trigger() is called </param>
     /// <param name="infoFunc"> An informational functional delegate that provides trace information on the Action delegate registered </param>
-    member x.Add( del: Action<'U>, infoFunc: unit->string ) = 
+    member x.Add( del: Action<'U>, infoFunc: unit->string ) =         
         pendingWorks.Item( del ) <- infoFunc
         for pair in toExecuteWorks do 
             let param = pair.Key
@@ -2377,6 +2400,63 @@ type internal ExecuteEveryTrigger<'U>(traceLevel) =
                 if dic.IsEmpty then 
                     toExecuteWorks.TryRemove( param ) |> ignore
                     Logger.LogF(traceLevel, ( fun _ -> sprintf "ExecuteEveryTrigger, done all actions on %s." (pTrigger()) ))
+
+/// <summary> 
+/// Note: this lock-free version was not implemented correctly. Kept the code for future investigation
+/// ExecuteEveryTrigger holds a collection of delegate, each of the delegate will be called once when Trigger() is called by one parameter 'U. 
+/// We keep track of Trigger parameter 'U until a grace period (default 1sec). After 1sec after the class is constructed, we don't keep track of 'U that is beein called before, to release
+/// reference point hold by 'U.  
+/// </summary>
+type internal ExecuteEveryTrigger<'U when 'U : equality>(traceLevel) = 
+    let toExecuteWorks = Dictionary<'U, _>()
+    let pendingWorks = Dictionary<_, _>()
+    /// <summary> 
+    /// Trigger the delegate collection once, with a certain trigger function. 
+    /// </summary> 
+    member x.Trigger( param: 'U, paramTrigger: unit->string ) = 
+        lock (x) ( fun _ ->
+                    let curTuple = paramTrigger, Dictionary<_, unit->string>()
+                    toExecuteWorks.Item( param) <- curTuple
+                    let _, dic = curTuple
+                    for pair in pendingWorks do 
+                        let del = pair.Key
+                        let infoFunc = pair.Value
+                        if not (dic.ContainsKey( del )) then
+                            dic.Add( del, infoFunc ) |> ignore
+                    x.TryTrigger()
+        )
+    /// <summary> 
+    /// Register a delegate with of Action &lt;'U>
+    /// </summary> 
+    /// <param name="del"> Action &lt;'U> to be called when Trigger() is called </param>
+    /// <param name="infoFunc"> An informational functional delegate that provides trace information on the Action delegate registered </param>
+    member x.Add( del: Action<'U>, infoFunc: unit->string ) =     
+        lock (x) (fun _ ->
+                    pendingWorks.Item( del ) <- infoFunc
+                    for pair in toExecuteWorks do 
+                        let _, dic = pair.Value
+                        dic.Item( del ) <- infoFunc
+                    x.TryTrigger()
+        )
+    /// <summary> 
+    /// Register a delegate with of Action &lt;'U>
+    /// </summary> 
+    /// <param name="del"> Action &lt;'U> to be called when Trigger() is called </param>
+    /// <param name="info"> A string that provides trace information on the Action delegate registered </param>
+    member x.Add( del: Action<'U>, info: string ) = 
+        x.Add( del, fun _ -> info ) 
+    member internal x.TryTrigger() = 
+       for pair in toExecuteWorks do 
+           let param = pair.Key
+           let pTrigger, dic = pair.Value
+           for pair in dic do 
+               let del = pair.Key
+               let exists, iFunc = dic.TryGetValue( del )
+               if exists then
+                   del.Invoke( param ) 
+                   Logger.LogF(traceLevel, ( fun _ -> sprintf "ExecuteEveryTrigger.Trigger, execute %s on %s once" (iFunc()) (pTrigger()) ))
+           dic.Clear()
+
         
 /// SingleCreation<'U> holds a single object 'U, and garantees that the creation function and destroy function is only called once. 
 /// At time of init, the class garantees that initFunc will be called once to create the instance. At the time of 

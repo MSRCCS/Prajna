@@ -289,7 +289,7 @@ and [<AllowNullLiteral>]
                         let nodeInfo = JobListeningPortManagement.Current.Use( x.SignatureName ) 
                         if Utils.IsNotNull nodeInfo then 
                             let proc = Process.GetCurrentProcess()
-                            let clientInfo = sprintf "-clientId %i -clientModuleName %s -clientStartTimeTicks %i" proc.Id proc.MainModule.ModuleName proc.StartTime.Ticks
+                            let clientInfo = sprintf "-clientId %i -clientModuleName %s -clientStartTimeTicks %i" proc.Id DeploymentSettings.MainModuleModuleName proc.StartTime.Ticks
                             let mutable cmd_line = sprintf "-job %s -ver %d -ticks %d -loopback %d -jobport %d -mem %d -logdir %s -verbose %d %s" x.SignatureName x.SignatureVersion executeTicks DeploymentSettings.ClientPort nodeInfo.ListeningPort DeploymentSettings.MaxMemoryLimitInMB DeploymentSettings.LogFolder (int (Prajna.Tools.Logger.DefaultLogIdLogLevel)) clientInfo
                             if DeploymentSettings.StatusUseAllDrivesForData then 
                                 cmd_line <- "-usealldrives " + cmd_line
@@ -299,7 +299,7 @@ and [<AllowNullLiteral>]
                             let (requireAuth, guid, rsaParam, rsaPwd) = Cluster.Connects.GetAuthParam()
                             if (requireAuth) then
                                 cmd_line <- sprintf "%s -auth %b -myguid %s -rsakeyauth %s -rsakeyexch %s -rsapwd %s" cmd_line requireAuth (guid.ToString("N")) (Convert.ToBase64String(fst rsaParam)) (Convert.ToBase64String(snd rsaParam)) rsaPwd
-                            let curPath = Process.GetCurrentProcess().MainModule.FileName
+                            let curPath = DeploymentSettings.MainModuleFileName
                             let parentDir = Directory.GetParent( Path.GetDirectoryName( curPath ) )
                             let masterExecutable, masterConfig = 
                                 match executeTypeOf with 
@@ -3808,8 +3808,11 @@ type internal ContainerLauncher() =
         // When such operation was performed on thread pool thread, it can hold a pool thread being unusable. 
         // Pool needs to be able to launch new threads quickly. To allevaite such scenarios, adjust the min thread 
         // for pool to be higher
-        let _, minIoThs = ThreadPool.GetMinThreads()
-        ThreadPool.SetMinThreads(Environment.ProcessorCount * 2, minIoThs) |> ignore
+        // Mono Note: Make the threshold higher given Mono's thread pool behavior
+        let minThs, minIoThs = ThreadPool.GetMinThreads()
+        let expectedMinThs = if Runtime.RunningOnMono then Environment.ProcessorCount * 4 else Environment.ProcessorCount * 2
+        let newMinThs = Math.Max(expectedMinThs, minThs)
+        ThreadPool.SetMinThreads(newMinThs, minIoThs) |> ignore
 
     //    DeploymentSettings.ClientPort <- port
         let memory_size = parse.ParseInt64( "-mem", (DeploymentSettings.MaxMemoryLimitInMB) )
@@ -3818,7 +3821,7 @@ type internal ContainerLauncher() =
     // Need to first write a line to log, otherwise, MakeFileAccessible will fails. 
     // Logger.Log( LogLevel.Info,  sprintf "Logging in New AppDomain...................... %s, %d MB " DeploymentSettings.PlatformFlag (DeploymentSettings.MaximumWorkingSet>>>20)  )
         Logger.Log( LogLevel.Info, ( sprintf "%s executing in new Executable Environment ...................... %s, %d MB " 
-                                                   (Process.GetCurrentProcess().MainModule.FileName) DeploymentSettings.PlatformFlag (DeploymentSettings.MaxMemoryLimitInMB) ))
+                                                   (DeploymentSettings.MainModuleFileName) DeploymentSettings.PlatformFlag (DeploymentSettings.MaxMemoryLimitInMB) ))
         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Current working directory <-- %s " (Directory.GetCurrentDirectory()) ))
 
         let argsToLog = Array.copy orgargv

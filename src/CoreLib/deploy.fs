@@ -84,6 +84,11 @@ type DeploymentSettings() =
                     // exclude system drive for data storage
                     [| KeyValuePair(systemDrive, true) |]
 
+    // Somehow when Prajna is running in Mono on Linux. the "GetCurrentProcess().MainModule" takes seconds to return, cache the result here
+    static let mainModule = System.Diagnostics.Process.GetCurrentProcess().MainModule
+    static member val internal MainModuleFileName = mainModule.FileName
+    static member val internal MainModuleModuleName = mainModule.ModuleName
+
     /// Running on Mono
     static member val internal RunningOnMono = Runtime.RunningOnMono
     /// Control the launch of container in Debug or Release mode. 

@@ -398,18 +398,6 @@ let runTests (target:string) =
     try
         let pattern = String.Format(testAssemblies, target)
         !! pattern
-#if MONO
-        // With Mono-4.0, if pass multiple test assemblies to nunit-console it throws an NullReferenceException
-        // So, for Mono, we invoke nunit-console multiple times, each time just pass it one assembly
-        |> Seq.iteri (fun i testAsm -> printfn "test suite: %s" testAsm
-                                       seq { yield testAsm }
-                                       |> NUnit (fun p ->
-                                           { p with
-                                               DisableShadowCopy = true
-                                               TimeOut = TimeSpan.FromMinutes 20.
-                                               OutputFile = sprintf "TestResults_%s_%d.xml" target i})
-                    )
-#else
         |> NUnit (fun p ->
             { p with
                 DisableShadowCopy = true
@@ -417,7 +405,6 @@ let runTests (target:string) =
                 Domain = SingleDomainModel
                 TimeOut = TimeSpan.FromMinutes 20.
                 OutputFile = sprintf "TestResults_%s.xml" target})    
-#endif
     finally
         // Kill nunit-agent.exe if it is alive (it can sometimes happen when the test timeouts)
         let mutable cnt = 0;

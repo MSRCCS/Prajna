@@ -148,6 +148,12 @@ let replaceCrLfWithLf file =
    if String.Compare(content, newContent, StringComparison.InvariantCulture) <> 0 then
        File.WriteAllText(file, newContent)
 
+// Remove the UTF-8 BOM (EF BB BF) from file
+let removeBom file = 
+    let bytes = File.ReadAllBytes(file)
+    if bytes.Length > 2 && bytes.[0] = 0xEFuy && bytes.[1] = 0xBBuy && bytes.[2] = 0xBFuy then
+        File.WriteAllBytes(file, bytes |> Seq.skip 3 |> Array.ofSeq)
+
 // Generate assembly info files with the right version & up-to-date information
 Target "AssemblyInfo" (fun _ ->
     let getAssemblyInfoAttributes projectName =
@@ -179,6 +185,7 @@ Target "AssemblyInfo" (fun _ ->
             | Vbproj -> CreateVisualBasicAssemblyInfo, ((folderName @@ "My Project") @@ "AssemblyInfo.vb")
         createAssemblyInfoFunc asmInfoFile attributes
         replaceCrLfWithLf asmInfoFile
+        removeBom asmInfoFile
         )
 )
 

@@ -1276,12 +1276,15 @@ type internal DepositFunctionWrapper<'U0, 'U>() as x =
     member val DepositBuffer = null with get, set
     member x.DepositOneReset() = 
         x.BufferInitialized := 0
-        x.DepositBuffer <- null       
+        // x.DepositBuffer <- null       
     member x.DepositOneInitAll() = 
         if Utils.IsNull x.DepositBuffer then 
             if Interlocked.CompareExchange( x.BufferInitialized, 1, 0 )=0 then 
-                x.DepositBuffer <- ConcurrentDictionary<_,_>()
-                true
+                if Utils.IsNull x.DepositBuffer then
+                    x.DepositBuffer <- ConcurrentDictionary<_,_>()
+                    true
+                else
+                    false
             else
                 false
         else

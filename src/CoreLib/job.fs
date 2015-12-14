@@ -1201,7 +1201,7 @@ and
             x.LaunchIDName <- curJob.JobName
         else
             // x.LaunchIDName <- signature name // deprecated, we will use the name of the current executable as job name, if not specified. 
-            x.LaunchIDName <- Path.GetFileName( System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName )
+            x.LaunchIDName <- Path.GetFileName( DeploymentSettings.MainModuleFileName )
         Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Generate job launch signature, %d assemblies, hash = %s" 
                                                                            x.Assemblies.Count
                                                                            (x.LaunchIDVersion.ToString("X")) ))
@@ -2074,7 +2074,7 @@ and
             // JinL: This logic of computing Job Directory needs to change & include assemblies. 
             // add remaining assemblies that are not in job dependencies
             let jobDirectory = if StringTools.IsNullOrEmpty curJob.JobDirectory then 
-                                    Path.GetFileNameWithoutExtension( System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName )
+                                    Path.GetFileNameWithoutExtension( DeploymentSettings.MainModuleFileName )
                                 else
                                     curJob.JobDirectory                                   
             x.JobDirectory <- Path.Combine(jobDirectory, BytesToHex(x.AssemblyHash))
@@ -2311,7 +2311,7 @@ and
         x.PropagateMetadata() 
 
     /// Calculate dependent DSet & mark availability. 
-    member x.UpdateSourceAvailability() = 
+    member x.UpdateSourceAvailability(emitLog) = 
         if bFailureToGetSrcMetadata then 
             ()
         else
@@ -2349,7 +2349,8 @@ and
                         ()
                 bAllSrcAvailable <- bAllAvaialble
                 if bAllSrcAvailable then 
-                    Logger.LogF(DeploymentSettings.TraceLevelBlobRcvd, ( fun _ -> sprintf "Job %s:%s all local metadata available .... %A" x.Name x.VersionString x.AvailThis ))
+                    if emitLog then
+                        Logger.LogF(DeploymentSettings.TraceLevelBlobRcvd, ( fun _ -> sprintf "Job %s:%s all local metadata available .... %A" x.Name x.VersionString x.AvailThis ))
                     // let bReturn = x.CalculateDependantDSet()
                     let bReturn = x.UpdateMetadata() 
                     if bReturn then 
@@ -2469,6 +2470,7 @@ and
                 failwith "Fail to secure job Action object, job already cancelled?"
             else
                 try 
+                    let mutable iterCnt = 0
                     while not bAllSynced && clock.ElapsedTicks < (!maxWait) && not bFailureToGetSrcMetadata && not jobAction.IsCancelledAndThrow do 
                         bIOActivity := false
                         // Process feedback
@@ -2550,12 +2552,13 @@ and
                         // Check if job related information is available. 
                         x.UpdateClusterJobInfo() 
                         // Check if Src DSet information is received. 
-                        x.UpdateSourceAvailability()
+                        x.UpdateSourceAvailability(iterCnt % 256 = 0)
                         if !bIOActivity then 
                             // Reset clock for any io activity
                             maxWait := clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    
                         elif not jobAction.IsCancelledAndThrow then 
                             Threading.Thread.Sleep(5)
+                        iterCnt <- iterCnt + 1
                     if not bAllSynced && not bFailureToGetSrcMetadata && not jobAction.IsCancelledAndThrow then
                         // the above loop is exited due to time out
                         let errorMsg = sprintf "Unable to establish remote containers within %i seconds" (DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit)
@@ -2579,6 +2582,7 @@ and
             let mutable bAllPeerConfirmed = false
             let mutable numConfirmedStart = 0
 
+            let mutable iterCnt = 0
             while jobStage < JobStage.Termination && clock.ElapsedTicks<maxWait && not bAllPeerConfirmed do 
                 bIOActivity <- false
                 bAllPeerConfirmed <- true
@@ -2603,7 +2607,8 @@ and
                                     )
                                     x.UpdateOutgoingQueueStatus peeri (|||) (PerQueueJobStatus.StartJob)
                                     bIOActivity <- true
-                        Logger.LogF( x.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Job Start Status for peer %d: outgoing queue - %A, launch mode - %A " peeri (x.GetOutgoingQueueStatus(peeri)) x.LaunchMode))
+                        if iterCnt % 256 = 0 then
+                            Logger.LogF( x.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Job Start Status for peer %d: outgoing queue - %A, launch mode - %A " peeri (x.GetOutgoingQueueStatus(peeri)) x.LaunchMode))
                         if (x.GetOutgoingQueueStatus(peeri) &&& PerQueueJobStatus.ConfirmStart)<>PerQueueJobStatus.None || 
                             x.LaunchMode = TaskLaunchMode.DonotLaunch then 
                             numConfirmedStart <- numConfirmedStart + 1
@@ -2614,6 +2619,7 @@ and
                             else
                                 // peer failed, job may still start
                                 Logger.LogF( x.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Job Start Status for peer %d: failed, but job may still start " peeri))
+                        iterCnt <- iterCnt + 1
                 if bIOActivity then 
                     // Reset clock for any io activity
                     maxWait <- clock.ElapsedTicks + clockFrequency * DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit    

@@ -119,9 +119,11 @@ type [<AbstractClass>] NetUtils() =
         try
             let asyncOper = sock.ReceiveAsync(e)
             if (not asyncOper && (0 = e.BytesTransferred)) then
+                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Recv %d bytes from %s， asyncOper %A, socketError: %A, close" e.BytesTransferred (sock.RemoteEndPoint.ToString()) asyncOper e.SocketError))
                 (true, asyncOper)
                 //(false, asyncOper)
             else
+                Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Recv from %s， asyncOper %A, socketError: %A" (sock.RemoteEndPoint.ToString()) asyncOper e.SocketError))
                 (false, asyncOper)
         with ex ->
             //Logger.LogF(LogLevel.Error, fun _ -> sprintf "Socket %A encounters exception %A error %A" sock.RemoteEndPoint ex e.SocketError)
@@ -135,10 +137,11 @@ type [<AbstractClass>] NetUtils() =
         try
             let asyncOper = sock.SendAsync(e)
             if (not asyncOper && (0 = e.BytesTransferred)) then
-                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Send %d bytes to %s， asyncOper %A, socketError: %A" e.BytesTransferred (sock.RemoteEndPoint.ToString()) asyncOper e.SocketError))
+                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Send %d bytes to %s， asyncOper %A, socketError: %A, close" e.BytesTransferred (sock.RemoteEndPoint.ToString()) asyncOper e.SocketError))
                 //(true, asyncOper)
                 (false, asyncOper)
             else
+                Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> sprintf "Send to %s， asyncOper %A, socketError: %A" (sock.RemoteEndPoint.ToString()) asyncOper e.SocketError))
                 (false, asyncOper)
         with ex ->
             //Logger.LogF(LogLevel.Error, fun _ -> sprintf "Socket %A encounters exception %A error %A" sock.RemoteEndPoint ex e.SocketError)
@@ -1020,32 +1023,40 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         threadPool.TryExecute()
 
     // thread pool using system thread pool
-    static member internal StartOnSystemThreadPool(processFunc : unit->ManualResetEvent*bool) (finishCb : Option<unit->unit>) =
+    static member internal StartOnSystemThreadPool (tpKey: 'TP) (processFunc : unit->ManualResetEvent*bool) (finishCb : Option<unit->unit>) =
         let waitAndContinue (o : obj) (bTimeOut : bool) =
-            let (rwh, handle, registrationCompleted, func) = o :?> RegisteredWaitHandle ref*ManualResetEvent*ManualResetEventSlim*WaitCallback
-            if (not bTimeOut) then
-                System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
-                registrationCompleted.Wait()
-                (!rwh).Unregister(null) |> ignore
-                registrationCompleted.Dispose()
+            try
+                Process.ReportThreadPoolWorkItem((fun _ -> sprintf "%A start execute as callback for RegisterWaitForSingleObject 1" tpKey), true)
+                let (rwh, handle, registrationCompleted, func) = o :?> RegisteredWaitHandle ref*ManualResetEvent*ManualResetEventSlim*WaitCallback
+                if (not bTimeOut) then
+                    System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
+                    registrationCompleted.Wait()
+                    (!rwh).Unregister(null) |> ignore
+                    registrationCompleted.Dispose()
+            finally
+                Process.ReportThreadPoolWorkItem(( fun _ -> sprintf "%A end execute as callback for RegisterWaitForSingleObject 1" tpKey), false)
 
         let wrappedFunc (o : obj) : unit =
-            let func = o :?> WaitCallback
-            let (event, finish) = processFunc()
-            if (not finish) then
-                if (Utils.IsNotNull event) then
-                    let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
-                    let registrationCompleted = new ManualResetEventSlim(false)
-                    rwh := ThreadPool.RegisterWaitForSingleObject(event, waitAndContinue, (rwh, event, registrationCompleted, func), -1, true)
-                    registrationCompleted.Set()
+            try
+                Process.ReportThreadPoolWorkItem(( fun _ -> sprintf "%A start execute as a user work item" tpKey), true)
+                let func = o :?> WaitCallback
+                let (event, finish) = processFunc()
+                if (not finish) then
+                    if (Utils.IsNotNull event) then
+                        let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
+                        let registrationCompleted = new ManualResetEventSlim(false)
+                        rwh := ThreadPool.RegisterWaitForSingleObject(event, waitAndContinue, (rwh, event, registrationCompleted, func), -1, true)
+                        registrationCompleted.Set()
+                    else
+                        // queue again if not finished
+                        System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
                 else
-                    // queue again if not finished
-                    System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
-            else
-                match finishCb with
-                    | None -> ()
-                    | Some(cb) -> cb()
-                    
+                    match finishCb with
+                        | None -> ()
+                        | Some(cb) -> cb()
+            finally
+                Process.ReportThreadPoolWorkItem((fun _ -> sprintf "%A end execute as a user work item" tpKey), false)
+
         // start the work
         let wc = new WaitCallback(wrappedFunc)
         System.Threading.ThreadPool.QueueUserWorkItem(wc, wc) |> ignore
@@ -1102,7 +1113,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         lock (lockObj) (fun _ ->
             proc <- Component.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
             compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-            Component<'T>.StartOnSystemThreadPool proc None
+            Component<'T>.StartOnSystemThreadPool tpKey proc None
             //Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
             //Component<'T>.StartProcessOnOwnThread proc tpKey finishCb infoFunc
             //Prajna.Tools.ThreadPool.Current.AddWorkItem(proc, None, infoFunc(tpKey))
@@ -1120,7 +1131,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                         (infoFunc : 'TP -> string) =
         let compBase = new ComponentBase()
         compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        Component<'T>.StartOnSystemThreadPool func None
+        Component<'T>.StartOnSystemThreadPool tpKey func None
         //Component<'T>.StartOnThreadPool threadPool func cts tpKey infoFunc
         //Component<'T>.StartProcessOnOwnThread func tpKey finishCb infoFunc
         //Prajna.Tools.ThreadPool.Current.AddWorkItem(func, None, infoFunc(tpKey))

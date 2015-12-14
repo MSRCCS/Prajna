@@ -180,7 +180,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
         let e = (sa.Elem :?> RefCntBufSA).SA
         e.UserToken <- x
         eSendFinished.Reset() |> ignore
-        //Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Start send %d bytes" e.Count )
+        Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "Start send %d bytes" e.Count )
         x.SendCounter <- x.SendCounter + 1L
         let dataSent = NetUtils.SendOrClose(xConn, GenericConn.FinishSendBuf, e)
         if (dataSent) then

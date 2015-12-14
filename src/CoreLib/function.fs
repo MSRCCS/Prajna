@@ -1292,7 +1292,9 @@ type internal DepositFunctionWrapper<'U0, 'U>() as x =
         x.DepositOneInitAll() |> ignore
     member internal x.DepositBlob parenti (meta, o:Object ) = 
         let uArray = if Utils.IsNull o then null else ( CastFunction<'U0>.CastTo o )
-        x.DepositBuffer.Item( parenti ) <- ( meta, uArray )
+        let buffer = x.DepositBuffer
+        if Utils.IsNotNull buffer then
+            buffer.Item( parenti ) <- ( meta, uArray )
 
 [<AllowNullLiteral; Serializable>]
 type internal CrossJoinChooseFunctionWrapper<'U0,'U1,'U>(mapFunc: 'U0->'U1->'U option) as x =

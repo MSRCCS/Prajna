@@ -180,29 +180,32 @@ type NaiveBayes() =
         let foldPrajna, mapReducePrajna = trainAndTime cluster name "Prajna formatter" trainSet
 
         do setGenericSerializer GenericSerialization.BinaryFormatterGuid cluster
-        let foldDotNet, mapReduceDotNet = trainAndTime cluster (name + "-BinaryFormatter") "Binary formatter" trainSet
+        try
+            let foldDotNet, mapReduceDotNet = trainAndTime cluster (name + "-BinaryFormatter") "Binary formatter" trainSet
 
-        // All versions should yield the exact same result.
-        // As can be seen above, even though the algorithm *can* be expressed as map-reduce,
-        // it is simpler and more natural as a fold.
-        let areEqual = // true
-            let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
-            let transpose (xs: 'a[][]) =
-                let numCols = xs.[0].Length
-                [| for j in 0..(numCols-1) -> Array.init xs.Length (fun i -> xs.[i].[j]) |]
+            // All versions should yield the exact same result.
+            // As can be seen above, even though the algorithm *can* be expressed as map-reduce,
+            // it is simpler and more natural as a fold.
+            let areEqual = // true
+                let dictToMap (dict: Dictionary<_,_>) = seq {for kvPair in dict -> kvPair.Key, kvPair.Value} |> Map.ofSeq
+                let transpose (xs: 'a[][]) =
+                    let numCols = xs.[0].Length
+                    [| for j in 0..(numCols-1) -> Array.init xs.Length (fun i -> xs.[i].[j]) |]
             
-            [| foldPrajna; mapReducePrajna; foldDotNet; mapReduceDotNet |]
-            |> transpose
-            |> Seq.map (fun (counts: Counts[]) -> 
-                async {
-                    let firstMap = dictToMap counts.[0]
-                    return (counts.[1..] |> Array.forall (dictToMap >> (=) firstMap))
-                })
-            |> Async.Parallel
-            |> Async.RunSynchronously
-            |> Seq.forall id
-        printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
-        areEqual
+                [| foldPrajna; mapReducePrajna; foldDotNet; mapReduceDotNet |]
+                |> transpose
+                |> Seq.map (fun (counts: Counts[]) -> 
+                    async {
+                        let firstMap = dictToMap counts.[0]
+                        return (counts.[1..] |> Array.forall (dictToMap >> (=) firstMap))
+                    })
+                |> Async.Parallel
+                |> Async.RunSynchronously
+                |> Seq.forall id
+            printfn "Model comparison result: %s" (if areEqual then "Equal" else "Different")
+            areEqual
+        finally
+            setGenericSerializer GenericSerialization.PrajnaFormatterGuid cluster
             
     // Call this to test prediction accuracy on large dataset, but not during unit test
     let evaluate (trainSet: string[]) (testSet: string[]) (counts: Dictionary<string, int>[]) =

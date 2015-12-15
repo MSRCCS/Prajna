@@ -400,6 +400,7 @@ let runTests (target:string) =
         !! pattern
         |> NUnit (fun p ->
             { p with
+                ExcludeCategory = "Performance"
                 DisableShadowCopy = true
                 ProcessModel = SeparateProcessModel
                 Domain = SingleDomainModel

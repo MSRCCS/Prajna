@@ -419,29 +419,47 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         | _ -> writeOtherValueTypeArray
 
     let writeObjectArray(arrObj: Array, lowerBounds: int[], lengths: int[]) = 
-        let inc = Serialize.incrementIndex lowerBounds lengths
-        let indices = Array.copy lowerBounds
-        if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
-            self.WriteObject(arrObj.GetValue(indices))
-            while not <| inc indices do
-                self.WriteObject (arrObj.GetValue(indices))
+        if lowerBounds.Length = 1 && lowerBounds.[0] = 0 then
+            (arrObj :?> obj[]) |> Array.iter self.WriteObject
+        else
+            let inc = Serialize.incrementIndex lowerBounds lengths
+            let indices = Array.copy lowerBounds
+            if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
+                self.WriteObject(arrObj.GetValue(indices))
+                while not <| inc indices do
+                    self.WriteObject (arrObj.GetValue(indices))
 
     let intArrayTypeInfo = typeSerializer.GetSerTypeInfo(typeof<int[]>)
+    let zeroLowerBound : int[] = Array.zeroCreate 1
 
     member private this.WriteArray (arrayTypeInfo: SerTypeInfo, arrObj: Array) =
-        // TODO: Support higher rank and non-zero-based arrays
-        stream.Write arrObj.Rank
-        let lowerBounds : int[] = Array.init arrObj.Rank arrObj.GetLowerBound
-        let lengths : int[] = Array.init arrObj.Rank arrObj.GetLength
-        writePrimitiveArray(intArrayTypeInfo, [|0|], [|lowerBounds.Length|], lowerBounds)
-        writePrimitiveArray(intArrayTypeInfo, [|0|], [|lengths.Length|], lengths)
+        let rank = arrObj.Rank
+        stream.Write rank
         let elType = arrayTypeInfo.Type.GetElementType()
-        if elType.IsPrimitive then
-            writePrimitiveArray(arrayTypeInfo, lowerBounds, lengths, arrObj)
-        elif elType.IsValueType then 
-            writeValueArray(elType, lowerBounds, lengths, arrObj)
-        else 
-            writeObjectArray(arrObj, lowerBounds, lengths)
+        if rank = 1 && arrObj.GetLowerBound(0) = 0 then
+            stream.Write 0
+            stream.Write arrObj.Length
+            if elType.IsPrimitive then
+                writePrimitiveArray(arrayTypeInfo, null, null, arrObj)
+            else
+                let lengths : int[] = Array.zeroCreate 1 
+                lengths.[0] <- arrObj.Length
+                if elType.IsValueType then 
+                    writeValueArray(elType, zeroLowerBound, lengths, arrObj)
+                else 
+                    writeObjectArray(arrObj, zeroLowerBound, lengths)
+        else
+            let lowerBounds : int[] = Array.init arrObj.Rank arrObj.GetLowerBound
+            let lengths : int[] = Array.init arrObj.Rank arrObj.GetLength
+            writePrimitiveArray(intArrayTypeInfo, null, null, lowerBounds)
+            writePrimitiveArray(intArrayTypeInfo, null, null, lengths)
+            
+            if elType.IsPrimitive then
+                writePrimitiveArray(arrayTypeInfo, lowerBounds, lengths, arrObj)
+            elif elType.IsValueType then 
+                writeValueArray(elType, lowerBounds, lengths, arrObj)
+            else 
+                writeObjectArray(arrObj, lowerBounds, lengths)
 
     member private this.WriteContents (objType: SerTypeInfo, obj: obj) = 
         for field in objType.SerializedFields do 
@@ -478,13 +496,15 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         if obj = null then
             stream.Write(byte ReferenceType.Null)
         else
-            let objType = obj.GetType()
-            let surrogate = if surrogateSelector = null then null else surrogateSelector.GetSurrogate(objType, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
             match marked.TryGetValue(obj) with
             | true, position -> 
                 stream.Write(byte ReferenceType.ObjectPosition)
                 stream.Write position
             | _ ->
+                let objType = obj.GetType()
+                let surrogate = 
+                    if surrogateSelector = null then null 
+                    else surrogateSelector.GetSurrogate(objType, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
                 stream.Write(byte ReferenceType.InlineObject)
                 let serTypeInfo = typeSerializer.GetSerTypeInfo objType
                 typeSerializer.Serialize(serTypeInfo, stream)
@@ -518,6 +538,7 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
 type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializer: TypeSerializer, surrogateSelector: ISurrogateSelector) as self =
 
     let onDeserializationList = List<IDeserializationCallback>()
+    let delayedSetList = List<IObjectReference * (obj -> unit)>()
 
     let readPrimitive (objType: Type) : obj = 
         match Type.GetTypeCode(objType) with
@@ -592,11 +613,27 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
         let inc = Serialize.incrementIndex lowerBounds lengths
         let indices = Array.copy lowerBounds
         if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
-            let obj = self.ReadObject(reader, marked)
-            arrObj.SetValue(obj, indices)
+            let setValue() =
+                // We might be called just once, with the actual value, which will happen most often
+                // or twice, once with null and once with the actual value, which will happen rarely.
+                // We never get called with null twice because the the second call is always 
+                // with the result of an IObjectReference.GetRealObject(), and it doesn't make
+                // sense to return an IObjectReference to null.
+                // If we are called with null, we need to copy the indices array, since it's value
+                // will continue changing for other elements.
+                // If we are called with a non-null and we were never called with null before
+                // (we know it from indicesCopy.IsValueCreated), then we just use the original indices.
+                // If we are called with a non-null and we were called before, then we use the copy.
+                let indicesCopy = lazy Array.copy indices
+                fun obj ->
+                    match obj, indicesCopy.IsValueCreated with
+                    | null, false -> indicesCopy.Force() |> ignore
+                    | null, true -> failwith "We are only supposed to be called with null once." // arrObj.SetValue(obj, indicesCopy.Value)
+                    | obj, false -> arrObj.SetValue(obj, indices)
+                    | obj, true -> arrObj.SetValue(obj, indicesCopy.Value) 
+            self.ReadObject(reader, marked, setValue())
             while not <| inc indices do
-                let obj = self.ReadObject(reader, marked)
-                arrObj.SetValue(obj, indices)
+                self.ReadObject(reader, marked, setValue())
 
     let DeserConstructorArgTypes = [| typeof<SerializationInfo>; typeof<StreamingContext> |]
 
@@ -622,59 +659,78 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                 do this.ReadContents(typeSerializer.GetSerTypeInfo fieldType, &newValue)
                 field.SetValue(obj, newValue)
             else
-                let newValue = this.ReadObject(reader, marked)
-                field.SetValue(obj, newValue)
+                let myObj = obj
+                this.ReadObject(reader, marked, fun newValue -> field.SetValue(myObj, newValue))
 
-    member private this.ReadSerializationInfo(deserType: Type) : SerializationInfo =
+    member private this.ReadSerializationInfo(deserType: Type) : SerializationInfo  =
         let deserInfo = SerializationInfo(deserType, Serialize.theConverter)
         let numFields = reader.ReadInt32()
         for _ in 1..numFields do
-            let name = this.ReadObject(reader, marked) :?> string
-            let value = this.ReadObject(reader, marked)
-            if value <> null then
-                deserInfo.AddValue(name, value, value.GetType())
+            this.ReadObject(reader, marked, function 
+                | :? string as name -> 
+                    this.ReadObject(reader, marked, 
+                        fun value ->
+                            if value <> null then
+                                deserInfo.AddValue(name, value, value.GetType()))
+                | _ -> failwith "Expecting field name to be a string" )
         deserInfo
 
     member this.ReadSurrogateSerializedObject(surrogate: ISerializationSurrogate, objType: Type, obj: obj) : unit =
         let serInfo = this.ReadSerializationInfo objType
         surrogate.SetObjectData(obj, serInfo, Serialize.theContext, null) |> ignore
 
-    member private this.ReadCustomSerializedObject() : obj =
-        let ty = this.ReadObject(reader, marked)
-        let deserType = ty :?> Type
-        let mutable newObj = FormatterServices.GetUninitializedObject(deserType)
-        if newObj = null then
-            failwith <| sprintf "Failed to create unintialized instance of %A." deserType
-        let refPosition = marked.Count
-        marked.Add newObj
-        let deserInfo = this.ReadSerializationInfo deserType
-        let deserConstructor = deserType.GetConstructor(Serialize.AllInstance, null, DeserConstructorArgTypes, null)
-        deserConstructor.Invoke( newObj, [| deserInfo; Serialize.theContext |]) |> ignore
-        match newObj with
-        | :? IDeserializationCallback as cb -> onDeserializationList.Add(cb)
-        | _ -> ()
-        match newObj with
-        | :? IObjectReference as objRef -> 
-            let realObject = objRef.GetRealObject(Serialize.theContext)
-            match realObject with
+    member private this.ReadCustomSerializedObject(k : obj -> unit) : unit =
+        this.ReadObject(reader, marked, fun ty ->
+            let deserType = ty :?> Type
+            let mutable newObj = FormatterServices.GetUninitializedObject(deserType)
+            if newObj = null then
+                failwith <| sprintf "Failed to create unintialized instance of %A." deserType
+            let refPosition = marked.Count
+            marked.Add newObj
+            let deserInfo = this.ReadSerializationInfo deserType
+            let deserConstructor = deserType.GetConstructor(Serialize.AllInstance, null, DeserConstructorArgTypes, null)
+            deserConstructor.Invoke( newObj, [| deserInfo; Serialize.theContext |]) |> ignore
+            match newObj with
             | :? IDeserializationCallback as cb -> onDeserializationList.Add(cb)
-            | _ -> () 
-            marked.[refPosition] <- realObject
-            realObject
-        | _ -> 
-            marked.[refPosition] <- newObj
-            newObj
+            | _ -> ()
+            match newObj with
+            | :? IObjectReference as objRef -> 
+                let realObject = objRef.GetRealObject(Serialize.theContext)
+                match realObject with
+                | :? IDeserializationCallback as cb -> onDeserializationList.Add(cb)
+                | _ -> () 
+                marked.[refPosition] <- realObject
+                k realObject
+            | _ -> 
+                marked.[refPosition] <- newObj
+                k newObj
+        )
 
-    member private this.ReadObject (reader: BinaryReader, marked: List<obj>) : obj =
+    // Due to circular IObjectReferences generated by C# Func custom serialization, 
+    // and the fact that we want to keep using a simple recursive strategy, we need to use
+    // Continuation Passing Style (CPS) to deserialize (either that or change the deserialization
+    // code structure completely, storing first-class FieldInfo and array positions explicity,
+    // which would be more complex and slower).
+    // This means that instead of returning the deserialized object, we take a continuation k
+    // as the last parameter, and call it instead of returning an object.
+    // Normally the continuation is called only once with the "return" value. But when the "return"
+    // is an IObjectReference (i.e.: the object is not fully deserialized), it is called twice:
+    // once with null, and second time at the end, after all objects have been deserialized, 
+    // with objectReference.GetRealObject(). The null call is needed in case the receiver
+    // needs to store some state for the second call. In our case, arrays deserializers need to
+    // store a copy of the indices array so they can insert the real object in the right position later.
+    member private this.ReadObject (reader: BinaryReader, marked: List<obj>, k: obj -> unit) : unit =
         let tag = LanguagePrimitives.EnumOfValue<byte, ReferenceType>(reader.ReadByte()) 
         match tag with
-        | ReferenceType.Null -> null
+        | ReferenceType.Null -> k null
         | ReferenceType.ObjectPosition -> 
             let pos = reader.ReadInt32()
             let obj = marked.[pos]
             match obj with
-            | :? IObjectReference as objRef -> objRef.GetRealObject(Serialize.theContext)
-            | _ -> obj
+            | :? IObjectReference as objRef -> 
+                delayedSetList.Add(objRef, k)
+                k null
+            | _ -> k obj
         | ReferenceType.InlineObject ->
             let serType = typeSerializer.Deserialize(reader)
             let surrogate = if surrogateSelector = null then null else surrogateSelector.GetSurrogate(serType.Type, Serialize.theContext, ref (Unchecked.defaultof<ISurrogateSelector>))
@@ -684,13 +740,13 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                     failwith <| sprintf "Failed to create unintialized instance of %A." serType.Type
                 marked.Add newObj
                 this.ReadSurrogateSerializedObject(surrogate, serType.Type, newObj)
-                newObj
+                k newObj
             else
                 match serType.Type with
                 | strType when strType = typeof<string> -> 
                     let str = reader.ReadString()
                     marked.Add str
-                    upcast str
+                    k str
                 | arrType when arrType.IsArray ->
                     let rank = reader.ReadInt32()
                     let lowerBounds : int[] = Array.zeroCreate rank
@@ -701,14 +757,14 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                     let newArr = Array.CreateInstance(elType, lengths, lowerBounds)
                     marked.Add newArr
                     do this.ReadArray(serType, lowerBounds, lengths, newArr)
-                    upcast newArr
+                    k newArr
                 | typeType when typeof<Type>.IsAssignableFrom(typeType) -> 
                     let typeName = reader.ReadString()
                     let ``type`` = Type.GetType(typeName)
                     marked.Add ``type``
-                    upcast ``type``
+                    k ``type``
                 | ty when typeof<ISerializable>.IsAssignableFrom(ty) ->
-                    this.ReadCustomSerializedObject()
+                    this.ReadCustomSerializedObject(k)
                 | _ -> 
                     let mutable newObj = FormatterServices.GetUninitializedObject(serType.Type)
                     marked.Add newObj
@@ -722,11 +778,15 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                         if not serType.IsValueType then
                             serType.NoArgConstructor newObj
                         this.ReadContents(serType, &newObj)
-                    newObj
+                    k newObj
         | _ -> failwith <| sprintf "Unexpected tag: %A" tag
 
     member this.ReadObject() = 
-        let root = this.ReadObject(reader, marked)
+        let mutable root : obj = null
+        this.ReadObject(reader, marked, fun obj -> root <- obj)
+        for i = 0 to delayedSetList.Count - 1 do
+            let objRef, k = delayedSetList.[i]
+            k <| objRef.GetRealObject(Serialize.theContext)
         for cb in onDeserializationList do
             cb.OnDeserialization(null)
         root

@@ -149,14 +149,11 @@ type internal NetworkPerformance() =
     member val internal RttCount = ref -2L with get
     /// Last RTT from the remote node. 
     member val LastRtt = 0. with get, set
-    member val internal nInitialized = ref 0 with get
     /// Last ticks that the content is sent from this queue
     member val LastSendTicks = DateTime.MinValue with get, set
     member val internal LastRcvdSendTicks = 0L with get, set
     member val internal TickDiffsInReceive = 0L with get, set
     member internal x.RTT with get() = 0
-    member internal x.FirstTime() = 
-        Interlocked.CompareExchange( x.nInitialized, 1, 0 ) = 0
     member internal x.PacketReport( tickDIffsInReceive:int64, sendTicks ) = 
         x.LastRcvdSendTicks <- sendTicks
         let ticksCur = (PerfADateTime.UtcNowTicks())
@@ -1689,57 +1686,52 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     member private x.StartMonitor() =
         PoolTimer.AddTimer((fun o -> x.MonitorChannels(x.GetAllChannels())), 
             DeploymentSettings.NetworkActivityMonitorIntervalInMs, DeploymentSettings.NetworkActivityMonitorIntervalInMs)
-//        monitorTimer.Change(10000, 10000) |> ignore
-//        Logger.LogF(NetworkConnections.ChannelMonitorLevel, ( fun _ -> 
-//            let timer = ThreadPoolTimer.TimerWait( fun _ -> "Network Channels Monitoring Timer" ) 
-//                                                    ( fun _ -> x.MonitorChannels(x.GetAllChannels()) )
-//                                                    ( NetworkConnections.ChannelMonitorInterval) ( NetworkConnections.ChannelMonitorInterval) 
-//            ()
-//                                    )) 
 
-    member val private Initialized = ref 0 with get
     member val internal MaxMemory = 0UL with get, set
+    member val private Initialized = lazy(
+        // determine max stack memory in bytes
+        let mutable maxMemory = DetailedConfig.GetMemorySpace
+        if (DeploymentSettings.MaxNetworkStackMemory > 0) then 
+            maxMemory <- Math.Min(maxMemory, uint64 DeploymentSettings.MaxNetworkStackMemory)
+        if (DeploymentSettings.MaxNetworkStackMemoryPercentage > 0.0) then
+            maxMemory <- Math.Min(maxMemory, uint64(DeploymentSettings.MaxNetworkStackMemoryPercentage*float DetailedConfig.GetMemorySpace))
+        maxMemory <- maxMemory >>> 1 // half for send, recv
+        x.MaxMemory <- maxMemory
+        let mutable bufSize = DeploymentSettings.NetworkSocketAsyncEventArgBufferSize
+        let mutable maxNumStackBufs = maxMemory / uint64 bufSize
+        if (maxNumStackBufs < 50UL) then
+            // lower the buffer size if not sufficient maximum buffers
+            bufSize <- int(maxMemory / 50UL)
+            maxNumStackBufs <- 50UL
+        if (bufSize < 64000) then
+            failwith "Not sufficient memory"
+        let numInitBufs = Math.Min(DeploymentSettings.InitNetworkSocketAsyncEventArgBuffers, int maxNumStackBufs)
+        let bufSize = bufSize // make it unmutable so it can be captured by closure
+        let maxNumStackBufs = maxNumStackBufs
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Initialize network stack with initial buffers: %d max buffers: %d buffer size: %d network threads: %d" numInitBufs maxNumStackBufs bufSize DeploymentSettings.NumNetworkThreads)
+        x.InitStack(numInitBufs, bufSize, int maxNumStackBufs)
+        // for internal queues of SocketAsyncEventArgs in genericnetwork.fs
+        // since flow control takes into account NetworkCommand->SocketAsyncEventArgs and reverse conversion
+        // no need to control queue size here since unProcessedBytes is representative of bytes:
+        // 1. waiting to be converted from NetworkCommand->SocketAsyncEventArgs
+        // 2. on network
+        // 3. waiting to be converted from SocketAsyncEventArgs->NetworkCommand
+        x.fnQRecv <- (fun() -> 
+            let q = new FixedSizeQ<RBufPart<byte>>(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
+            q.MaxLen <- DeploymentSettings.NetworkSARecvQSize
+            q.DesiredLen <- DeploymentSettings.NetworkSARecvQSize
+            q :> BaseQ<RBufPart<byte>>
+        )
+        x.fnQSend <- Some(fun() -> new FixedLenQ<RBufPart<byte>>(DeploymentSettings.NetworkSASendQSize, DeploymentSettings.NetworkSASendQSize) :> BaseQ<RBufPart<byte>>)
+        // initialize shared memory pool for fast memory stream
+        MemoryStreamB.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
+        // start the monitoring
+        x.StartMonitor()
+    )
+
     /// Initialize the object
     member x.Initialize( ) = 
-        if (Interlocked.CompareExchange(x.Initialized, 1, 0) = 0) then
-            // determine max stack memory in bytes
-            let mutable maxMemory = DetailedConfig.GetMemorySpace
-            if (DeploymentSettings.MaxNetworkStackMemory > 0) then 
-                maxMemory <- Math.Min(maxMemory, uint64 DeploymentSettings.MaxNetworkStackMemory)
-            if (DeploymentSettings.MaxNetworkStackMemoryPercentage > 0.0) then
-                maxMemory <- Math.Min(maxMemory, uint64(DeploymentSettings.MaxNetworkStackMemoryPercentage*float DetailedConfig.GetMemorySpace))
-            maxMemory <- maxMemory >>> 1 // half for send, recv
-            x.MaxMemory <- maxMemory
-            let mutable bufSize = DeploymentSettings.NetworkSocketAsyncEventArgBufferSize
-            let mutable maxNumStackBufs = maxMemory / uint64 bufSize
-            if (maxNumStackBufs < 50UL) then
-                // lower the buffer size if not sufficient maximum buffers
-                bufSize <- int(maxMemory / 50UL)
-                maxNumStackBufs <- 50UL
-            if (bufSize < 64000) then
-                failwith "Not sufficient memory"
-            let numInitBufs = Math.Min(DeploymentSettings.InitNetworkSocketAsyncEventArgBuffers, int maxNumStackBufs)
-            let bufSize = bufSize // make it unmutable so it can be captured by closure
-            let maxNumStackBufs = maxNumStackBufs
-            Logger.LogF(LogLevel.Info, fun _ -> sprintf "Initialize network stack with initial buffers: %d max buffers: %d buffer size: %d network threads: %d" numInitBufs maxNumStackBufs bufSize DeploymentSettings.NumNetworkThreads)
-            x.InitStack(numInitBufs, bufSize, int maxNumStackBufs)
-            // for internal queues of SocketAsyncEventArgs in genericnetwork.fs
-            // since flow control takes into account NetworkCommand->SocketAsyncEventArgs and reverse conversion
-            // no need to control queue size here since unProcessedBytes is representative of bytes:
-            // 1. waiting to be converted from NetworkCommand->SocketAsyncEventArgs
-            // 2. on network
-            // 3. waiting to be converted from SocketAsyncEventArgs->NetworkCommand
-            x.fnQRecv <- (fun() -> 
-                let q = new FixedSizeQ<RBufPart<byte>>(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
-                q.MaxLen <- DeploymentSettings.NetworkSARecvQSize
-                q.DesiredLen <- DeploymentSettings.NetworkSARecvQSize
-                q :> BaseQ<RBufPart<byte>>
-            )
-            x.fnQSend <- Some(fun() -> new FixedLenQ<RBufPart<byte>>(DeploymentSettings.NetworkSASendQSize, DeploymentSettings.NetworkSASendQSize) :> BaseQ<RBufPart<byte>>)
-            // initialize shared memory pool for fast memory stream
-            MemoryStreamB.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
-            // start the monitoring
-            x.StartMonitor() 
+        x.Initialized.Force() |> ignore
 
     member val TotalSARecvSize = ref 0L with get
     member val TotalSASendSize = ref 0L with get

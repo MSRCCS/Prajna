@@ -54,14 +54,11 @@ type internal DistributedFunctionBuiltIn() =
 
  /// Initialization of the Distributed function execution environment. 
 type internal DistributedFunctionEnvironment() = 
-    static let nInitialized = ref 0 
-    static member private InitOnce() = 
+    static let init = lazy (
         let builtInProvider = DistributedFunctionBuiltInProvider()
         DistributedFunctionStore.Current.RegisterProvider( builtInProvider )
         DistributedFunctionStore.Current.RegisterFunction<_>( DistributedFunctionBuiltIn.GetContainerFunctionName, DistributedFunctionBuiltIn.GetContainerLocal ) |> ignore
         DistributedFunctionStore.Current.NullifyProvider( )
+    )
     static member Init () =
-        if !nInitialized = 0 then 
-            if Interlocked.Increment(nInitialized) = 1 then 
-                DistributedFunctionEnvironment.InitOnce()    
-        ()
+        init.Force()

@@ -806,7 +806,7 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
 
     static let bufferSizeDefault = 64000
     static let mutable memStack : SharedMemoryPool<RefCntBuf<'T>,'T> = null
-    static let memStackInit = ref 0
+    static let memStackInitLock = Object()
 
     let bReleased = ref 0
 
@@ -956,8 +956,11 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
 
     static member internal MemStack with get() = memStack
     static member internal InitMemStack(numBufs : int, bufSize : int) =
-        if (Interlocked.CompareExchange(memStackInit, 1, 0)=0) then
-            memStack <- new SharedMemoryPool<RefCntBuf<'T>,'T>(numBufs, -1, bufSize, BufferListStream<'T>.InitFunc, "Memory Stream")
+        if Utils.IsNull memStack then
+            lock (memStackInitLock) (fun _ -> 
+                if Utils.IsNull memStack then
+                    memStack <- new SharedMemoryPool<RefCntBuf<'T>,'T>(numBufs, -1, bufSize, BufferListStream<'T>.InitFunc, "Memory Stream")
+            )
 #if DEBUG
             if (BufferListDebugging.DebugLeak) then
                 // start monitor timer

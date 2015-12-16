@@ -989,12 +989,11 @@ and [<AllowNullLiteral; Serializable>]
     /// It has been registered when the Task is first established, and will garantee to execute when job is done or cancelled
     member x.OnJobFinish() = 
         if Interlocked.CompareExchange( x.JobFinishedFlag, 1, 0 ) = 0 then 
-            let blobs = x.Blobs
+            BlobFactory.unregisterAndRemove(x.JobID)
+            let blobs = x.Blobs            
             if Utils.IsNotNull blobs then
                 for i=0 to x.NumBlobs-1 do
                     if (Utils.IsNotNull blobs.[i]) then
-                        if (Utils.IsNotNull blobs.[i].Hash) then
-                            BlobFactory.remove x.Blobs.[i].Hash
                         if (Utils.IsNotNull blobs.[i].Stream) then
                             (blobs.[i].Stream :> IDisposable).Dispose()
             let metadataStream = x.MetadataStream
@@ -1434,6 +1433,7 @@ and [<AllowNullLiteral; Serializable>]
                                                                            (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                                                                            ms.Length )
                 else
+                  try
                     let name = ms.ReadString()
                     let verNumber = ms.ReadInt64()
                     let bExist, x = allTasks.TryGetValue( jobID )
@@ -1473,6 +1473,9 @@ and [<AllowNullLiteral; Serializable>]
                     else
                         let msg = sprintf "Error@AppDomain: Start, Job (ID:%A) %s:%s can't find the relevant job in allTasks " jobID name (VersionToString(DateTime(verNumber)))
                         jobAction.ThrowExceptionAtContainer( msg )
+                  with
+                  | ex -> 
+                    jobAction.EncounterExceptionAtContainer( ex, "____ Start, Job _____ ")
             )
 //        | ( ControllerVerb.Cancel, ControllerNoun.Job ) -> 
 //            let jobID = ms.ReadGuid()

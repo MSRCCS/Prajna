@@ -313,14 +313,19 @@ and [<AllowNullLiteral>]
         curStream.DecodeDownStreamDepedency( readStream ) 
         curStream.bValidMetadata <- true
         curStream
-    member val internal StorageProvider : StorageStream ref = ref null with get
-    member val internal StoreStreamArray : StorageStream[] ref = ref null with get
+    member val internal StorageProvider = lazy (StorageStreamBuilder.Create( this.StorageType )) with get
+    member val internal StoreStreamArray = lazy (
+                                               let storageProvider : Lazy<StorageStream> = this.StorageProvider
+                                               storageProvider.Force() |> ignore
+                                               let storeStreamArray = Array.zeroCreate<StorageStream> this.NumPartitions
+                                               this.StreamForWriteArray <- Array.create this.NumPartitions false
+                                               this.BufferedStreamArray <- storeStreamArray
+                                               storeStreamArray
+                                           ) with get
     member val internal BufferedStreamArray = null with get, set
     member val internal StreamForWriteArray: bool[] = null with get, set 
     member internal x.GetStorageProvider() = 
-        if Utils.IsNull (!x.StorageProvider) then 
-            Interlocked.CompareExchange( x.StorageProvider, StorageStreamBuilder.Create( x.StorageType ), null ) |> ignore
-        (!x.StorageProvider)
+        x.StorageProvider.Value
     member val internal CountFunc = MetaFunction() with get
     member val internal SyncCloseSentCollection = ConcurrentDictionary<int,int>() with get
     /// Reset the stream to be read again
@@ -332,12 +337,7 @@ and [<AllowNullLiteral>]
         x.CloseAllStreamsThis()
         x.FreeNetwork( jbInfo )
     member internal x.GetStoreStreamArray() = 
-        if (Utils.IsNull !x.StoreStreamArray) then 
-            x.GetStorageProvider() |> ignore
-            if Interlocked.CompareExchange( x.StoreStreamArray, Array.zeroCreate<StorageStream> x.NumPartitions, null ) = null then 
-                x.StreamForWriteArray <- Array.create x.NumPartitions false
-                x.BufferedStreamArray <- (!x.StoreStreamArray)
-        (!x.StoreStreamArray)
+        x.StoreStreamArray.Value
     member internal x.GetBufferedStreamArray() = 
         while Utils.IsNull x.BufferedStreamArray do
             // Spin until buffered array is created
@@ -376,15 +376,15 @@ and [<AllowNullLiteral>]
             -1L
     member internal x.CloseAllStreamsThis() = 
         Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Close All isseud to DStream %s:%s" x.Name x.VersionString ))
-        if Utils.IsNotNull (!x.StoreStreamArray) then 
-            let bufferedStreamArray = x.GetBufferedStreamArray()
-            let unclosedPartition = List<_>()
-            for parti = 0 to x.NumPartitions - 1  do 
-                if Utils.IsNotNull bufferedStreamArray.[parti] then 
-                    unclosedPartition.Add( parti, x.CloseStreamForWrite( parti ) )
-            if unclosedPartition.Count > 0 then 
-                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "DStream %s:%s, @PostCloseStream, these partitions are unclosed at location %A" x.Name x.VersionString (unclosedPartition.ToArray)))
-        x.StoreStreamArray := null
+        let bufferedStreamArray = x.GetBufferedStreamArray()
+        let unclosedPartition = List<_>()
+        for parti = 0 to x.NumPartitions - 1  do 
+            if Utils.IsNotNull bufferedStreamArray.[parti] then 
+                unclosedPartition.Add( parti, x.CloseStreamForWrite( parti ) )
+        if unclosedPartition.Count > 0 then 
+            Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "DStream %s:%s, @PostCloseStream, these partitions are unclosed at location %A" x.Name x.VersionString (unclosedPartition.ToArray)))
+        // Note: once this function is called, the StorageStream is no longer in valid state and should not be used further
+
     /// Get the buffer of write object 
     member internal x.GetWriteBufferAndPos  (writeObj:Object) = 
         match writeObj with 
@@ -912,14 +912,6 @@ and [<AllowNullLiteral>]
                 let cmd, ms = x.SyncPackageToSend meta streamObject (jbInfo.JobID)
 
                 while not (!bSend) && peerQueue.CanSend do 
-//                    if Interlocked.CompareExchange (peerQueue.flowcontrol_lock,1,0) = 0 then
-////                        #tag: disable flowcontrol
-////                         JinL: 06/19/2015, leave flow control to the network layer. 
-//                        let bCansend = peerQueue.CanSend && 
-//                                         ( 
-//                                            (int64(x.SendingQueueLimit) > peerQueue.UnProcessedCmdInBytes + ms.Length)  ||
-//                                            ( peerQueue.UnProcessedCmdInBytes = 0L && (int64(x.SendingQueueLimit) < ms.Length  )  ) // to send huge command
-//                                         ) 
                         let bCansend = peerQueue.CanSend 
 
                         x.MonitorSendPeerStatus peeri peerQueue bCansend

@@ -327,36 +327,42 @@ and /// Information of Within Job cluster information.
         x.CurPeerIndex
 
     member x.QueueForWriteBetweenContainer( peeri ) =
-        let queue = x.LinkedCluster.Queues.[peeri]
-        if Utils.IsNull queue then
-            try 
-                let ndInfo = x.NodesInfo.[peeri] 
-                if Utils.IsNull ndInfo then 
-                    null
-                else
-                    let queue = 
-                        match ndInfo.NodeType with 
-                        | NodeWithInJobType.TCPOnly -> 
-                            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Attempt to connect to %s:%d as peer %d" x.LinkedCluster.Nodes.[peeri].MachineName ndInfo.ListeningPort peeri ))
-                            Cluster.Connects.AddConnect( x.LinkedCluster.Nodes.[peeri].MachineName, ndInfo.ListeningPort )
-                        | _ -> 
-                            Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer, in cluster %s:%s, unknown node type %A for peer %d to connect to" 
-                                            x.LinkedCluster.Name x.LinkedCluster.VersionString ndInfo.NodeType peeri )
-                    x.LinkedCluster.PeerIndexFromEndpoint.[queue.RemoteEndPoint] <- peeri
-                    queue.GetOrAddRecvProc ("ClusterParseHost", Cluster.ParseHostCommand queue peeri) |> ignore
-                    // even though queue has not yet been "connected", ToSend still works as it only queues data
-                    use ms = new MemStream(1024)
-                    ms.WriteString( x.LinkedCluster.Name )
-                    ms.WriteInt64( x.LinkedCluster.Version.Ticks )
-                    ms.WriteVInt32( x.CurPeerIndex )
-                    queue.ToSendNonBlock( ControllerCommand( ControllerVerb.ContainerInfo, ControllerNoun.ClusterInfo ), ms )
-                    x.LinkedCluster.Queues.[peeri] <- queue
-                    queue
-            with 
-            | e -> 
-                Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer fails with exception %A" e )
+        let peerQueue = x.LinkedCluster.Queues.[peeri]
+        if Utils.IsNull peerQueue then
+            lock (x.LinkedCluster) (fun _ ->
+                try 
+                    let queue = x.LinkedCluster.Queues.[peeri]
+                    if Utils.IsNull queue then
+                        let ndInfo = x.NodesInfo.[peeri] 
+                        if Utils.IsNull ndInfo then 
+                            null
+                        else
+                            let queue = 
+                                match ndInfo.NodeType with 
+                                | NodeWithInJobType.TCPOnly -> 
+                                    Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Attempt to connect to %s:%d as peer %d" x.LinkedCluster.Nodes.[peeri].MachineName ndInfo.ListeningPort peeri ))
+                                    Cluster.Connects.AddConnect( x.LinkedCluster.Nodes.[peeri].MachineName, ndInfo.ListeningPort )
+                                | _ -> 
+                                    Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer, in cluster %s:%s, unknown node type %A for peer %d to connect to" 
+                                                    x.LinkedCluster.Name x.LinkedCluster.VersionString ndInfo.NodeType peeri )
+                            x.LinkedCluster.PeerIndexFromEndpoint.[queue.RemoteEndPoint] <- peeri
+                            queue.GetOrAddRecvProc ("ClusterParseHost", Cluster.ParseHostCommand queue peeri) |> ignore
+                            // even though queue has not yet been "connected", ToSend still works as it only queues data
+                            use ms = new MemStream(1024)
+                            ms.WriteString( x.LinkedCluster.Name )
+                            ms.WriteInt64( x.LinkedCluster.Version.Ticks )
+                            ms.WriteVInt32( x.CurPeerIndex )
+                            queue.ToSendNonBlock( ControllerCommand( ControllerVerb.ContainerInfo, ControllerNoun.ClusterInfo ), ms )
+                            x.LinkedCluster.Queues.[peeri] <- queue
+                            queue
+                      else
+                          queue
+                with 
+                | e -> 
+                    Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer fails with exception %A" e )
+        )
         else
-            queue
+            peerQueue
 
     member x.Queue( peeri ) = 
         x.LinkedCluster.Queues.[peeri]
@@ -1651,7 +1657,6 @@ and [<AllowNullLiteral>]
                                 x.NumActiveConnections <- x.NumActiveConnections + 1        
                                 x.bConnected.[peeri] <- true
                                 queue.Initialize()
-                    x.Cluster.QueuesInitialized := 1
                     // This is the one thread that will win the race, the other thread will spin to wait for initialization      
                     x.bNetworkInitialized <- true
                     Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Setup network for %A %s:%s" x.ParamType x.Name x.VersionString ) )

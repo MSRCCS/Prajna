@@ -1,7 +1,7 @@
 Prajna
 =======
 
-[![Build status](https://ci.appveyor.com/api/projects/status/wad8nggxiew2ct2n/branch/master?svg=true)](https://ci.appveyor.com/project/zhuweirong/prajna-rbpft/branch/master)
+[![Build status](https://ci.appveyor.com/api/projects/status/cbfsfs2ktt4t4nfr/branch/master?svg=true)](https://ci.appveyor.com/project/msrccsbuild/prajna/branch/master)
 
 **Prajna** is a distributed functional programming platform for Interactive Big Data Analytics and Cloud Service Building
 

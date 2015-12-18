@@ -360,7 +360,7 @@ and /// Information of Within Job cluster information.
                 with 
                 | e -> 
                     Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer fails with exception %A" e )
-        )
+            )
         else
             peerQueue
 

@@ -1,4 +1,4 @@
-﻿(*---------------------------------------------------------------------------
+(*---------------------------------------------------------------------------
     Copyright 2013 Microsoft
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,7 +47,7 @@ type Environment() =
     /// 1）Local cluster is used
     /// 2) Distributed function is used. 
     static member Init () = 
-        init.Force()
+        init.Force() |> ignore
 
     /// Cleanup Prajna Environment for running Prajna program
     static member Cleanup() =

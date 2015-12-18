@@ -3,4 +3,14 @@ language: csharp
 sudo: false  # use the new container-based Travis infrastructure 
 
 script: 
-  - ./build.sh All
+  - ./build.sh Release
+
+after_script:
+  - zip -r Log-build-$TRAVIS_BUILD_NUMBER.zip ~/Prajna/Log
+  
+addons:
+  artifacts:
+    debug: true
+    paths:
+      - Log-build-$TRAVIS_BUILD_NUMBER.zip 
+    s3_region: us-west-2

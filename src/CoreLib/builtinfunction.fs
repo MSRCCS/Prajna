@@ -1,4 +1,4 @@
-﻿(*---------------------------------------------------------------------------
+(*---------------------------------------------------------------------------
     Copyright 2015 Microsoft
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,4 +61,4 @@ type internal DistributedFunctionEnvironment() =
         DistributedFunctionStore.Current.NullifyProvider( )
     )
     static member Init () =
-        init.Force()
+        init.Force() |> ignore

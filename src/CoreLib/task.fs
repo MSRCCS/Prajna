@@ -1701,6 +1701,10 @@ and [<AllowNullLiteral; Serializable>]
                                                                            ms.Length )
                 else
                     try 
+                        Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Rcvd Close, Job from endpoint %s of %dB payload, release job resource"
+                                                                                    (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                                                                                    ms.Length )
+                        
                         jobAction.CancelJob() 
                         /// Cancel Job should automatically remove all jobs in tasks. 
                         let remainingJobs = allTasks.Count

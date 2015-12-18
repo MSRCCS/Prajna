@@ -65,6 +65,12 @@ let testAssemblies = "tests/**/bin/{0}/*Tests*.dll"
 
 let curDir = __SOURCE_DIRECTORY__
 
+let isTravisBuild =
+    let isTravis = Environment.GetEnvironmentVariable("TRAVIS")
+    let r = isTravis <> null && isTravis = "true"
+    trace(sprintf "Travis build: %b" r)
+    r
+
 // --------------------------------------------------------------------------------------
 // Git helpers
 // --------------------------------------------------------------------------------------
@@ -148,6 +154,12 @@ let replaceCrLfWithLf file =
    if String.Compare(content, newContent, StringComparison.InvariantCulture) <> 0 then
        File.WriteAllText(file, newContent)
 
+// Remove the UTF-8 BOM (EF BB BF) from file
+let removeBom file = 
+    let bytes = File.ReadAllBytes(file)
+    if bytes.Length > 2 && bytes.[0] = 0xEFuy && bytes.[1] = 0xBBuy && bytes.[2] = 0xBFuy then
+        File.WriteAllBytes(file, bytes |> Seq.skip 3 |> Array.ofSeq)
+
 // Generate assembly info files with the right version & up-to-date information
 Target "AssemblyInfo" (fun _ ->
     let getAssemblyInfoAttributes projectName =
@@ -179,6 +191,7 @@ Target "AssemblyInfo" (fun _ ->
             | Vbproj -> CreateVisualBasicAssemblyInfo, ((folderName @@ "My Project") @@ "AssemblyInfo.vb")
         createAssemblyInfoFunc asmInfoFile attributes
         replaceCrLfWithLf asmInfoFile
+        removeBom asmInfoFile
         )
 )
 
@@ -395,18 +408,36 @@ Target "CheckXmlDocsR" (fun _ -> checkXmlDocs "Releasex64")
 // Run the unit tests using test runner
 
 let runTests (target:string) =
+    let timer : System.Timers.Timer = null
     try
-        let pattern = String.Format(testAssemblies, target)
-        !! pattern
-        |> NUnit (fun p ->
-            { p with
-                ExcludeCategory = "Performance"
-                DisableShadowCopy = true
-                ProcessModel = SeparateProcessModel
-                Domain = SingleDomainModel
-                TimeOut = TimeSpan.FromMinutes 20.
-                OutputFile = sprintf "TestResults_%s.xml" target})    
+        if isTravisBuild then
+            // For travis build, if there's no output for 10 minutes, the build will be cancelled,
+            // and addons etc will not be executed. To keep the build alive, use a timer to output 
+            // to stdout every 5 minutes. So the test suite timeout can eventually kick in.
+            // Note: if NUnit below supports per test timeout, then there's no need to do this, just
+            // need to set the per test timeout less than 10 minutes.
+            let timer = new System.Timers.Timer(5000.0 * 60.0)
+            timer.Elapsed.Add(fun _ -> trace("tests in progress ..."))
+            timer.Start()
+        try
+            let pattern = String.Format(testAssemblies, target)
+            !! pattern
+            |> NUnit (fun p ->
+                { p with
+                    ExcludeCategory = "Performance"
+                    DisableShadowCopy = true
+                    ProcessModel = SeparateProcessModel
+                    Domain = SingleDomainModel
+                    // Though from the doc, this looks like per test-case timeout, but it works as whole test suite timeout
+                    TimeOut = TimeSpan.FromMinutes 20. 
+                    OutputFile = sprintf "TestResults_%s.xml" target})    
+        with
+        | ex -> traceImportant(sprintf "Test run fails: %A" ex)
     finally
+        if timer <> null then
+            timer.Dispose()
+
+        traceImportant(sprintf "runTests %s completed: execute final tasks" target)
         // Kill nunit-agent.exe if it is alive (it can sometimes happen when the test timeouts)
         let mutable cnt = 0;
         let mutable procs = Diagnostics.Process.GetProcessesByName("nunit-agent") |> Array.filter (fun p -> not p.HasExited)
@@ -419,6 +450,7 @@ let runTests (target:string) =
             cnt <- cnt + 1;
             procs <- Diagnostics.Process.GetProcessesByName("nunit-agent") |> Array.filter (fun p -> not p.HasExited)
         if (not (procs |> Array.isEmpty)) then trace "fail to kill nunit-agent"
+        
 
 Target "RunTests" (fun _ -> runTests "Debugx64")
 Target "RunReleaseTests" (fun _ -> runTests "Releasex64")

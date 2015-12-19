@@ -6,11 +6,11 @@ script:
   - ./build.sh Release
 
 after_script:
-  - zip -r Log-build-$TRAVIS_BUILD_NUMBER.zip ~/Prajna/Log
+  - zip -r Log-build-$TRAVIS_BUILD_NUMBER.zip ~/Prajna/Log  # zip Prajna log folder
   
 addons:
   artifacts:
     debug: true
     paths:
-      - Log-build-$TRAVIS_BUILD_NUMBER.zip 
+      - Log-build-$TRAVIS_BUILD_NUMBER.zip  # upload Prajna log
     s3_region: us-west-2

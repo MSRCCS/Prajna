@@ -10,7 +10,7 @@ after_script:
   
 addons:
   artifacts:
-    debug: true
+    debug: true  # debug mode turned on
     paths:
       - Log-build-$TRAVIS_BUILD_NUMBER.zip  # upload Prajna log
-    s3_region: us-west-2
+    s3_region: us-west-2  # assume the S3 bucket is located at region us-west-2 (Oregon)

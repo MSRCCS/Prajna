@@ -2758,7 +2758,9 @@ and
                         jobAction.ThrowExceptionAtCallback( msg )
                 with 
                 | ex ->
-                    let msg = sprintf "Exception in JobCallback, cmd %A, %s:%d, %A" cmd name verNumber ex
+                    let msg = sprintf "Exception in JobCallback, cmd %A, %s:%d, %A, inClusterPeeri: %d, resolve queue(PeerIndexFromEndpoint): %s, forward queue (Queue): %s" cmd name verNumber ex inClusterPeeri 
+                                        ( cluster.PeerIndexFromEndpoint |> Seq.map ( fun pair -> LocalDNS.GetShowInfo( pair.Key) + ":" + pair.Value.ToString() ) |> String.concat( "," ) )
+                                        ( cluster.Queues |> Array.mapi ( fun i queue -> i.ToString() + ":" + LocalDNS.GetShowInfo( queue.RemoteEndPoint)) |> String.concat ("," ) ) 
                     jobAction.EncounterExceptionAtCallback( ex, "___ Job.JobCallback (throw) ___" )
             true
         )

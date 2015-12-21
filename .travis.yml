@@ -7,6 +7,13 @@ script:
 
 after_script:
   - zip -r Log-build-$TRAVIS_BUILD_NUMBER.zip ~/Prajna/Log  # zip Prajna log folder
+
+notifications:
+  email:
+    recipients:
+      - msrccs@outlook.com
+    on_success: always
+    on_failure: always
   
 addons:
   artifacts:

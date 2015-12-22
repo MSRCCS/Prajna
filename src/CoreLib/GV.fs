@@ -747,17 +747,17 @@ type internal SingleJobActionGeneric<'T when 'T :> JobLifeCycle and 'T : null >(
             GC.SuppressFinalize(x)
     /// Create a System.Exception, cancel this job using this exception
     member x.ThrowExceptionAtCallback( msg: string ) = 
-        Logger.LogF( LogLevel.Warning, fun _ -> sprintf "[Throw Exception @ Callback] %s" msg )
+        Logger.LogF(  x.JobID, LogLevel.Warning, fun _ -> sprintf "[Throw Exception @ Callback] %s" msg )
         let ex = System.Exception( msg )
         x.CancelByException( ex )
     /// Runtime at callback encounter an exception, cancel this job using this exception with location information 
     member x.ReceiveExceptionAtCallback( ex: Exception, loc: string ) = 
-        Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "[Receive Exception @ Callback] %s: exception of %A, will cancel job" loc ex )
+        Logger.LogF(  x.JobID, LogLevel.WildVerbose, fun _ -> sprintf "[Receive Exception @ Callback] %s: exception of %A, will cancel job" loc ex )
         ex.Data.Add( "@Callback", loc )
         x.CancelByException( ex )
     /// Runtime at callback encounter an exception, cancel this job using this exception with location information 
     member x.EncounterExceptionAtCallback( ex: Exception, loc: string ) = 
-        Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "[Encounter Exception @ Callback] %s: exception of %A" loc ex )
+        Logger.LogF( x.JobID, LogLevel.WildVerbose, fun _ -> sprintf "[Encounter Exception @ Callback] %s: exception of %A" loc ex )
         ex.Data.Add( "First Location:", loc )
         x.CancelByException( ex )
 

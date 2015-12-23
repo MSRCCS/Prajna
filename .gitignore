@@ -10,6 +10,8 @@
 
 # Xamarin Studio / monodevelop user-specific
 *.userprefs
+*.dll.mdb
+*.exe.mdb
 
 # Build results
 bin/
@@ -200,6 +202,8 @@ paket-files
 .paket/paket.exe
 docs/content/license.md
 docs/content/release-notes.md
+.fake
+docs/tools/FSharp.Formatting.svclog
 
 # make sure local customization would not be checked in accidentally
 scripts/WindowsDomainCluster/tests/Config.ps1

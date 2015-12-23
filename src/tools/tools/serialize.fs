@@ -669,9 +669,7 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
             this.ReadObject(reader, marked, function 
                 | :? string as name -> 
                     this.ReadObject(reader, marked, 
-                        fun value ->
-                            if value <> null then
-                                deserInfo.AddValue(name, value, value.GetType()))
+                        fun value -> deserInfo.AddValue(name, value, if value = null then typeof<obj> else value.GetType()))
                 | _ -> failwith "Expecting field name to be a string" )
         deserInfo
 

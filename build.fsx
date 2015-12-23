@@ -12,6 +12,7 @@ open Fake
 open Fake.Git
 open Fake.AssemblyInfoFile
 open Fake.ReleaseNotesHelper
+open Fake.UserInputHelper
 open System
 open System.IO
 open System.Xml.Linq
@@ -516,22 +517,50 @@ Target "PublishNuget" (fun _ ->
 // --------------------------------------------------------------------------------------
 // Generate the documentation
 
+let fakePath = "packages" @@ "FAKE" @@ "tools" @@ "FAKE.exe"
+let fakeStartInfo script workingDirectory args fsiargs environmentVars =
+    (fun (info: System.Diagnostics.ProcessStartInfo) ->
+        info.FileName <- System.IO.Path.GetFullPath fakePath
+        info.Arguments <- sprintf "%s --fsiargs -d:FAKE %s \"%s\"" args fsiargs script
+        info.WorkingDirectory <- workingDirectory
+        let setVar k v =
+            info.EnvironmentVariables.[k] <- v
+        for (k, v) in environmentVars do
+            setVar k v
+        setVar "MSBuild" msBuildExe
+        setVar "GIT" Git.CommandHelper.gitPath
+        setVar "FSI" fsiPath)
+
+/// Run the given buildscript with FAKE.exe
+let executeFAKEWithOutput workingDirectory script fsiargs envArgs =
+    let exitCode =
+        ExecProcessWithLambdas
+            (fakeStartInfo script workingDirectory "" fsiargs envArgs)
+            TimeSpan.MaxValue false ignore ignore
+    System.Threading.Thread.Sleep 1000
+    exitCode
+
+// Documentation
+let buildDocumentationTarget fsiargs target =
+    trace (sprintf "Building documentation (%s), this could take some time, please wait..." target)
+    let exit = executeFAKEWithOutput "docs/tools" "generate.fsx" fsiargs ["target", target]
+    if exit <> 0 then
+        failwith "generating reference documentation failed"
+    ()
 Target "GenerateReferenceDocs" (fun _ ->
-    if not <| executeFSIWithArgs "docs/tools" "generate.fsx" ["--define:RELEASE"; "--define:REFERENCE"] [] then
-      failwith "generating reference documentation failed"
+    buildDocumentationTarget "-d:RELEASE -d:REFERENCE" "Default"
 )
 
 let generateHelp' fail debug =
     let args =
-        if debug then ["--define:HELP"]
-        else ["--define:RELEASE"; "--define:HELP"]
-    if executeFSIWithArgs "docs/tools" "generate.fsx" args [] then
+        if debug then "--define:HELP"
+        else "--define:RELEASE --define:HELP"
+    try
+        buildDocumentationTarget args "Default"
         traceImportant "Help generated"
-    else
-        if fail then
-            failwith "generating help documentation failed"
-        else
-            traceImportant "generating help documentation failed"
+    with
+    | e when not fail ->
+        traceImportant "generating help documentation failed"
 
 let generateHelp fail =
     generateHelp' fail false
@@ -561,18 +590,14 @@ Target "GenerateHelpDebug" (fun _ ->
 )
 
 Target "KeepRunning" (fun _ ->    
-    use watcher = new FileSystemWatcher(DirectoryInfo("docs/content").FullName,"*.*")
-    watcher.EnableRaisingEvents <- true
-    watcher.Changed.Add(fun e -> generateHelp false)
-    watcher.Created.Add(fun e -> generateHelp false)
-    watcher.Renamed.Add(fun e -> generateHelp false)
-    watcher.Deleted.Add(fun e -> generateHelp false)
+    use watcher = !! "docs/content/**/*.*" |> WatchChanges (fun changes ->
+         generateHelp false
+    )
 
     traceImportant "Waiting for help edits. Press any key to stop."
 
     System.Console.ReadKey() |> ignore
 
-    watcher.EnableRaisingEvents <- false
     watcher.Dispose()
 )
 
@@ -636,15 +661,28 @@ Target "ReleaseDocs" (fun _ ->
 open Octokit
 
 Target "PublicRelease" (fun _ ->
+    let user =
+        match getBuildParam "github-user" with
+        | s when not (String.IsNullOrWhiteSpace s) -> s
+        | _ -> getUserInput "Username: "
+    let pw =
+        match getBuildParam "github-pw" with
+        | s when not (String.IsNullOrWhiteSpace s) -> s
+        | _ -> getUserPassword "Password: "
+    let remote =
+        Git.CommandHelper.getGitResult "" "remote -v"
+        |> Seq.filter (fun (s: string) -> s.EndsWith("(push)"))
+        |> Seq.tryFind (fun (s: string) -> s.Contains(gitOwner + "/" + gitName))
+        |> function None -> gitHome + "/" + gitName | Some (s: string) -> s.Split().[0]
     StageAll ""
     Git.Commit.Commit "" (sprintf "Bump version to %s" release.NugetVersion)
-    Branches.push ""
+    Branches.pushBranch "" remote (Information.getBranchName "")
 
     Branches.tag "" release.NugetVersion
-    Branches.pushTag "" "origin" release.NugetVersion
+    Branches.pushTag "" remote release.NugetVersion
     
     // release on github
-    createClient (getBuildParamOrDefault "github-user" "") (getBuildParamOrDefault "github-pw" "")
+    createClient user pw
     |> createDraft gitOwner gitName release.NugetVersion (release.SemVer.PreRelease <> None) release.Notes 
     // TODO: |> uploadFile "PATH_TO_FILE"    
     |> releaseDraft

@@ -967,7 +967,8 @@ and [<AllowNullLiteral>]
         /// SourceStream: the current DStream doesn't depend on other DSet, it is a source 
         | SinkStream ->
             x.SyncPreWrite jbInfo parti meta streamObject
-            (streamObject :> IDisposable).Dispose()
+            if Utils.IsNotNull streamObject then
+                (streamObject :> IDisposable).Dispose()
     /// Push down operation
     member private x.SyncExecuteDownstreamImpl jbInfo parti meta o = 
         match x.DependencyDownstream with 

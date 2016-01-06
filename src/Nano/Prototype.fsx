@@ -1,4 +1,5 @@
-﻿#r @"C:\Users\brunosb\OneDrive\GitHub\Prajna\src\tools\tools\bin\Debugx64\Prajna.Tools.dll"
+﻿#I __SOURCE_DIRECTORY__
+#r @"..\tools\tools\bin\Debugx64\Prajna.Tools.dll"
 
 open System
 open System.Collections.Generic
@@ -13,6 +14,8 @@ open Prajna.Tools.Network
 do Logger.ParseArgs([|"-con"|])
 do BufferListStream<byte>.InitSharedPool()
 
+type BufferQueue = BlockingCollection<byte[]>
+
 type ConcreteNetwork() = 
     inherit Network()
 
@@ -20,8 +23,8 @@ type BufferStreamConnection() =
 
     // Eventually these should change to using MemoryStreamB's, so we get better buffer management
     // For now, correctness and simplicity are more important
-    let mutable readQueue : BlockingCollection<byte[]> = null
-    let mutable writeQueue : BlockingCollection<byte[]> = null
+    let readQueue  = new BufferQueue(50)
+    let writeQueue = new BufferQueue(50)
     
     let receiveRequests(socket: Socket) =
         let reader = new BinaryReader(new NetworkStream(socket))
@@ -40,7 +43,6 @@ type BufferStreamConnection() =
                 readFrom 0
                 readQueue.Add bytes
         }
-        |> Async.Start
 
     let sendResponses(socket: Socket) = 
         let writer = new BinaryWriter(new NetworkStream(socket))
@@ -52,7 +54,6 @@ type BufferStreamConnection() =
                 writer.Write(response)
                 Logger.LogF(LogLevel.Info, fun _ -> sprintf "%d bytes written." response.Length)
         }
-        |> Async.Start
 
     interface IConn with 
 
@@ -60,12 +61,10 @@ type BufferStreamConnection() =
 
         member this.Init(socket: Socket, state: obj) = 
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "New connection created (%A)." socket.LocalEndPoint)
-            do 
-                let queues = state :?> BlockingCollection<byte[]> * BlockingCollection<byte[]>
-                readQueue <- fst queues
-                writeQueue <- snd queues
-            receiveRequests socket
-            sendResponses socket
+            let onConnect : BufferQueue -> BufferQueue -> unit = downcast state
+            onConnect readQueue writeQueue
+            receiveRequests socket |> Async.Start
+            sendResponses socket |> Async.Start
 
         member this.Close() = ()  
 
@@ -78,17 +77,17 @@ type Response =
     | RunDelegateResponse of int
     | GetValueResponse of obj
 
-type ServerNode() =
+type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: BlockingCollection<byte[]>, objects: List<obj>) =
     
-    let readQueue = new BlockingCollection<byte[]>(50)
-    let writeQueue = new BlockingCollection<byte[]>(50)
-    let network = new ConcreteNetwork()
+//    let readQueue = new BlockingCollection<byte[]>(50)
+//    let writeQueue = new BlockingCollection<byte[]>(50)
+//    let network = new ConcreteNetwork()
 
     let serializer = 
         let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
         GenericSerialization.GetDefaultFormatter(CustomizedSerializationSurrogateSelector(memStreamBConstructors))
 
-    let objects = new List<obj>()
+//    let objects = new List<obj>()
 
     let handleRequest(request: Request) : Response =
         match request with
@@ -120,27 +119,40 @@ type ServerNode() =
         }
 
     member this.Start() =
-        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting server node")
-        network.Listen<BufferStreamConnection>(1500, (readQueue, writeQueue))
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting request handler")
         processRequests() |> Async.Start
+
+type ServerNode() =
+
+    let network = new ConcreteNetwork()
+    let objects = new List<obj>()
+    
+    let onConnect readQueue writeQueue =
+        let handler = ServerRequestHandler(readQueue, writeQueue, objects)
+        handler.Start()
+
+    member this.Start() =
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting server node")
+        network.Listen<BufferStreamConnection>(1500, onConnect)
 
 
 type ClientNode(addr: string, port: int) =
 
-    let readQueue = new BlockingCollection<byte[]>(50)
-    let writeQueue = new BlockingCollection<byte[]>(50)
+    let mutable readQueue : BufferQueue = null
+    let mutable writeQueue : BufferQueue = null
     let network = new ConcreteNetwork()
 
     let serializer = 
         let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
         GenericSerialization.GetDefaultFormatter(CustomizedSerializationSurrogateSelector(memStreamBConstructors))
 
+    let onConnect rq wq =
+        readQueue <- rq
+        writeQueue <- wq
+
     member this.Start() =
-        async {
-            Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting client node")
-            network.Connect<BufferStreamConnection>(addr, port, (readQueue, writeQueue)) |> ignore
-        }
-        |> Async.Start
+        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting client node")
+        network.Connect<BufferStreamConnection>(addr, port, onConnect) |> ignore
 
     member internal this.Run(request: Request) : Response =
         let memStream = new MemoryStream()

@@ -11,7 +11,7 @@ open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.Network
 
-do Logger.ParseArgs([|"-con"|])
+//do Logger.ParseArgs([|"-con"|])
 do BufferListStream<byte>.InitSharedPool()
 
 type BufferQueue = BlockingCollection<byte[]>
@@ -25,33 +25,28 @@ type BufferStreamConnection() =
     // For now, correctness and simplicity are more important
     let readQueue  = new BufferQueue(50)
     let writeQueue = new BufferQueue(50)
-    
+
     let receiveRequests(socket: Socket) =
-        let reader = new BinaryReader(new NetworkStream(socket))
+        let reader = new NetworkStream(socket)
         async {
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "BufferStreamConnection(%A): starting to read" socket.LocalEndPoint)
             while true do
-                let count = reader.ReadInt32()
+                let! countBytes = reader.AsyncRead 4
+                let count = BitConverter.ToInt32(countBytes, 0)
                 Logger.LogF(LogLevel.Info, fun _ -> sprintf "Read count: %d." count)
-                let bytes = Array.zeroCreate<byte> count
-                let rec readFrom cur = 
-                    if cur >= count then ()
-                    else 
-                        let bytesRead = reader.Read(bytes, cur, count - cur)
-                        Logger.LogF(LogLevel.Info, fun _ -> sprintf "%d bytes read." bytesRead)
-                        readFrom (cur + bytesRead)
-                readFrom 0
+                let! bytes = reader.AsyncRead count 
                 readQueue.Add bytes
         }
 
     let sendResponses(socket: Socket) = 
-        let writer = new BinaryWriter(new NetworkStream(socket))
+        let writer = new NetworkStream(socket)
         async {
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "BufferStreamConnection(%A): starting to write" socket.LocalEndPoint)
             for response in writeQueue.GetConsumingEnumerable() do
                 Logger.LogF(LogLevel.Info, fun _ -> sprintf "Responding with %d bytes." response.Length)
-                writer.Write(response.Length)
-                writer.Write(response)
+                let countBytes = BitConverter.GetBytes(response.Length)
+                do! writer.AsyncWrite(countBytes)
+                do! writer.AsyncWrite(response)
                 Logger.LogF(LogLevel.Info, fun _ -> sprintf "%d bytes written." response.Length)
         }
 
@@ -79,15 +74,9 @@ type Response =
 
 type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: BlockingCollection<byte[]>, objects: List<obj>) =
     
-//    let readQueue = new BlockingCollection<byte[]>(50)
-//    let writeQueue = new BlockingCollection<byte[]>(50)
-//    let network = new ConcreteNetwork()
-
     let serializer = 
         let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
         GenericSerialization.GetDefaultFormatter(CustomizedSerializationSurrogateSelector(memStreamBConstructors))
-
-//    let objects = new List<obj>()
 
     let handleRequest(request: Request) : Response =
         match request with
@@ -96,8 +85,8 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
             let ret = func.DynamicInvoke(argument)
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "Ran method")
             if func.Method.ReturnType <> typeof<Void> then
-                objects.Add ret
-                RunDelegateResponse(objects.Count - 1)
+                let retPos = lock objects (fun _ -> objects.Add ret; objects.Count - 1)
+                RunDelegateResponse(retPos)
             else
                 RunDelegateResponse(-1)
         | GetValue(pos) -> 
@@ -122,7 +111,7 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting request handler")
         processRequests() |> Async.Start
 
-type ServerNode() =
+type ServerNode(port: int) =
 
     let network = new ConcreteNetwork()
     let objects = new List<obj>()
@@ -131,9 +120,9 @@ type ServerNode() =
         let handler = ServerRequestHandler(readQueue, writeQueue, objects)
         handler.Start()
 
-    member this.Start() =
+    do
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting server node")
-        network.Listen<BufferStreamConnection>(1500, onConnect)
+        network.Listen<BufferStreamConnection>(port, onConnect)
 
 
 type ClientNode(addr: string, port: int) =
@@ -150,7 +139,7 @@ type ClientNode(addr: string, port: int) =
         readQueue <- rq
         writeQueue <- wq
 
-    member this.Start() =
+    do
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting client node")
         network.Connect<BufferStreamConnection>(addr, port, onConnect) |> ignore
 
@@ -183,15 +172,19 @@ and Remote<'T> internal (pos: int, node: ClientNode) =
         | _ -> raise <| Exception("Unexpected response to RunDelegate request.")
 
         
-let serverNode = new ServerNode()
-do serverNode.Start()
+let serverNode = new ServerNode(1500)
 
 let cn = new ClientNode("127.0.0.1", 1500)
-cn.Start()
+let cn2 = new ClientNode("127.0.0.1", 1500)
 
 let r1 = cn.NewRemote(fun _ -> "Test2")
 let r2 = r1.Run(fun str -> str.Length)
 
+let r3 = cn2.NewRemote(fun _ -> "Test33")
+let r4 = r3.Run(fun str -> str.Length)
+
 r1.GetValue()
 r2.GetValue()
+r3.GetValue()
+r4.GetValue()
 

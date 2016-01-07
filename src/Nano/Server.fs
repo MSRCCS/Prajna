@@ -17,7 +17,7 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
     let handleRequest(request: Request) : Response =
         match request with
         | RunDelegate(pos,func) ->
-            let argument : obj[] = if pos = -1 then null else (Array.singleton objects.[pos])
+            let argument : obj[] = if pos = -1 then null else (Array.init 1 (fun _ -> objects.[pos]))
             let ret = func.DynamicInvoke(argument)
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "Ran method")
             if func.Method.ReturnType <> typeof<Void> then
@@ -41,6 +41,7 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
                 let responseStream = new MemoryStream()
                 serializer.Serialize(responseStream, response)
                 writeQueue.Add (responseStream.GetBuffer().[0..(int responseStream.Length)-1])
+            writeQueue.CompleteAdding()
         }
 
     member this.Start() =
@@ -49,7 +50,7 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
 
 type ServerNode(port: int) =
 
-    let network = new ConcreteNetwork()
+    static let network = new ConcreteNetwork()
     let objects = new List<obj>()
     
     let onConnect readQueue writeQueue =
@@ -59,6 +60,11 @@ type ServerNode(port: int) =
     do
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting server node")
         network.Listen<BufferStreamConnection>(port, onConnect)
+
+    interface IDisposable with
+        
+        member __.Dispose() = network.StopListen()
+        
 
 
 

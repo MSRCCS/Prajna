@@ -11,7 +11,7 @@ type ClientNode(addr: string, port: int) =
 
     let mutable readQueue : BufferQueue = null
     let mutable writeQueue : BufferQueue = null
-    let network = new ConcreteNetwork()
+    static let network = new ConcreteNetwork()
 
     let serializer = 
         let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
@@ -29,7 +29,6 @@ type ClientNode(addr: string, port: int) =
         let memStream = new MemoryStream()
         serializer.Serialize(memStream, request)
         writeQueue.Add (memStream.GetBuffer().[0..(int memStream.Length)-1])
-
         let responseBytes = readQueue.Take()
         serializer.Deserialize(new MemoryStream(responseBytes)) :?> Response
 
@@ -38,6 +37,12 @@ type ClientNode(addr: string, port: int) =
         match response with
         | RunDelegateResponse(pos) -> new Remote<'T>(pos, this)
         | _ -> raise <| Exception("Unexpected response to RunDelegate request.")
+
+    interface IDisposable with
+        
+        member __.Dispose() = 
+            writeQueue.CompleteAdding()
+            network.CloseConns()
 
 and Remote<'T> internal (pos: int, node: ClientNode) =
     

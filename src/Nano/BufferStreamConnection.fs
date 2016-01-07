@@ -1,6 +1,7 @@
 ﻿namespace Prajna.Nano
 
 open System
+open System.IO
 open System.Collections.Generic
 open System.Collections.Concurrent
 
@@ -23,28 +24,43 @@ type BufferStreamConnection() =
     let readQueue  = new BufferQueue(50)
     let writeQueue = new BufferQueue(50)
 
-    let receiveRequests(socket: Socket) =
+    let matchOrThrow (choice: Choice<'T,exn>) =
+        match choice with 
+        | Choice1Of2(t) -> t
+        | Choice2Of2(exc) -> raise exc
+
+    let receiveBuffers(socket: Socket) =
         let reader = new NetworkStream(socket)
         async {
-            Logger.LogF(LogLevel.Info, fun _ -> sprintf "BufferStreamConnection(%A): starting to read" socket.LocalEndPoint)
-            while true do
-                let! countBytes = reader.AsyncRead 4
-                let count = BitConverter.ToInt32(countBytes, 0)
-                Logger.LogF(LogLevel.Info, fun _ -> sprintf "Read count: %d." count)
-                let! bytes = reader.AsyncRead count 
-                readQueue.Add bytes
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "BufferStreamConnection: starting to read")
+            try
+                while true do
+                    let! countBytesOrExc = Async.Catch <| reader.AsyncRead 4
+                    let countBytes = matchOrThrow countBytesOrExc
+                    let count = BitConverter.ToInt32(countBytes, 0)
+                    Logger.LogF(LogLevel.Info, fun _ -> sprintf "Read count: %d." count)
+                    let! receivedBufferOrExc = Async.Catch <| reader.AsyncRead count
+                    let receivedBuffer = matchOrThrow receivedBufferOrExc
+                    readQueue.Add receivedBuffer
+            with
+                | :? IOException -> readQueue.CompleteAdding()
         }
 
-    let sendResponses(socket: Socket) = 
+    let sendBuffers(socket: Socket) = 
         let writer = new NetworkStream(socket)
         async {
-            Logger.LogF(LogLevel.Info, fun _ -> sprintf "BufferStreamConnection(%A): starting to write" socket.LocalEndPoint)
-            for response in writeQueue.GetConsumingEnumerable() do
-                Logger.LogF(LogLevel.Info, fun _ -> sprintf "Responding with %d bytes." response.Length)
-                let countBytes = BitConverter.GetBytes(response.Length)
-                do! writer.AsyncWrite(countBytes)
-                do! writer.AsyncWrite(response)
-                Logger.LogF(LogLevel.Info, fun _ -> sprintf "%d bytes written." response.Length)
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "BufferStreamConnection: starting to write")
+            try
+                for bufferToSend in writeQueue.GetConsumingEnumerable() do
+                    Logger.LogF(LogLevel.Info, fun _ -> sprintf "Responding with %d bytes." bufferToSend.Length)
+                    let countBytes = BitConverter.GetBytes(bufferToSend.Length)
+                    let! possibleExc = Async.Catch <| writer.AsyncWrite countBytes
+                    do matchOrThrow possibleExc
+                    let! possibleExc2 = Async.Catch <| writer.AsyncWrite bufferToSend
+                    do matchOrThrow possibleExc2
+                    Logger.LogF(LogLevel.Info, fun _ -> sprintf "%d bytes written." bufferToSend.Length)
+            with
+                | :? IOException -> ()
         }
 
     interface IConn with 
@@ -53,10 +69,11 @@ type BufferStreamConnection() =
 
         member this.Init(socket: Socket, state: obj) = 
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "New connection created (%A)." socket.LocalEndPoint)
+            (this :> IConn).Socket <- socket
             let onConnect : BufferQueue -> BufferQueue -> unit = downcast state
             onConnect readQueue writeQueue
-            receiveRequests socket |> Async.Start
-            sendResponses socket |> Async.Start
+            receiveBuffers socket |> Async.Start
+            sendBuffers socket |> Async.Start
 
         member this.Close() = ()  
 

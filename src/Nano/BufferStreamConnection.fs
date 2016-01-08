@@ -32,13 +32,13 @@ type BufferStreamConnection() =
     let receiveBuffers(socket: Socket) =
         let reader = new NetworkStream(socket)
         async {
-            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "BufferStreamConnection: starting to read")
+            Logger.LogF(LogLevel.Info, fun _ -> sprintf "BufferStreamConnection: starting to read")
             try
                 while true do
                     let! countBytesOrExc = Async.Catch <| reader.AsyncRead 4
                     let countBytes = matchOrThrow countBytesOrExc
                     let count = BitConverter.ToInt32(countBytes, 0)
-                    Logger.LogF(LogLevel.Info, fun _ -> sprintf "Read count: %d." count)
+                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Read count: %d." count)
                     let! receivedBufferOrExc = Async.Catch <| reader.AsyncRead count
                     let receivedBuffer = matchOrThrow receivedBufferOrExc
                     readQueue.Add receivedBuffer
@@ -49,16 +49,16 @@ type BufferStreamConnection() =
     let sendBuffers(socket: Socket) = 
         let writer = new NetworkStream(socket)
         async {
-            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "BufferStreamConnection: starting to write")
+            Logger.LogF(LogLevel.Info, fun _ -> sprintf "BufferStreamConnection: starting to write")
             try
                 for bufferToSend in writeQueue.GetConsumingEnumerable() do
-                    Logger.LogF(LogLevel.Info, fun _ -> sprintf "Responding with %d bytes." bufferToSend.Length)
+                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Responding with %d bytes." bufferToSend.Length)
                     let countBytes = BitConverter.GetBytes(bufferToSend.Length)
                     let! possibleExc = Async.Catch <| writer.AsyncWrite countBytes
                     do matchOrThrow possibleExc
                     let! possibleExc2 = Async.Catch <| writer.AsyncWrite bufferToSend
                     do matchOrThrow possibleExc2
-                    Logger.LogF(LogLevel.Info, fun _ -> sprintf "%d bytes written." bufferToSend.Length)
+                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "%d bytes written." bufferToSend.Length)
             with
                 | :? IOException -> ()
         }

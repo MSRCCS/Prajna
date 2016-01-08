@@ -8,6 +8,8 @@ open System.Collections.Concurrent
 open Prajna.Tools
 open Prajna.Tools.FSharp
 
+open BaseADTs
+
 type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: BlockingCollection<byte[]>, objects: List<obj>) =
     
     let serializer = 
@@ -35,12 +37,15 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
         async {
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting to consume request bytes")
             for bytes in readQueue.GetConsumingEnumerable() do
-                let request : Request = downcast serializer.Deserialize(new MemoryStream(bytes)) 
-                Logger.LogF(LogLevel.Info, fun _ -> sprintf "Deserialized request: %d bytes." bytes.Length)
-                let response = handleRequest request
-                let responseStream = new MemoryStream()
-                serializer.Serialize(responseStream, response)
-                writeQueue.Add (responseStream.GetBuffer().[0..(int responseStream.Length)-1])
+                async {
+                    let (Numbered(number,request)) : Numbered<Request> = downcast serializer.Deserialize(new MemoryStream(bytes)) 
+                    Logger.LogF(LogLevel.Info, fun _ -> sprintf "Deserialized request: %d bytes." bytes.Length)
+                    let numberedResponse = Numbered(number, handleRequest request)
+                    let responseStream = new MemoryStream()
+                    serializer.Serialize(responseStream, numberedResponse)
+                    writeQueue.Add (responseStream.GetBuffer().[0..(int responseStream.Length)-1])
+                }
+                |> Async.Start
             writeQueue.CompleteAdding()
         }
 

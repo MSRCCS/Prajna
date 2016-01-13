@@ -127,6 +127,10 @@ type [<AllowNullLiteral>] GenericNetwork(bStartSendPool, numNetThreads) =
         cts.Dispose()
         (x.netPool :> IDisposable).Dispose()
         (x.BufStackRecvComp :> IDisposable).Dispose()
+        if (Utils.IsNotNull bufStackRecv) then
+            (bufStackRecv :> IDisposable).Dispose()
+        if (Utils.IsNotNull bufStackSend) then
+            (bufStackSend :> IDisposable).Dispose()
         base.CloseConns()
 
     interface IDisposable with

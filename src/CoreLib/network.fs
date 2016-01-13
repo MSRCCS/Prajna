@@ -747,7 +747,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
 
     member private x.AsyncSendBufWSizeTryCatch(buf : byte[], bufferOffset : int, bufferSize : int) =
         try
-            xgBuf.AsyncSendBufWithSize(buf, bufferOffset, bufferSize)
+            xgBuf.AsyncSendBufWithSize(None, null, buf, bufferOffset, bufferSize)
         with e ->
             x.MarkFail()
 

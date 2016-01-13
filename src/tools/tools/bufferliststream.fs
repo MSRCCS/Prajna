@@ -32,10 +32,63 @@ open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Runtime.Serialization
 open System.Threading
+open System.Runtime.InteropServices
 
 open Prajna.Tools
 open Prajna.Tools.Queue
 open Prajna.Tools.FSharp
+
+// =====================================================================
+
+/// An array which maintains alignment in memory (for use by native code)
+/// <param name="size">The number of elements of type 'T</param>
+/// <param name="align">The alignment required as number of bytes</param>
+type [<AllowNullLiteral>] internal ArrAlign<'T>(size : int, alignBytes : int) =
+    let align = (alignBytes + sizeof<'T> - 1) / sizeof<'T>
+    let alignBytes = align * sizeof<'T>
+    let alignSize = (size + align - 1)/align*align
+    let mutable arr = Array.zeroCreate<'T>(alignSize + align - 1)
+    let handle = GCHandle.Alloc(arr, GCHandleType.Pinned)
+    let offsetBytes = handle.AddrOfPinnedObject().ToInt64() % (int64 alignBytes)
+    let offset = offsetBytes / int64(sizeof<'T>)
+    let mutable dispose = false
+
+    interface IDisposable with
+        override x.Dispose() =
+            if (not dispose) then
+                lock (x) (fun _ ->
+                    if (not dispose) then
+                        arr <- null
+                        handle.Free()
+                        GC.SuppressFinalize(x)
+                        dispose <- true
+                )
+
+    static member AlignSize(size : int, alignBytes : int) =
+        let align = (alignBytes + sizeof<'T> - 1) / sizeof<'T>
+        let alignBytes = align * sizeof<'T>
+        (size + align - 1)/align*align
+
+    member x.Arr with get() = arr
+    member x.Offset with get() = int offset
+    member x.GCHandle with get() = handle
+    member x.Ptr with get() = IntPtr.Add(handle.AddrOfPinnedObject(), int offsetBytes)
+    member x.Size with get() = alignSize
+
+// =====================================================
+
+type internal DoOnce() =
+    let lockObj = new Object()
+    let mutable bDone = false
+    member x.Run(fn : unit->unit) =
+        if (not bDone) then
+            lock (lockObj) (fun _ ->
+                if (not bDone) then
+                    fn()
+                    bDone <- true
+            )
+
+// ==============================================
 
 // Helper classes for ref counted objects & shared memory pool
 // A basic refcounter interface
@@ -186,7 +239,7 @@ type SafeRefCnt<'T when 'T:null and 'T :> IRefCounter<string>> (infoStr : string
             let x = createNew()
             x.SetId(idGet)
             x.Element <- poolElem :> IRefCounter<string> :?> 'T
-            x.InitElem()
+            x.InitElem(x.Element)
             x.RC.SetRef(1L)
             x.info <- infoStr + ":" + x.Id.ToString()
 #if DEBUGALLOCS
@@ -197,8 +250,8 @@ type SafeRefCnt<'T when 'T:null and 'T :> IRefCounter<string>> (infoStr : string
         else
             (event, null)
 
-    abstract InitElem : unit->unit
-    default x.InitElem() =
+    abstract InitElem : 'T->unit
+    default x.InitElem(poolElem) =
         ()
 
     abstract ReleaseElem : Option<bool>->unit
@@ -294,34 +347,79 @@ type [<AllowNullLiteral>] RefCntBuf<'T>() =
     let id = Interlocked.Increment(g_id)
 
     let mutable buffer : 'T[] = null
+    let mutable offset = 0
+    let mutable length = 0
+    let disposer = new DoOnce()
 
     new(size : int) as x =
         new RefCntBuf<'T>()
         then
-            x.SetBuffer(Array.zeroCreate<'T>(size))
+            x.SetBuffer(Array.zeroCreate<'T>(size), 0, size)
 
     new(buf : 'T[]) as x =
         new RefCntBuf<'T>()
         then 
-            x.SetBuffer(buf)
+            x.SetBuffer(buf, 0, buf.Length)
 
     member x.Reset() =
         x.RC.SetRef(0L)
 
     abstract Alloc : int->unit
     default x.Alloc (size : int) =
-        x.SetBuffer(Array.zeroCreate<'T>(size))
-
-    static member internal AllocBuffer (size : int) (releaseFn : IRefCounter<string>->unit) (x : RefCntBuf<'T>) =
-        x.SetBuffer(Array.zeroCreate<'T>(size))
-        x.RC.Release <- releaseFn
+        x.SetBuffer(Array.zeroCreate<'T>(size), 0, size)
 
     member internal x.Id with get() = id
-    member private x.SetBuffer(v : 'T[]) =
+
+    // protected method
+    member internal x.SetBuffer(v : 'T[], _offset : int, _length : int) =
         buffer <- v
+        offset <- _offset
+        length <- _length
+
     member internal x.Buffer with get() = buffer
+    member internal x.Offset with get() = offset
+    member internal x.Length with get() = length
 
     member val UserToken : obj = null with get, set
+
+    abstract DisposeInternal : unit->unit
+    default x.DisposeInternal() =
+        ()
+
+    interface IDisposable with
+        override x.Dispose() =
+            disposer.Run(x.DisposeInternal)
+
+type internal RefCntBufAlign<'T>() =
+    inherit RefCntBuf<'T>()
+
+    let mutable bufAlign : ArrAlign<'T> = null
+
+    new (size : int, alignBytes : int) as x =
+        new RefCntBufAlign<'T>()
+        then
+            x.BufAlign <- new ArrAlign<'T>(size, alignBytes)
+            x.SetBuffer(x.BufAlign.Arr, x.BufAlign.Offset, x.BufAlign.Size)
+
+    new (arr : ArrAlign<'T>) as x =
+        new RefCntBufAlign<'T>()
+        then
+            x.BufAlign <- arr
+            x.SetBuffer(x.BufAlign.Arr, x.BufAlign.Offset, x.BufAlign.Size)
+
+    static member val AlignBytes = 1 with get, set
+
+    member private x.BufAlign with get() : ArrAlign<'T> = bufAlign and set(v) = bufAlign <- v
+
+    override x.Alloc(size : int) =
+        bufAlign <- new ArrAlign<'T>(size, RefCntBufAlign<'T>.AlignBytes)
+        x.SetBuffer(bufAlign.Arr, bufAlign.Offset, bufAlign.Size)
+
+    override x.DisposeInternal() =
+        if (Utils.IsNotNull bufAlign) then
+            (bufAlign :> IDisposable).Dispose()
+            bufAlign <- null
+        base.DisposeInternal()
 
 type [<AllowNullLiteral>] RBufPart<'T> =
     inherit SafeRefCnt<RefCntBuf<'T>>
@@ -361,9 +459,9 @@ type [<AllowNullLiteral>] RBufPart<'T> =
     member x.Init() =
         ()
 
-    override x.InitElem() =
-        base.InitElem()
-        x.Offset <- 0
+    override x.InitElem(e) =
+        base.InitElem(e)
+        x.Offset <- e.Offset
         x.Count <- 0
         x.StreamPos <- 0L
 
@@ -383,6 +481,7 @@ type [<AllowNullLiteral>] internal SharedMemoryPool<'T,'TBase when 'T :> RefCntB
 
     [<DefaultValue>] val mutable InitFunc : 'T->unit
     [<DefaultValue>] val mutable BufSize : int
+    [<DefaultValue>] val mutable private disposer : DoOnce
 
     new (initSize : int, maxSize : int, bufSize : int, initFn : 'T -> unit, infoStr : string) as x =
         { inherit SharedPool<string, 'T>() }
@@ -390,6 +489,7 @@ type [<AllowNullLiteral>] internal SharedMemoryPool<'T,'TBase when 'T :> RefCntB
             x.InitFunc <- initFn
             x.BufSize <- bufSize
             x.InitStack(initSize, maxSize, infoStr)
+            x.disposer <- new DoOnce()
 
     override x.Alloc (infoStr : string) (elem : 'T) =
         x.BaseAlloc (infoStr) (elem)
@@ -408,6 +508,14 @@ type [<AllowNullLiteral>] internal SharedMemoryPool<'T,'TBase when 'T :> RefCntB
         if (Utils.IsNull event) then
             (!elem).Reset()
         event
+
+    member private x.Dispose() =
+        for e in x.GetStack.Stack do
+            (e :> IDisposable).Dispose()
+
+    interface IDisposable with
+        override x.Dispose() =
+            x.disposer.Run(x.Dispose)
 
 // put counter in separate class as classes without primary constructor do not allow let bindings
 // and static val fields cannot be easily initialized, also makes it independent of type 'T
@@ -1146,7 +1254,7 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
         let rbufPartNew = getNewWriteBuffer()
         rbufPartNew.StreamPos <- position
         bufList.Add(rbufPartNew)
-        capacity <- capacity + int64 rbufPartNew.Elem.Buffer.Length
+        capacity <- capacity + int64 rbufPartNew.Elem.Length
         elemLen <- elemLen + 1
 
     // add existing buffer to pool
@@ -1193,7 +1301,7 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
                 rbufPart.StreamPos <- bufList.[i-1].StreamPos + int64 bufList.[i-1].Count
             // allow writing at end of last buffer
             if (rbufPart.StreamPos + int64 rbufPart.Count >= length) then
-                bufRemWrite <- rbufPart.Elem.Buffer.Length - rbufPart.Offset
+                bufRemWrite <- rbufPart.Elem.Length - rbufPart.Offset
             else
                 // if already written buffer, then don't extend count
                 bufRemWrite <- rbufPart.Count

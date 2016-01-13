@@ -963,6 +963,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     abstract SelfTerminate : unit->unit
     default x.SelfTerminate() =
         // clear the queue
+        x.ReleaseAllItems()
         if (Utils.IsNotNull x.Q) then
             x.Q.Clear()
         isTerminated <- true

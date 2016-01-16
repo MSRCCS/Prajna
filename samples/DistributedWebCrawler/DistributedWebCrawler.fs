@@ -110,7 +110,6 @@ let main orgargs =
     let downloadLimit = parse.ParseInt( "-download", -1 )
     let nMaxWait = parse.ParseInt( "-maxwait", 30000 )
     let bRetrieve = parse.ParseBoolean( "-retrieve", false )
-    let bTask = parse.ParseBoolean( "-task", false )
     let downloadChunk = parse.ParseInt( "-downloadChunk", (1<<<20) )
     let countTag = parse.ParseInt( "-countTag", 0 )
     let countWords = parse.ParseInt( "-countWord", 0 )

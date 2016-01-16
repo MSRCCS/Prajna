@@ -149,14 +149,11 @@ type internal NetworkPerformance() =
     member val internal RttCount = ref -2L with get
     /// Last RTT from the remote node. 
     member val LastRtt = 0. with get, set
-    member val internal nInitialized = ref 0 with get
     /// Last ticks that the content is sent from this queue
     member val LastSendTicks = DateTime.MinValue with get, set
     member val internal LastRcvdSendTicks = 0L with get, set
     member val internal TickDiffsInReceive = 0L with get, set
     member internal x.RTT with get() = 0
-    member internal x.FirstTime() = 
-        Interlocked.CompareExchange( x.nInitialized, 1, 0 ) = 0
     member internal x.PacketReport( tickDIffsInReceive:int64, sendTicks ) = 
         x.LastRcvdSendTicks <- sendTicks
         let ticksCur = (PerfADateTime.UtcNowTicks())
@@ -1834,19 +1831,9 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     member private x.StartMonitor() =
         PoolTimer.AddTimer((fun o -> x.MonitorChannels(x.GetAllChannels())), 
             DeploymentSettings.NetworkActivityMonitorIntervalInMs, DeploymentSettings.NetworkActivityMonitorIntervalInMs)
-//        monitorTimer.Change(10000, 10000) |> ignore
-//        Logger.LogF(NetworkConnections.ChannelMonitorLevel, ( fun _ -> 
-//            let timer = ThreadPoolTimer.TimerWait( fun _ -> "Network Channels Monitoring Timer" ) 
-//                                                    ( fun _ -> x.MonitorChannels(x.GetAllChannels()) )
-//                                                    ( NetworkConnections.ChannelMonitorInterval) ( NetworkConnections.ChannelMonitorInterval) 
-//            ()
-//                                    )) 
 
-    member val private Initialized = ref 0 with get
     member val internal MaxMemory = 0UL with get, set
-    /// Initialize the object
-    member x.Initialize( ) = 
-        if (Interlocked.CompareExchange(x.Initialized, 1, 0) = 0) then
+    member val private Initialized = lazy(
             // determine max stack memory in bytes
             let mutable maxMemory = DetailedConfig.GetMemorySpace
             if (DeploymentSettings.MaxNetworkStackMemory > 0) then 
@@ -1885,6 +1872,11 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             MemoryStreamB.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
             // start the monitoring
             x.StartMonitor() 
+    )
+
+    /// Initialize the object
+    member x.Initialize( ) = 
+        x.Initialized.Force() |> ignore
 
     member val TotalSARecvSize = ref 0L with get
     member val TotalSASendSize = ref 0L with get

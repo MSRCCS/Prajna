@@ -1,3 +1,7 @@
+#### 0.0.1.7-alpha - December 23 2015
+* Bug fixes for serialization
+* Initial support for Linux using mono
+
 #### 0.0.1.6-alpha - November 13 2015
 * Job life cycle support
 * non-crypto Fletcher64 checksum for non-critical data movement

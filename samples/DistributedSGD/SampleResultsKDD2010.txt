@@ -1,0 +1,152 @@
+﻿C:\DistributedSGD>DistributedSGD.exe -cluster OneNet5Machines.lst -numPartitions 40 -train \\onenet30\ice\kddb -test \\onenet30\ice\kddb.t
+
+Initializing/Connecting to cluster... done. (took: 00:00:01.6298420)
+Loading dataset(s)... ^C
+C:\DistributedSGD>DistributedSGD.exe -cluster OneNet5Machines.lst -numPartitions 40 -train \\onenet3
+0\ice\kddb -test \\onenet30\ice\kddb.t
+Initializing/Connecting to cluster... done. (took: 00:00:01.5351746)
+Loading dataset(s)... done. (took: 00:00:22.9533368)
+Train Count: 20058030
+Train Prior: 0.8567157
+Test Count: 788150
+Test Prior: 0.8908901
+Epoch 0. took: 00:00:10.8705268
+Train Accuracy: 0.8567157
+Test Accuracy: 0.8908901
+Evaluating accuracies took: 00:00:05.4204753.
+
+Epoch 1. took: 00:00:10.6068594
+Epoch 2. took: 00:00:12.0009449
+Epoch 3. took: 00:00:11.6246378
+Epoch 4. took: 00:00:12.7803523
+Epoch 5. took: 00:00:12.5632690
+Epoch 6. took: 00:00:14.2079604
+Epoch 7. took: 00:00:11.8423352
+Epoch 8. took: 00:00:13.3735875
+Epoch 9. took: 00:00:33.2034850
+Epoch 10. took: 00:00:10.5926966
+Train Accuracy: 0.8570263
+Test Accuracy: 0.8910741
+Evaluating accuracies took: 00:00:02.1104973.
+
+Epoch 11. took: 00:00:11.6737011
+Epoch 12. took: 00:00:11.7336432
+Epoch 13. took: 00:00:13.2803752
+Epoch 14. took: 00:00:11.7343261
+Epoch 15. took: 00:00:13.1873525
+Epoch 16. took: 00:00:12.8912131
+Epoch 17. took: 00:00:12.1870386
+Epoch 18. took: 00:00:13.2977406
+Epoch 19. took: 00:00:12.1861582
+Epoch 20. took: 00:00:13.6889031
+Train Accuracy: 0.8578355
+Test Accuracy: 0.891461
+Evaluating accuracies took: 00:00:02.2034355.
+
+Epoch 21. took: 00:00:12.0615367
+Epoch 22. took: 00:00:13.6226652
+Epoch 23. took: 00:00:11.6401097
+Epoch 24. took: 00:00:11.1231712
+Epoch 25. took: 00:00:14.4376258
+Epoch 26. took: 00:00:11.9672466
+Epoch 27. took: 00:00:11.0923723
+Epoch 28. took: 00:00:11.8756990
+Epoch 29. took: 00:00:12.7799809
+Epoch 30. took: 00:00:13.4693967
+Train Accuracy: 0.8584991
+Test Accuracy: 0.891867
+Evaluating accuracies took: 00:00:02.1705294.
+
+Epoch 31. took: 00:00:11.2474776
+Epoch 32. took: 00:00:11.1700312
+Epoch 33. took: 00:00:11.8445282
+Epoch 34. took: 00:00:12.7656798
+Epoch 35. took: 00:00:12.3739993
+Epoch 36. took: 00:00:11.2348417
+Epoch 37. took: 00:00:12.9049394
+Epoch 38. took: 00:00:11.3295865
+Epoch 39. took: 00:00:14.7656315
+Epoch 40. took: 00:00:11.4237449
+Train Accuracy: 0.8593386
+Test Accuracy: 0.8921969
+Evaluating accuracies took: 00:00:02.3254927.
+
+Epoch 41. took: 00:00:13.2466673
+Epoch 42. took: 00:00:11.9371578
+Epoch 43. took: 00:00:11.7386161
+Epoch 44. took: 00:00:10.8584429
+Epoch 45. took: 00:00:15.2635816
+Epoch 46. took: 00:00:12.6888204
+Epoch 47. took: 00:00:13.1070049
+Epoch 48. took: 00:00:11.0473316
+Epoch 49. took: 00:00:13.0931941
+Epoch 50. took: 00:00:13.4830892
+Train Accuracy: 0.8602917
+Test Accuracy: 0.8926981
+Evaluating accuracies took: 00:00:02.9221623.
+
+Epoch 51. took: 00:00:10.8707158
+Epoch 52. took: 00:00:14.2101244
+Epoch 53. took: 00:00:11.6890293
+Epoch 54. took: 00:00:11.1557446
+Epoch 55. took: 00:00:10.1876170
+Epoch 56. took: 00:00:13.9367460
+Epoch 57. took: 00:00:12.5954626
+Epoch 58. took: 00:00:10.7965674
+Epoch 59. took: 00:00:11.7859526
+Epoch 60. took: 00:00:11.4059273
+Train Accuracy: 0.8613922
+Test Accuracy: 0.893066
+Evaluating accuracies took: 00:00:02.0778810.
+
+Epoch 61. took: 00:00:11.9916856
+Epoch 62. took: 00:00:11.0221626
+Epoch 63. took: 00:00:12.5958545
+Epoch 64. took: 00:00:11.6727091
+Epoch 65. took: 00:00:13.4657178
+Epoch 66. took: 00:00:11.1562307
+Epoch 67. took: 00:00:12.6249059
+Epoch 68. took: 00:00:13.0320487
+Epoch 69. took: 00:00:12.7583557
+Epoch 70. took: 00:00:11.5817611
+Train Accuracy: 0.8624291
+Test Accuracy: 0.8934467
+Evaluating accuracies took: 00:00:03.0781775.
+
+Epoch 71. took: 00:00:11.5896757
+Epoch 72. took: 00:00:10.8749310
+Epoch 73. took: 00:00:11.9227806
+Epoch 74. took: 00:00:14.0923168
+Epoch 75. took: 00:00:11.6083085
+Epoch 76. took: 00:00:12.0188900
+Epoch 77. took: 00:00:12.3931206
+Epoch 78. took: 00:00:14.6856945
+Epoch 79. took: 00:00:11.4059303
+Epoch 80. took: 00:00:11.4871274
+Train Accuracy: 0.8635035
+Test Accuracy: 0.8938654
+Evaluating accuracies took: 00:00:02.1084764.
+
+Epoch 81. took: 00:00:10.7791869
+Epoch 82. took: 00:00:11.8739353
+Epoch 83. took: 00:00:11.7326367
+Epoch 84. took: 00:00:12.8110310
+Epoch 85. took: 00:00:10.7029355
+Epoch 86. took: 00:00:12.9991124
+Epoch 87. took: 00:00:13.5793326
+Epoch 88. took: 00:00:13.1264818
+Epoch 89. took: 00:00:11.2351467
+Epoch 90. took: 00:00:10.9994312
+Train Accuracy: 0.8645146
+Test Accuracy: 0.8942143
+Evaluating accuracies took: 00:00:02.1913262.
+
+Epoch 91. took: 00:00:13.1215053
+Epoch 92. took: 00:00:16.1890317
+Epoch 93. took: 00:00:11.8732753
+Epoch 94. took: 00:00:12.7393570
+Epoch 95. took: 00:00:11.5925553
+Epoch 96. took: 00:00:13.3893679
+Epoch 97. took: 00:00:14.3436074
+Epoch 98. took: 00:00:11.8913943
+Epoch 99. took: 00:00:11.7800643

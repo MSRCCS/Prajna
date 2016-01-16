@@ -2,5 +2,24 @@ language: csharp
 
 sudo: false  # use the new container-based Travis infrastructure 
 
+before_install:
+  - chmod +x build.sh
 script: 
-  - ./build.sh All
+  - ./build.sh Release
+
+after_script:
+  - zip -r Log-build-$TRAVIS_BUILD_NUMBER.zip ~/Prajna/Log  # zip Prajna log folder
+
+notifications:
+  email:
+    recipients:
+      - msrccs@outlook.com
+    on_success: always
+    on_failure: always
+  
+addons:
+  artifacts:
+    debug: true  # debug mode turned on
+    paths:
+      - Log-build-$TRAVIS_BUILD_NUMBER.zip  # upload Prajna log
+    s3_region: us-west-2  # assume the S3 bucket is located at region us-west-2 (Oregon)

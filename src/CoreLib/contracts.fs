@@ -1148,7 +1148,7 @@ type [<AllowNullLiteral>]
     /// server name is case insensitive
     member val internal ResolvedServerNameToIP = ConcurrentDictionary<string, int64 >( StringComparer.OrdinalIgnoreCase ) with get
     /// A list of connected server 
-    member val ConnectedServerCollection = ConcurrentDictionary<int64, bool >( ) with get
+    member val internal ConnectedServerCollection = ConcurrentDictionary<int64, bool >( ) with get
     member val internal CTS = SafeCTSWrapper() with get 
     /// Servers whose information is as part of the cluster
     member val internal ServerInCluster = ConcurrentDictionary<_, bool >( StringComparer.Ordinal) with get
@@ -1408,7 +1408,7 @@ type [<AllowNullLiteral>]
 
 /// <summary>
 /// ContractStoreAtProgram contains wrapped up contract and deserialization code for other program/service to access the contract. The class is to be used by Prajna 
-/// core programmers. 
+/// core programmers.  
 /// </summary>
 type internal ContractStoreAtProgram() = 
     /// <summary>

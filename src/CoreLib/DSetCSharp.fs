@@ -536,8 +536,8 @@ type DSet<'U> () =
     /// This can be considered as merge dataset by rows, and all dataset have the same column structure. </summary>
     /// <param name="source"> Source dataset </param>
     /// <return> Merged dataset </return>
-    member x.Union (source : IEnumerable<DSet<'U>>) = 
-        DSet<_>(x.DSet.Union(source |> Seq.map(fun s -> s.DSet)))
+    member x.Merge (source : IEnumerable<DSet<'U>>) = 
+        DSet<_>(x.DSet.Merge(source |> Seq.map(fun s -> s.DSet)))
 
     /// Create a new DSet whose elements are the results of applying the given function to the corresponding elements of the two DSets pairwise
     /// The two DSet must have the same partition mapping structure and same number of element (e.g.), established via Split.

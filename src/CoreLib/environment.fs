@@ -1,4 +1,4 @@
-﻿(*---------------------------------------------------------------------------
+(*---------------------------------------------------------------------------
     Copyright 2013 Microsoft
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,19 +45,17 @@ open Prajna.Service
 /// Represent Prajna Environment for running Prajna program
 [<Sealed>]
 type Environment() =
-    static let nInitialized = ref 0 
+    static let init = lazy(
+        Cluster.SetCreateLocalCluster(LocalCluster.Create)
+        DistributedFunctionBuiltIn.Init()
+    )
 
     /// Initialize Prajna Environment for running Prajna program
     /// Currently, under the following scenario, Environment.Init() should be called explicitly by users:
     /// 1）Local cluster is used
     /// 2) Distributed function is used. 
     static member Init () = 
-        /// Avoid using Interlocked.Increment if this has already been initialized. 
-        if !nInitialized = 0 then 
-            if Interlocked.Increment( nInitialized ) = 1 then 
-                Cluster.SetCreateLocalCluster(LocalCluster.Create)
-                // Initialization of distributed function, should be placed at end 
-                DistributedFunctionBuiltIn.Init()       
+        init.Force() |> ignore
 
     /// Cleanup Prajna Environment for running Prajna program
     static member Cleanup() =

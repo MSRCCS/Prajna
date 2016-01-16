@@ -773,7 +773,7 @@ and
     member val internal PeerIndexFromEndpoint : ConcurrentDictionary<EndPoint, int> = ConcurrentDictionary<_,_>() with get
     member internal x.Queues with get() = queues
                              and set( q ) = queues <- q
-    member val internal QueuesInitialized = ref 0 with get
+    member val internal QueuesInitialized = 0 with get, set
     member internal x.ExpectedClusterSize with get() = expectedClusterSize
                                           and set(sz) = expectedClusterSize <- sz
     member internal x.MasterInfo with get() = masterInfo
@@ -783,7 +783,7 @@ and
     /// Return a list of node that form the cluster
     /// </summary>
     member x.Nodes with get() = clusterStatus.ListOfClients
-    member val internal ClusterMode = ref (int ClusterMode.Uninitialized) with get, set
+    member val internal ClusterMode = ClusterMode.Uninitialized with get, set
     /// Return name of the cluster 
     member x.Name with get() = clusterStatus.Name
     /// Return version of the cluster 
@@ -1213,20 +1213,18 @@ and
     override x.GetHashCode() =
         hash( x.ClusterInfo )
 
+    member private x.CommunicationInited = lazy(
+        if Utils.IsNotNull x.Nodes then 
+            x.Queues <- Array.create<NetworkCommandQueue> x.NumNodes null
+            bFailedMsgShown <- Array.create x.NumNodes false
+        if Utils.IsNull bFailedMsgShown || bFailedMsgShown.Length <> x.NumNodes then
+            failwith(sprintf "Failed to begin communication for cluster %s:%s" x.Name (VersionToString(x.Version)))
+        x.ClusterMode <- ClusterMode.Connected
+    )
+
     /// BeginCommunication: always called to ensure proper initialization of cluster structure
     member internal x.BeginCommunication() = 
-        // We use this so that most call of the Begin communication doesn't need to wait for startup code
-        if !x.ClusterMode<int ClusterMode.Connected then 
-            let oldValue = !x.ClusterMode
-            if oldValue < int ClusterMode.Connected then
-                if Interlocked.CompareExchange( x.ClusterMode, int ClusterMode.Connected, oldValue ) = oldValue then 
-                    if Utils.IsNotNull x.Nodes then 
-                        x.Queues <- Array.create<NetworkCommandQueue> x.NumNodes null
-                        bFailedMsgShown <- Array.create x.NumNodes false
-                else
-                    while Utils.IsNull bFailedMsgShown || bFailedMsgShown.Length <> x.NumNodes do 
-                        // Spin to wait for some other proceess to complete the initialization routine above. 
-                        ()
+        x.CommunicationInited.Force() |> ignore
 
     member internal x.QueueForWrite( peeri ) =
         try 
@@ -1247,28 +1245,6 @@ and
             Logger.Log( LogLevel.Error, msg )
             failwith msg
             
-    member internal x.QueueForWriteOld( peeri ) =
-        try 
-            x.BeginCommunication()
-            let queue = ref x.Queues.[peeri]
-            if Utils.IsNull !queue then
-                // Make sure each queue is only initialized once. 
-                lock ( x.Nodes.[peeri].MachineName ) ( fun _ -> 
-                    x.Queues.[peeri] <- Cluster.Connects.AddConnect( x.Nodes.[peeri].MachineName, x.Nodes.[peeri].MachinePort )
-                    queue := x.Queues.[peeri]
-                    (!queue).GetOrAddRecvProc ("ClusterParseHost", Cluster.ParseHostCommand (!queue) peeri) |> ignore
-                    if ((!x.QueuesInitialized)=1) then
-                        (!queue).Initialize() // otherwise no processing until all queues added
-                )
-                // Read some receiving command to unblock
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Attempt to connect to %s:%d as peer %d" x.Nodes.[peeri].MachineName x.Nodes.[peeri].MachinePort peeri ))
-            !queue
-        with 
-        | e -> 
-            let msg = sprintf "Cluster.QueueForWrite, exception %A" e
-            Logger.Log( LogLevel.Error, msg )
-            failwith msg
-
     member internal x.Queue( peeri ) = 
         x.Queues.[peeri]  
        
@@ -1532,22 +1508,24 @@ and
 
             q.GetPendingCommandEventIfNeeded()
 
+    member private x.QueuesInitFunc = lazy(
+        for peeri=0 to x.NumNodes-1 do
+            let queue = x.QueueForWrite(peeri)
+            if Utils.IsNotNull queue then
+                queue.Initialize()
+        x.QueuesInitialized = 1
+    )
+
     /// Initialize write queues
     member internal x.InitializeQueues() =
         x.BeginCommunication()        
-        if (!x.QueuesInitialized = 0) then
-            if (Interlocked.CompareExchange(x.QueuesInitialized, 1, 0) = 0) then
-                for peeri=0 to x.NumNodes-1 do
-                    let queue = x.QueueForWrite(peeri)
-                    if Utils.IsNotNull queue then
-                        queue.Initialize()
+        x.QueuesInitFunc.Force() |> ignore
 
     /// Start connection to all peers
     member internal x.ConnectAll() = 
         for peeri=0 to x.NumNodes-1 do
             x.QueueForWrite(peeri) |> ignore
         x.InitializeQueues()
-        ()
 
     /// Disconnect all peers. 
     member internal x.DisconnectAll() = 

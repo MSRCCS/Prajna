@@ -128,12 +128,12 @@ type DSet<'U> () =
         x.Dependency <- CorrelatedMixFrom ( List<_>( depParents ) )
 
     /// Establish a bypass dependency
-    member internal x.EstablishUnion ( parentDSets:seq<DSet> ) = 
+    member internal x.EstablishMerge ( parentDSets:seq<DSet> ) = 
         let depChild = DependentDSet(x)
         let depParents = parentDSets |> Seq.map ( fun d -> DependentDSet( d ) ) |> Seq.toArray
         for parentDSet in parentDSets do
-            parentDSet.DependencyDownstream <- UnionTo depChild
-        x.Dependency <- UnionFrom ( List<_>( depParents ) )
+            parentDSet.DependencyDownstream <- MergeTo depChild
+        x.Dependency <- MergeFrom ( List<_>( depParents ) )
 
     /// Establish a cross join dependency
     member internal x.EstablishCrossJoin (joinDSet0:DSet) (joinDSet1:DSet)= 
@@ -1494,15 +1494,15 @@ type DSet<'U> () =
     /// This can be considered as merge dataset by rows, and all dataset have the same column structure. </summary>
     /// <param name="source"> Source dataset </param>
     /// <return> Merged dataset </return>
-    static member union (source:seq<DSet<'U>>) = 
+    static member merge (source:seq<DSet<'U>>) = 
         let srcArray = source |> Seq.toArray
-        let newDSet = srcArray.[0].Derived<'U>( DSetMetadataCopyFlag.Passthrough, "_union" )
+        let newDSet = srcArray.[0].Derived<'U>( DSetMetadataCopyFlag.Passthrough, "_merge" )
         newDSet.Function <- Function.Identity<'U>( )
         let dep = srcArray |> Array.map ( fun dset -> DependentDSet(dset)) 
-        newDSet.Dependency <- UnionFrom (List<_>( dep ))
+        newDSet.Dependency <- MergeFrom (List<_>( dep ))
         let depDSet = DependentDSet(newDSet)
         for srcDSet in srcArray do 
-            srcDSet.DependencyDownstream <- UnionTo depDSet
+            srcDSet.DependencyDownstream <- MergeTo depDSet
         newDSet
 
     /// <summary> 
@@ -1510,10 +1510,10 @@ type DSet<'U> () =
     /// This can be considered as merge dataset by rows, and all dataset have the same column structure. </summary>
     /// <param name="source"> Source dataset </param>
     /// <return> Merged dataset </return>
-    member x.Union (source:seq<DSet<'U>>) = 
+    member x.Merge (source:seq<DSet<'U>>) = 
         let newSeq = seq { yield x
                            yield! source }
-        DSet<'U>.union newSeq
+        DSet<'U>.merge newSeq
 
     /// Create a new DSet whose elements are the results of applying the given function to the corresponding elements of the two DSets pairwise
     /// The two DSet must have the same partition mapping structure and same number of element (e.g.), established via Split.

@@ -77,16 +77,13 @@ $uploadLog = Join-Path $webCrawlerLog "upload"
 
 Write-Progress -Activity "DistributedWebCrawler Test: Download" -Status "Start"
 $downloadLog = Join-Path $webCrawlerLog "download"
-& $webCrawler -clusterlst $clusterFilePath -download 4 -remote $uploadRemoteDKV -verbose $verbose -log $downloadLog -con -task 
-
-<#  Note: CountTag test hits a Null-Reference Exception: to be investigated
+& $webCrawler -clusterlst $clusterFilePath -download 4 -remote $uploadRemoteDKV -verbose $verbose -log $downloadLog -con
 
 Write-Progress -Activity "DistributedWebCrawler Test: Count Tag" -Status "Start"
 $countTagLog = Join-Path $webCrawlerLog "countTag"
 $tagKey = [int] $WebCrawlerKey + 1
 & $webCrawler -clusterlst $clusterFilePath -remote $uploadRemoteDKV -counttag $tagKey  -verbose $Verbose -log $countTagLog -con
 
-#>
 Write-Progress -Activity "DistributedWebCrawler Tests" -Status "Completed"
 
 ##############################################################################
@@ -118,17 +115,17 @@ $kMeansDKVNoise = $kMeansDKV + "_NOISE"
 $readVecLog = Join-Path $kMeansLog "ReadVectorNoise"
 & $kMeans -clusterlst $clusterFilePath -local vector.data -gen -out -remote $kMeansDKVNoise -verbose $Verbose -log $readVecLog -con
 
-Write-Progress -Activity "DistributedKMeans Test: DKV Union" -Status "Start"
-$kMeansDKVUnion = $kMeansDKV + "," + $kMeansDKVNoise
-$readVecLog = Join-Path $kMeansLog "DKVUnion"
-& $kMeans -clusterlst $clusterFilePath -local vector.data -gen -out -remotes $kMeansDKVUnion -verbose $Verbose -log $readVecLog -con
+Write-Progress -Activity "DistributedKMeans Test: DKV merge" -Status "Start"
+$kMeansDKVMerge = $kMeansDKV + "," + $kMeansDKVNoise
+$readVecLog = Join-Path $kMeansLog "DKVMerge"
+& $kMeans -clusterlst $clusterFilePath -local vector.data -gen -out -remotes $kMeansDKVMerge -verbose $Verbose -log $readVecLog -con
 
 Write-Progress -Activity "DistributedKMeans Test: Read MapReduce Result" -Status "Start"
 $kMeans1000DKVMapReduce = $kMeans1000DKV + "_MapReduce"
 $readVecLog = Join-Path $kMeansLog "ReadMapReduce"
 & $kMeans -clusterlst $clusterFilePath -local vector1000.data -verify -out -remote $kMeans1000DKVMapReduce -verbose $Verbose -log $readVecLog -con
 
-<# Non-Reference Exception: investigations needed
+<# System.ArgumentException: The input must be non-negative. Investigation is needed
 
 Write-Progress -Activity "DistributedKMeans Test: Cross Join 1" -Status "Start"
 $readVecLog = Join-Path $kMeansLog "CrossJoin1"
@@ -137,7 +134,6 @@ $readVecLog = Join-Path $kMeansLog "CrossJoin1"
 Write-Progress -Activity "DistributedKMeans Test: Cross Join 2" -Status "Start"
 $readVecLog = Join-Path $kMeansLog "CrossJoin2"
 & $kMeans -clusterlst $clusterFilePath -dist 2 -remote $kMeansDKV -verbose $Verbose -log $readVecLog -con
-
 #>
 
 Remove-Item vector.data

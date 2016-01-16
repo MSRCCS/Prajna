@@ -308,7 +308,7 @@ and private CustomizedSerializationSurrogate(nameObj, encoder, decoder, getNewMs
 
 // The serialization surrogate selector that selects CSharpDisplayClassSerializationSurrogate for C# compiler generated display class. 
 // It implements ISurrogateSelector
-and private CustomizedSerializationSurrogateSelector(getNewMs : unit->MemoryStream, getNewMsWithBuf : byte[]*int*int*bool*bool->MemoryStream) =
+and internal CustomizedSerializationSurrogateSelector(getNewMs : unit->MemoryStream, getNewMsWithBuf : byte[]*int*int*bool*bool->MemoryStream) =
     let mutable nextSelector = Unchecked.defaultof<ISurrogateSelector> 
 
     interface ISurrogateSelector with

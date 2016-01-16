@@ -65,7 +65,7 @@ type ProcessTests () =
         for i = 0 to numUnit-1 do
             let refV = arr.[i]
             let value = Volatile.Read( refV )
-            Assert.AreEqual(value, expValue)
+            Assert.AreEqual(expValue, value)
 
     member internal x.TestSafeCTSWrapperOnce(num, cancelAfterMS:int) =
         let cts = SafeCTSWrapper(cancelAfterMS)

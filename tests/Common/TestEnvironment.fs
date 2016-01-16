@@ -21,10 +21,25 @@ type TestEnvironment private () =
     static let RemoteClusterListFile = @"path-to-a-cluster-list-file"
     static let envStartTime = DateTime.UtcNow
 
+    // Is the testing running in a Travis CI env (https://travis-ci.org)
+    static let isRunningOnTravisEnv =
+        // According to https://docs.travis-ci.com/user/environment-variables/#Default-Environment-Variables
+        // * TRAVIS=true
+        let travisEnvVal = Environment.GetEnvironmentVariable("TRAVIS")
+        let isTravis = Utils.IsNotNull travisEnvVal && travisEnvVal = "true"
+        isTravis
+
     static let env = lazy(let _, minIOThs = ThreadPool.GetMinThreads()
                           // In UT, daemons/containers/app use the same process thus share the same thread pool
                           // make the min thread a bit higher 
-                          ThreadPool.SetMinThreads(Environment.ProcessorCount * 4, minIOThs) |> ignore
+                          if not Runtime.RunningOnMono then
+                              ThreadPool.SetMinThreads(Environment.ProcessorCount * 4, minIOThs) |> ignore
+                          else
+                              // Mono uses thread pool threads to wait for WaitHandles given to ThreadPool.RegisterWaitForSingleObject (CLR does not)
+                              // Also it seems under the pattern of repeatedly RegisterWait->wakeup->RegisterWait, Mono uses more thread pool threads and these threads do not 
+                              // quickly become available for new work items. 
+                              // As a result, a higher MinThreads threshold is needed (especially for tests)
+                              ThreadPool.SetMinThreads(Environment.ProcessorCount * 16, minIOThs) |> ignore
                           let e = new TestEnvironment()
                           AppDomain.CurrentDomain.DomainUnload.Add(fun _ -> (e :> IDisposable).Dispose())
                           e)
@@ -33,7 +48,10 @@ type TestEnvironment private () =
         Environment.Init()
         let logdir = Path.Combine ([| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
         let fileLog = Path.Combine( logdir, "UnitTestApp_" + StringTools.UtcNowToString() + ".log" )
-        let args = [| "-verbose"; "5"; 
+        // Note: Currently there're bugs that causes the travis build to sometimes fail when use "5". With "6", the chance is better
+        //       This "workaround" is not a fix but just for unblocking the setup of travis build. The underlying issue must be investigated
+        let logLevel = if isRunningOnTravisEnv then "6" else "5"
+        let args = [| "-verbose"; logLevel; 
                        "-log"; fileLog |]
         let dirInfo= FileTools.DirectoryInfoCreateIfNotExists logdir
         let dirs = dirInfo.GetDirectories()
@@ -59,37 +77,42 @@ type TestEnvironment private () =
         GC.Collect()
         GC.WaitForPendingFinalizers()
         let proc = Process.GetCurrentProcess()
+        let maxThreads, maxIOThreads = ThreadPool.GetMaxThreads()
+        let availThreads, availIOThreads = ThreadPool.GetAvailableThreads()
         Logger.Log(LogLevel.Info, 
-                   sprintf "%s -- # of TH: %i, GC Heap: %f MB, Private Memory: %f MB" 
-                       msg (proc.Threads.Count) ((float (GC.GetTotalMemory(false))) / 1e6) (float proc.PrivateMemorySize64 / 1e6))
+                   sprintf "%s -- # of TH: %i, (%i, %i) ThreadPool THs, GC Heap: %f MB, Private Memory: %f MB" 
+                       msg (proc.Threads.Count) (maxThreads - availThreads) (maxIOThreads - availIOThreads) ((float (GC.GetTotalMemory(false))) / 1e6) (float proc.PrivateMemorySize64 / 1e6))
 
     let testCluster =
         Logger.Log( LogLevel.Info, "##### Setup LocalCluster for tests starts.... #####")
         reportProcessStatistics("Before local cluster is created")
         let sw = Stopwatch()
         sw.Start()
-        DeploymentSettings.LocalClusterTraceLevel <- LogLevel.MediumVerbose
+        // Note: Currently there're bugs that causes the travis build to sometimes fail when use "LogLevel.MediumVerbose". With "LogLevel.WildVerbose", the chance is better
+        //       This "workaround" is not a fix but just for unblocking the setup of travis build. The underlying issue must be investigated
+        let logLevel = if isRunningOnTravisEnv then LogLevel.WildVerbose else LogLevel.MediumVerbose
+        DeploymentSettings.LocalClusterTraceLevel <- logLevel
         // Sometimes the AppVeyor build VM is really slow on IO and need more time to establish the container
         DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit <- 240L
 
         let useRealCluster = true
 
-        let cl = 
+        let cl =
             if useRemoteCluster then
                 Cluster(RemoteClusterListFile)
             else
-                if useAppDomainForDaemonsAndContainers then
-                    Cluster(sprintf "local[%i]" clusterSize)
-                else
-                    let localClusterCfg = { Name = sprintf "LocalPP-%i" clusterSize
-                                            Version = (DateTime.UtcNow)
-                                            NumClients = clusterSize
-                                            ContainerInAppDomain = false
-                                            ClientPath = "PrajnaClient.exe" |> Some // Note: put the path of PrajnaClient here
-                                            NumJobPortsPerClient = 5 |> Some
-                                            PortsRange = (20000, 20011) |> Some
-                                          }
-                    Cluster(localClusterCfg)
+            if useAppDomainForDaemonsAndContainers then
+                Cluster(sprintf "local[%i]" clusterSize)
+            else
+                let localClusterCfg = { Name = sprintf "LocalPP-%i" clusterSize
+                                        Version = (DateTime.UtcNow)
+                                        NumClients = clusterSize
+                                        ContainerInAppDomain = false
+                                        ClientPath = "PrajnaClient.exe" |> Some // Note: put the path of PrajnaClient here
+                                        NumJobPortsPerClient = 5 |> Some
+                                        PortsRange = (20000, 20011) |> Some
+                                      }
+                Cluster(localClusterCfg)
 
         reportProcessStatistics("After local cluster is created")
         CacheService.Start(cl)
@@ -138,5 +161,3 @@ type TestEnvironment private () =
 
     /// The test environment
     static member Environment with get() = env
-
-

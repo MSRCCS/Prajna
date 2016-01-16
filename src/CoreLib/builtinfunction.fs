@@ -1,4 +1,4 @@
-﻿(*---------------------------------------------------------------------------
+(*---------------------------------------------------------------------------
     Copyright 2015 Microsoft
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -57,7 +57,7 @@ module DistributedFunctionBuiltInInitializationModule =
             )
 /// A set of built in distributed functions. 
 type DistributedFunctionBuiltIn() = 
-    static let nInitialized = ref 0 
+    static let initialized = lazy ( DistributedFunctionBuiltIn.InitOnce() )
     static let builtInStore = DistributedFunctionStore.Current
             
     static let mutable getConnectedContainerLazy = DistributedFunctionBuiltInInitializationModule.lazySeqUnitialized<string*string>()
@@ -106,7 +106,4 @@ type DistributedFunctionBuiltIn() =
         func()
 
     static member internal Init () =
-        if !nInitialized = 0 then 
-            if Interlocked.Increment(nInitialized) = 1 then 
-                DistributedFunctionBuiltIn.InitOnce()    
-        ()
+        initialized.Force()

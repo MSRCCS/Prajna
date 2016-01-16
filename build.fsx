@@ -12,6 +12,7 @@ open Fake
 open Fake.Git
 open Fake.AssemblyInfoFile
 open Fake.ReleaseNotesHelper
+open Fake.UserInputHelper
 open System
 open System.IO
 open System.Xml.Linq
@@ -64,6 +65,12 @@ let solutionFile  = "Prajna.sln"
 let testAssemblies = "tests/**/bin/{0}/*Tests*.dll"
 
 let curDir = __SOURCE_DIRECTORY__
+
+let isTravisBuild =
+    let isTravis = Environment.GetEnvironmentVariable("TRAVIS")
+    let r = isTravis <> null && isTravis = "true"
+    trace(sprintf "Travis build: %b" r)
+    r
 
 // --------------------------------------------------------------------------------------
 // Git helpers
@@ -148,6 +155,12 @@ let replaceCrLfWithLf file =
    if String.Compare(content, newContent, StringComparison.InvariantCulture) <> 0 then
        File.WriteAllText(file, newContent)
 
+// Remove the UTF-8 BOM (EF BB BF) from file
+let removeBom file = 
+    let bytes = File.ReadAllBytes(file)
+    if bytes.Length > 2 && bytes.[0] = 0xEFuy && bytes.[1] = 0xBBuy && bytes.[2] = 0xBFuy then
+        File.WriteAllBytes(file, bytes |> Seq.skip 3 |> Array.ofSeq)
+
 // Generate assembly info files with the right version & up-to-date information
 Target "AssemblyInfo" (fun _ ->
     let getAssemblyInfoAttributes projectName =
@@ -179,6 +192,7 @@ Target "AssemblyInfo" (fun _ ->
             | Vbproj -> CreateVisualBasicAssemblyInfo, ((folderName @@ "My Project") @@ "AssemblyInfo.vb")
         createAssemblyInfoFunc asmInfoFile attributes
         replaceCrLfWithLf asmInfoFile
+        removeBom asmInfoFile
         )
 )
 
@@ -395,30 +409,36 @@ Target "CheckXmlDocsR" (fun _ -> checkXmlDocs "Releasex64")
 // Run the unit tests using test runner
 
 let runTests (target:string) =
+    let timer : System.Timers.Timer = null
     try
-        let pattern = String.Format(testAssemblies, target)
-        !! pattern
-#if MONO
-        // With Mono-4.0, if pass multiple test assemblies to nunit-console it throws an NullReferenceException
-        // So, for Mono, we invoke nunit-console multiple times, each time just pass it one assembly
-        |> Seq.iteri (fun i testAsm -> printfn "test suite: %s" testAsm
-                                       seq { yield testAsm }
-                                       |> NUnit (fun p ->
-                                           { p with
-                                               DisableShadowCopy = true
-                                               TimeOut = TimeSpan.FromMinutes 20.
-                                               OutputFile = sprintf "TestResults_%s_%d.xml" target i})
-                    )
-#else
-        |> NUnit (fun p ->
-            { p with
-                DisableShadowCopy = true
-                ProcessModel = SeparateProcessModel
-                Domain = SingleDomainModel
-                TimeOut = TimeSpan.FromMinutes 20.
-                OutputFile = sprintf "TestResults_%s.xml" target})    
-#endif
+        if isTravisBuild then
+            // For travis build, if there's no output for 10 minutes, the build will be cancelled,
+            // and addons etc will not be executed. To keep the build alive, use a timer to output 
+            // to stdout every 5 minutes. So the test suite timeout can eventually kick in.
+            // Note: if NUnit below supports per test timeout, then there's no need to do this, just
+            // need to set the per test timeout less than 10 minutes.
+            let timer = new System.Timers.Timer(5000.0 * 60.0)
+            timer.Elapsed.Add(fun _ -> trace("tests in progress ..."))
+            timer.Start()
+        try
+            let pattern = String.Format(testAssemblies, target)
+            !! pattern
+            |> NUnit (fun p ->
+                { p with
+                    ExcludeCategory = "Performance"
+                    DisableShadowCopy = true
+                    ProcessModel = SeparateProcessModel
+                    Domain = SingleDomainModel
+                    // Though from the doc, this looks like per test-case timeout, but it works as whole test suite timeout
+                    TimeOut = TimeSpan.FromMinutes 20. 
+                    OutputFile = sprintf "TestResults_%s.xml" target})    
+        with
+        | ex -> traceImportant(sprintf "Test run fails: %A" ex)
     finally
+        if timer <> null then
+            timer.Dispose()
+
+        traceImportant(sprintf "runTests %s completed: execute final tasks" target)
         // Kill nunit-agent.exe if it is alive (it can sometimes happen when the test timeouts)
         let mutable cnt = 0;
         let mutable procs = Diagnostics.Process.GetProcessesByName("nunit-agent") |> Array.filter (fun p -> not p.HasExited)
@@ -431,6 +451,7 @@ let runTests (target:string) =
             cnt <- cnt + 1;
             procs <- Diagnostics.Process.GetProcessesByName("nunit-agent") |> Array.filter (fun p -> not p.HasExited)
         if (not (procs |> Array.isEmpty)) then trace "fail to kill nunit-agent"
+        
 
 Target "RunTests" (fun _ -> runTests "Debugx64")
 Target "RunReleaseTests" (fun _ -> runTests "Releasex64")
@@ -496,22 +517,50 @@ Target "PublishNuget" (fun _ ->
 // --------------------------------------------------------------------------------------
 // Generate the documentation
 
+let fakePath = "packages" @@ "FAKE" @@ "tools" @@ "FAKE.exe"
+let fakeStartInfo script workingDirectory args fsiargs environmentVars =
+    (fun (info: System.Diagnostics.ProcessStartInfo) ->
+        info.FileName <- System.IO.Path.GetFullPath fakePath
+        info.Arguments <- sprintf "%s --fsiargs -d:FAKE %s \"%s\"" args fsiargs script
+        info.WorkingDirectory <- workingDirectory
+        let setVar k v =
+            info.EnvironmentVariables.[k] <- v
+        for (k, v) in environmentVars do
+            setVar k v
+        setVar "MSBuild" msBuildExe
+        setVar "GIT" Git.CommandHelper.gitPath
+        setVar "FSI" fsiPath)
+
+/// Run the given buildscript with FAKE.exe
+let executeFAKEWithOutput workingDirectory script fsiargs envArgs =
+    let exitCode =
+        ExecProcessWithLambdas
+            (fakeStartInfo script workingDirectory "" fsiargs envArgs)
+            TimeSpan.MaxValue false ignore ignore
+    System.Threading.Thread.Sleep 1000
+    exitCode
+
+// Documentation
+let buildDocumentationTarget fsiargs target =
+    trace (sprintf "Building documentation (%s), this could take some time, please wait..." target)
+    let exit = executeFAKEWithOutput "docs/tools" "generate.fsx" fsiargs ["target", target]
+    if exit <> 0 then
+        failwith "generating reference documentation failed"
+    ()
 Target "GenerateReferenceDocs" (fun _ ->
-    if not <| executeFSIWithArgs "docs/tools" "generate.fsx" ["--define:RELEASE"; "--define:REFERENCE"] [] then
-      failwith "generating reference documentation failed"
+    buildDocumentationTarget "-d:RELEASE -d:REFERENCE" "Default"
 )
 
 let generateHelp' fail debug =
     let args =
-        if debug then ["--define:HELP"]
-        else ["--define:RELEASE"; "--define:HELP"]
-    if executeFSIWithArgs "docs/tools" "generate.fsx" args [] then
+        if debug then "--define:HELP"
+        else "--define:RELEASE --define:HELP"
+    try
+        buildDocumentationTarget args "Default"
         traceImportant "Help generated"
-    else
-        if fail then
-            failwith "generating help documentation failed"
-        else
-            traceImportant "generating help documentation failed"
+    with
+    | e when not fail ->
+        traceImportant "generating help documentation failed"
 
 let generateHelp fail =
     generateHelp' fail false
@@ -541,18 +590,14 @@ Target "GenerateHelpDebug" (fun _ ->
 )
 
 Target "KeepRunning" (fun _ ->    
-    use watcher = new FileSystemWatcher(DirectoryInfo("docs/content").FullName,"*.*")
-    watcher.EnableRaisingEvents <- true
-    watcher.Changed.Add(fun e -> generateHelp false)
-    watcher.Created.Add(fun e -> generateHelp false)
-    watcher.Renamed.Add(fun e -> generateHelp false)
-    watcher.Deleted.Add(fun e -> generateHelp false)
+    use watcher = !! "docs/content/**/*.*" |> WatchChanges (fun changes ->
+         generateHelp false
+    )
 
     traceImportant "Waiting for help edits. Press any key to stop."
 
     System.Console.ReadKey() |> ignore
 
-    watcher.EnableRaisingEvents <- false
     watcher.Dispose()
 )
 
@@ -616,15 +661,28 @@ Target "ReleaseDocs" (fun _ ->
 open Octokit
 
 Target "PublicRelease" (fun _ ->
+    let user =
+        match getBuildParam "github-user" with
+        | s when not (String.IsNullOrWhiteSpace s) -> s
+        | _ -> getUserInput "Username: "
+    let pw =
+        match getBuildParam "github-pw" with
+        | s when not (String.IsNullOrWhiteSpace s) -> s
+        | _ -> getUserPassword "Password: "
+    let remote =
+        Git.CommandHelper.getGitResult "" "remote -v"
+        |> Seq.filter (fun (s: string) -> s.EndsWith("(push)"))
+        |> Seq.tryFind (fun (s: string) -> s.Contains(gitOwner + "/" + gitName))
+        |> function None -> gitHome + "/" + gitName | Some (s: string) -> s.Split().[0]
     StageAll ""
     Git.Commit.Commit "" (sprintf "Bump version to %s" release.NugetVersion)
-    Branches.push ""
+    Branches.pushBranch "" remote (Information.getBranchName "")
 
     Branches.tag "" release.NugetVersion
-    Branches.pushTag "" "origin" release.NugetVersion
+    Branches.pushTag "" remote release.NugetVersion
     
     // release on github
-    createClient (getBuildParamOrDefault "github-user" "") (getBuildParamOrDefault "github-pw" "")
+    createClient user pw
     |> createDraft gitOwner gitName release.NugetVersion (release.SemVer.PreRelease <> None) release.Notes 
     // TODO: |> uploadFile "PATH_TO_FILE"    
     |> releaseDraft

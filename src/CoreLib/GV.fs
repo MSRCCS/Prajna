@@ -282,6 +282,7 @@ and /// Information of Within Job cluster information.
             x.NodesInfo.[i] <- NodeWithInJobInfo.Unpack( ms ) 
         x
     member x.Validate( cl: Cluster ) = 
+        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ClusterJobInfo.Validate - %s:%s, %i:%i, %i:%i" x.Name cl.Name x.Version.Ticks cl.Version.Ticks x.NodesInfo.Length cl.NumNodes))
         x.Name=cl.Name && x.Version=cl.Version && x.NodesInfo.Length=cl.NumNodes
     override x.ToString() = 
         seq { 
@@ -928,7 +929,10 @@ type internal JobInformation( jobID: Guid, bIsMainProject: bool, dSetName: strin
         ex.Data.Add( "@Partition", sprintf "%s(part: %d)" locinfo parti)
         let jobLifeCycleObj = JobLifeCycleCollectionContainer.TryFind( jobID )
         if Utils.IsNotNull jobLifeCycleObj then 
-            jobLifeCycleObj.CancelByException( ex )    
+            Logger.LogF( jobLifeCycleObj.JobID, LogLevel.Info, fun _ -> sprintf "At %s, partition %d encounter exception during execution, to cancel Job, exception: %A" locinfo parti ex)
+            jobLifeCycleObj.CancelByException( ex )
+        else
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "At %s, partition %d encounter exception during execution, JobLifeCycle object is not found, exception: %A" locinfo parti ex)
 
     /// Partition Failure
     /// A certain partition has failed to execute. 
@@ -1754,7 +1758,7 @@ type internal AggregateFunction<'K>( func: 'K -> 'K -> 'K ) =
             elif Utils.IsNotNull O1 then
                 O1
             else
-                Unchecked.defaultof<_>()
+                Unchecked.defaultof<_>
         wrapperFunc func )
     member val FoldStateFunc = func with get
 

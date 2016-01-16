@@ -1102,7 +1102,8 @@ type DSet<'U> () =
         // Calculating download limit
         let cl = x.GetCluster()
         let numNodes = cl.NumNodes
-        let mutable numParallelJobsPerNode = cl.ClusterInfo.ListOfClients.[0].ProcessorCount * 2 // That is the default # of jobs to be run on each node. 
+        let procCnt = cl.ClusterInfo.ListOfClients.[0].ProcessorCount
+        let mutable numParallelJobsPerNode = (if procCnt = 0 then 1 else procCnt) * 2 // That is the default # of jobs to be run on each node. 
         let mutable nRows = numParallelJobs / numNodes / numParallelJobsPerNode
         if nRows <= 0 then 
             nRows <- 1

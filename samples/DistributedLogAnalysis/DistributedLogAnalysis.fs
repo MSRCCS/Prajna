@@ -48,6 +48,7 @@ let Usage = "
     Usage: Distributed DistributedLogAnalysis. Analyze logs of all files on the cluster, and perform a regular expression matching. .  \n\
     Command line arguments:\n\
     -cluster    Prajna cluster in which the distributed log analysis is performed \n\
+    -clusterlst The cluster list file \n\
     -dir        Remote directory [default c:\\prajna\\] \n\
     -spattern   Search pattern of the log file [default *.log] \n\
     -rec        Search log file recurrsively \n\
@@ -299,6 +300,7 @@ let main orgargs =
     let parse = ArgumentParser(args)
     let regpatterns = List<_>(100)
     let PrajnaClusterFile = parse.ParseString( "-cluster", null )
+    let PrajnaClusterListFile = parse.ParseString( "-clusterlst", "")
     let remotedir = parse.ParseString( "-dir", "c:\Prajna" )
     let searchPattern = parse.ParseString( "-spattern", "*.log" )
     let searchOption = if ( parse.ParseBoolean( "-rec", false ) ) then SearchOption.AllDirectories else SearchOption.TopDirectoryOnly
@@ -347,7 +349,7 @@ let main orgargs =
 
     let bAllParsed = parse.AllParsed Usage
     if bAllParsed then 
-        if Utils.IsNull PrajnaClusterFile then 
+        if String.IsNullOrEmpty PrajnaClusterFile && String.IsNullOrEmpty PrajnaClusterListFile then 
                 let t1 = (DateTime.UtcNow)
                 let srcLog = sourceSeqFunc remotedir searchPattern searchOption ()
                 let ana = LogAnalysis( searchReg )
@@ -368,7 +370,10 @@ let main orgargs =
                                                            !numLogAnalyzed (!nBytesAnalyzed>>>20) elapse.TotalSeconds (float !nBytesAnalyzed / 1000000. / elapse.TotalSeconds) ))
                 bExecute <- true
         else
-            Cluster.Start( null, PrajnaClusterFile )
+            if not (String.IsNullOrEmpty PrajnaClusterListFile) then
+                Cluster.StartCluster( PrajnaClusterListFile )
+            else
+                Cluster.StartCluster( PrajnaClusterFile )
             let cluster = Cluster.GetCurrent()
             if true then
 

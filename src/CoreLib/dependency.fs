@@ -158,7 +158,7 @@ type internal JobDependency() =
                     System.IO.File.Delete( jobLocation ) |> ignore 
                 with 
                 | e -> 
-                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "(May be OK) Fail to delete file %s" jobLocation )                    )
+                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "(May be OK) Fail to delete file %s: %A" jobLocation e)                    )
             if true then 
                 // copy file
                 //WriteBytesToFileCreate jobLocation (ReadBytesFromFile x.Location)
@@ -484,7 +484,7 @@ type JobDependencies() =
         let retInfo = x.NativeSerializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
                                                                                  encodeInfo ),
                                                                      ( fun id oldObj -> oldObj ) )
-        if !bNewFunc && String.CompareOrdinal( encodeInfo, retInfo )<>0 then 
+        if !bNewFunc || String.CompareOrdinal( encodeInfo, retInfo )<>0 then 
             // A new function is to be installed 
             let wrappedEncodeFunc (o:Object, ms ) = 
                 encodeFunc ( o :?> 'Type, ms ) 
@@ -548,7 +548,7 @@ type JobDependencies() =
         let retObj = x.NativeDeserializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
                                                                                   decodeFuncObj ),
                                                                      ( fun id oldObj -> oldObj ) )
-        if !bNewFunc && Object.ReferenceEquals( retObj, decodeFuncObj ) then 
+        if !bNewFunc || not(Object.ReferenceEquals( retObj, decodeFuncObj )) then 
             // A new function is to be installed 
             let wrappedDecodeFunc (ms) = 
                 decodeFunc ( ms ) :> Object

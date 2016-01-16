@@ -15,7 +15,7 @@ open Prajna.Tools.FSharp
 type ExamplesTests() = 
     inherit Prajna.Test.Common.Tester()
 
-    let sharedCluster = TestEnvironment.Environment.Value.LocalCluster
+    let sharedCluster = TestEnvironment.Environment.Value.Cluster
     
     // specifiy one of the types that is defined in the assembly to help find all the IExample test cases in the assembly
     static let findTestCases t =

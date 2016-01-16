@@ -45,6 +45,7 @@
     <Compile Include="LoggerCSharp.fs" />
     <Compile Include="file.fs" />
     <Compile Include="process.fs" />
+    <Compile Include="blockingqueue.fs" />
     <Compile Include="resizequeue.fs" />
     <Compile Include="bufferliststream.fs" />
     <Compile Include="mem.fs" />

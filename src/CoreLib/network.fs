@@ -220,6 +220,60 @@ type internal NetworkPerformance() =
         let guid = ms.ReadGuid()
         guid = NetworkPerformance.BlobIntegrityGuid
 
+/// Discriminative union that identifies the type of connection
+type internal NetworkCommandQueueType = 
+    // Loopback connection
+    | Loopback 
+    // Outgoing connection
+    | Outgoing
+    // Incoming connection
+    | Incoming
+    // Any direction
+    | AnyDirection
+    // Unknown
+    | Unknown
+
+/// Network Crossbar at daemon maintains information of 
+/// which queue of client maps to queues of container, 
+/// and whch queue of container maps to queues of client
+type internal NetworkCorssBarAtDaemon() = 
+    static let dic = ConcurrentDictionary<_,ConcurrentDictionary<_,_>>()
+    /// Network sig1 connects to network sig2
+    static member AddEntry( sig1: int64, sig2:int64 ) = 
+        if sig1<>sig2 then 
+            let dic1 = dic.GetOrAdd( sig1, fun _ -> ConcurrentDictionary<_,_>())
+            dic1.Item(sig2) <- true
+            let dic2 = dic.GetOrAdd( sig2, fun _ -> ConcurrentDictionary<_,_>())
+            dic2.Item(sig1) <- true
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Add cross bar %A <-> %A"
+                                                            (LocalDNS.GetHostInfoInt64(sig1))
+                                                            (LocalDNS.GetHostInfoInt64(sig2))
+                        )
+    /// Network sig1 disconnects
+    static member RemoveEntry( sig1 ) = 
+        let bExist, dic1 = dic.TryRemove( sig1 ) 
+        if bExist then 
+            for pair in dic1 do 
+                let bExist2, dic2 = dic.TryGetValue( pair.Key )
+                if bExist2 then 
+                    dic2.TryRemove( sig1 ) |> ignore 
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Remove cross bar %A <-> %A"
+                                                                    (LocalDNS.GetHostInfoInt64(sig1))
+                                                                    (LocalDNS.GetHostInfoInt64(pair.Key))
+                                )
+                else
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Try remove, but can't find entry of cross bar %A <-> %A"
+                                                                    (LocalDNS.GetHostInfoInt64(sig1))
+                                                                    (LocalDNS.GetHostInfoInt64(pair.Key))
+                                )
+    /// Get all entry maps with sig1
+    static member GetMappedEntry(sig1) = 
+        let bExist, dic1 = dic.TryGetValue( sig1 ) 
+        if bExist then 
+            dic1 |> Seq.map( fun pair -> pair.Key )
+        else
+            Seq.empty
+
 
 /// An extension to GenericConn to process NetworkCommand
 /// GenericConn is an internal object which contains Send/Recv Components to process SocketAsyncEventArgs objects
@@ -235,7 +289,9 @@ type internal NetworkPerformance() =
 ///            CompSend of GenericConn                 CompSend of NetworkCommandQueue
 ///            network<-SocketAsyncEventArgs           SocketAsyncEventArgs<-NetworkCommand
 ///                                                    Application writes to NetworkCommand queue using ToSend
-type [<AllowNullLiteral>] NetworkCommandQueue() as x =
+type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
+    static let systemwideRecvProcessor = ConcurrentDictionary<_, NetworkCommandQueueType*(NetworkCommandQueue->NetworkCommand->ManualResetEvent)>(StringComparer.OrdinalIgnoreCase)
+    static let systemwideDisconnectProcessor = ConcurrentDictionary<_, NetworkCommandQueueType*(NetworkCommandQueue->unit)>(StringComparer.OrdinalIgnoreCase)
     static let count = ref -1
     static let MagicNumber = System.Guid("45F9F0E2-AAF1-4F38-82AB-75B876E282C9")
     static let MagicNumberBuf = MagicNumber.ToByteArray()
@@ -351,6 +407,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     new ( soc : Socket, onet : NetworkConnections ) as x = 
         new NetworkCommandQueue(onet)
         then
+            x.SetConnectionType( Incoming )
             x.ConnectionStatusSet <- ConnectionStatus.Connected
             let eip = soc.RemoteEndPoint :?> IPEndPoint
             x.Port <- eip.Port
@@ -364,6 +421,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     new ( machineName : string, port : int, onet : NetworkConnections ) as x = 
         new NetworkCommandQueue(onet)
         then
+            x.SetConnectionType( Outgoing )
             x.MachineName <- machineName
             x.Port <- port
             x.ConnectionStatusSet <- ConnectionStatus.ResolveDNS
@@ -379,12 +437,119 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
     new ( addr: IPAddress, port : int, onet : NetworkConnections ) as x = 
         new NetworkCommandQueue(onet)
         then
+            x.SetConnectionType( Outgoing )
             let name = LocalDNS.GetHostByAddress( addr.GetAddressBytes(), true )
             x.MachineName <- if Utils.IsNull name then addr.ToString() else name
             x.Port <- port    
             x.ConnectionStatusSet <- ConnectionStatus.BeginConnect
             x.BeginConnect(addr, port)
-    //instead of overloading, use static member for clarity
+    member val internal ConnectionType = NetworkCommandQueueType.Unknown with get, set
+    member private x.AddRcvdProcessorForConnectionType() = 
+            let ty = x.ConnectionType
+            for pair in systemwideRecvProcessor do 
+                let name = pair.Key
+                let connRcvd, procItem = pair.Value
+                let bInclude = 
+                    match ty with 
+                    | Loopback -> 
+                        match connRcvd with 
+                        | Loopback 
+                        | AnyDirection -> 
+                            true
+                        | _ -> 
+                            false
+                    | Incoming -> 
+                        match connRcvd with 
+                        | Incoming 
+                        | AnyDirection -> 
+                            true
+                        | _ -> 
+                            false
+                    | Outgoing -> 
+                        match connRcvd with 
+                        | Outgoing
+                        | AnyDirection -> 
+                            true
+                        | _ -> 
+                            false
+                    | _ -> 
+                        let msg = sprintf "SetConnectionType recieved a call of %A, which should not happen" ty
+                        Logger.Log( LogLevel.Error, msg)
+                        // Program should never come here
+                        failwith msg
+                if bInclude then 
+                    x.GetOrAddRecvProc( name, (procItem x))
+        
+
+    // Set the connection type of the queue, if it hasn't been set before 
+    member internal x.SetConnectionType( ty: NetworkCommandQueueType ) = 
+        match x.ConnectionType with 
+        | Unknown -> 
+            match ty with 
+            | Loopback -> 
+                x.MachineName <- "Loopback"
+            | _ -> 
+                ()
+            x.ConnectionType <- ty
+            x.AddRcvdProcessorForConnectionType()
+        | _ -> 
+            ()    
+    // Process systemwide disconnect processor 
+    member internal x.ProcessSystemwideDisconnectProcessor( ) = 
+        for pair in systemwideDisconnectProcessor do 
+            let name = pair.Key
+            let ty, procDisconnect = pair.Value
+            let socketType = x.ConnectionType
+            let bExecute = 
+                match socketType with 
+                | Loopback -> 
+                    match ty with 
+                    | Loopback 
+                    | AnyDirection -> 
+                        true
+                    | _ -> 
+                        false
+                | Incoming -> 
+                    match ty with 
+                    | Incoming 
+                    | AnyDirection -> 
+                        true
+                    | _ -> 
+                        false
+                | Outgoing -> 
+                    match ty with 
+                    | Outgoing
+                    | AnyDirection -> 
+                        true
+                    | _ -> 
+                        false
+                | _ -> 
+                    let msg = sprintf "ProcessSystemwideDisconnectProcessor operates on a socket of unknown type, socket connection hasn't completed? %A" socketType
+                    Logger.Log( LogLevel.Error, msg)
+                    false
+            if bExecute then 
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Systemwide disconnect processor %s operates on %s."
+                                                                    name
+                                                                    (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                            )
+                procDisconnect( x )
+    /// Add a systemwide recv processor that will be registered to every queue. 
+    /// This function should be executed before queue is active to ensure that message are properly processed. 
+    /// name is used to identify the recv process, mainly for debug purpose
+    /// ty is Loopback, Incoming, Outgoing, AnyDirection: indicate what type of connection that the recv process will be added to
+    /// procItem is a recv process that will be executed on each package with signature NetworkCommandQueue->NetworkCommand->ManualResetEvent
+    static member internal AddSystemwideRecvProcessor(name, ty, procItem) = 
+        systemwideRecvProcessor.Item(name) <- (ty, procItem)
+        let queues : seq<NetworkCommandQueue> = NetworkConnections.Current.GetAllChannels()
+        for queue in queues do 
+            queue.AddRcvdProcessorForConnectionType()
+    /// Add a systemwide disconnect processor that will be registered to every queue 
+    /// name is used to identify the disonnect process, mainly for debug purpose
+    /// ty is Loopback, Incoming, Outgoing, AnyDirection: indicate what type of connection that the disconnect process will be added to
+    /// procDisconnect is a disconnect process that will be executed when a socket closes with signature NetworkCommandQueue->unit
+    static member internal AddSystemwideDisconnectProcessor( name, ty, procDisconnect ) = 
+        systemwideDisconnectProcessor.Item(name) <- (ty, procDisconnect) 
+
     // 4. Constructor for loopback connect
     // caller needs to be responsible for disposing the returned NetworkCommandQueue
     static member LoopbackConnect(port : int, onet : NetworkConnections, requireAuth : bool, myguid : Guid, rsaParam : byte[]*byte[], pwd : string) =
@@ -401,7 +566,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
                 x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(snd rsaParam, pwd)
                 let connList : ConcurrentDictionary<Guid, byte[]*byte[]> = x.ONet.AllowedConnections
                 connList.[myguid] <- (x.MyAuthRSA |> Crypt.RSAToPublicKey, x.MyExchangeRSA |> Crypt.RSAToPublicKey)
-            x.MachineName <- "Loopback"
+            x.SetConnectionType( Loopback )
             x.Port <- port
             socket <- new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
             if not (x.ONet.IpAddr.Equals("")) then
@@ -436,7 +601,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue() as x =
             x.MyExchangeRSA <- Crypt.RSAFromPrivateKey(snd rsaParam, pwd)
             let connList : ConcurrentDictionary<Guid, byte[]*byte[]> = x.ONet.AllowedConnections
             connList.[myguid] <- (x.MyAuthRSA |> Crypt.RSAToPublicKey, x.MyExchangeRSA |> Crypt.RSAToPublicKey)
-        x.MachineName <- "Loopback"
+        x.SetConnectionType( Loopback )
 
     static member private EndResolveDNS (addr : IPAddress, success : bool, o : obj) =
         let (x, port) = o :?> NetworkCommandQueue*int
@@ -981,6 +1146,8 @@ UnprocessedCmD:%d bytes Status:%A"
         if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
             Logger.LogStackTrace(LogLevel.MildVerbose)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo)
+            // Calling system wide disconnect processor
+            x.ProcessSystemwideDisconnectProcessor( )
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
@@ -1416,6 +1583,10 @@ UnprocessedCmD:%d bytes Status:%A"
         sendStream.InsertBefore( forwardHeader ) |> ignore
         x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), forwardHeader, bExpediate )
 
+    /// Performance of the network communication queue, only used in 
+    /// Distributed function
+    member val internal Performance = NetworkPerformance() with get
+
     member x.DisposeResource() = 
         x.OnDisconnect.Trigger()
         (xgc :> IDisposable).Dispose()
@@ -1442,11 +1613,11 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     let channelsCollection = ConcurrentDictionary<int64, NetworkCommandQueue>() 
     do
         CleanUp.Current.Register( 1000, x, x.Close, fun _ -> "NetworkConnections" ) |> ignore 
-    static let staticConnects = new NetworkConnections()
+    static let staticConnects : NetworkConnections = new NetworkConnections()
     static do staticConnects.Initialize()
 
     /// The current NetworkConnections - only one instantiation exists
-    static member Current with get() = staticConnects
+    static member Current with get() : NetworkConnections = staticConnects
 
     // Authentication stuff ========================
     member val private MachineID = DetailedConfig.GetMachineID
@@ -1824,9 +1995,21 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     // Some optimization to avoid repeated memory allocation
     member val private CurChannelList = Array.zeroCreate<_> 0 with get, set
     /// Get all channels in the collection as a sequence
-    member x.GetAllChannels() = 
+    member x.GetAllChannels() : seq< NetworkCommandQueue> = 
         // channelsCollection.Values :> seq<_>
         channelsCollection |> Seq.map( fun pair -> pair.Value )
+    /// Get all loopback channels 
+    member internal x.GetAllChannelsOfType( ty: NetworkCommandQueueType ) = 
+        channelsCollection |> Seq.choose( fun pair -> if pair.Value.ConnectionType = ty then 
+                                                        Some pair.Value
+                                                      else
+                                                        None )
+    /// Get all loopback channels
+    member internal x.GetLoopbackChannels() = 
+        x.GetAllChannelsOfType( NetworkCommandQueueType.Loopback )
+    /// Get all outgoing channels
+    member internal x.GetOutgoingChannels() = 
+        x.GetAllChannelsOfType( NetworkCommandQueueType.Outgoing )
     /// Monitor information
     member private x.MonitorChannels( channelLists ) = 
         Logger.LogF(NetworkConnections.ChannelMonitorLevel, fun _ -> 

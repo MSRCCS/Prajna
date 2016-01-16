@@ -32,6 +32,7 @@ files
     ../src/Client/ClientExt/bin/Releasex64/PrajnaClientExt* ==> tools/Client
     !../src/Client/ClientExt/bin/Releasex64/*.srcsrv
     ../scripts ==> tools/Scripts
+    !../scripts/WindowsDomainCluster/tests
     ../src/Toolkit/ClusterStatus/bin/Releasex64 ==> tools/ClusterStatus
 references
     Prajna.dll

@@ -1,9 +1,12 @@
-﻿#nowarn "0346" // implementing Equals() without GetHashCode() for Assert.AreEqual(,)
+﻿#nowarn "9" // using [<StructLayout>] to test serialization
+#nowarn "0346" // implementing Equals() without GetHashCode() for Assert.AreEqual(,)
 namespace Prajna.Tools.Tests
 
 open System
+open System.Linq
 open System.Collections.Generic
 open System.Runtime.Serialization
+open System.Runtime.InteropServices
 open System.IO
 
 open NUnit.Framework
@@ -13,6 +16,10 @@ open Prajna.Tools
 [<TestFixture(Description = "Tests for serialization")>]
 module SerializationTests =
 
+    let CreateMemoryStreams() : seq<MemoryStream > = 
+        do BufferListStream<byte>.InitSharedPool()
+        seq {yield upcast new MemoryStreamB(); yield new MemoryStream()}
+
     let roundTrip (stream: MemoryStream) (obj: obj) = 
         let formatter = new BinarySerializer() :> IFormatter
         formatter.Serialize(stream, obj)
@@ -20,13 +27,32 @@ module SerializationTests =
         formatter.Deserialize(stream)
         
     let testObject (obj: obj) = 
-        Assert.AreEqual(obj, roundTrip (new MemoryStream()) obj)
+        for ms in CreateMemoryStreams() do
+            Assert.AreEqual(obj, roundTrip ms obj)
 
     [<Test>]
     let testPrimitive() = testObject 5
 
     [<Test>]
     let testPrimitiveArray() = testObject [|1..10|]
+        
+    [<Test>]
+    let testBoolArray() = testObject <| Array.concat (Array.init 5 (fun _ -> [|true; false|]))
+        
+    [<StructLayout(LayoutKind.Explicit)>]
+    type Point = struct
+        [<FieldOffset(0)>][<DefaultValue>] val mutable Which : bool
+        [<FieldOffset(1)>][<DefaultValue>] val mutable X : float32 
+        [<FieldOffset(5)>][<DefaultValue>] val mutable Y : float32
+        [<FieldOffset(1)>][<DefaultValue>] val mutable Rho : float32
+        [<FieldOffset(5)>][<DefaultValue>] val mutable Theta : float32
+    end
+
+    [<Test>]
+    let testExplicitLayoutArray() = 
+        let mutable p1 = new Point()
+        p1.Rho <- 1.0f
+        testObject <| Array.concat (Array.init 5 (fun _ -> [|p1; new Point()|]))
         
     [<Test>]
     let testHigherRankArray() = testObject (Array2D.init 3 3 (fun i j -> 3 * i + j))
@@ -69,11 +95,12 @@ module SerializationTests =
         let name = "foo"
         let ps = [|PersonStruct(name, 1); PersonStruct(name, 2)|]
         testObject ps
-        let other = roundTrip (new MemoryStream()) ps :?> PersonStruct[]
-        Assert.AreSame(ps.[0].Name, ps.[1].Name) // of course
-        Assert.AreEqual(ps.[0].Name, other.[0].Name) // equals survives serialization ...
-        Assert.AreNotSame(ps.[0].Name, other.[0].Name) // ReferenceEquals does not
-        Assert.AreSame(other.[0].Name, other.[1].Name) // ...but ReferenceEquals in the same graph still holds.
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms ps :?> PersonStruct[]
+            Assert.AreSame(ps.[0].Name, ps.[1].Name) // of course
+            Assert.AreEqual(ps.[0].Name, other.[0].Name) // equals survives serialization ...
+            Assert.AreNotSame(ps.[0].Name, other.[0].Name) // ReferenceEquals does not
+            Assert.AreSame(other.[0].Name, other.[1].Name) // ...but ReferenceEquals in the same graph still holds.
 
     type Person() =
         member val Name = "foo" with get,set
@@ -95,28 +122,31 @@ module SerializationTests =
     let testCyclicSelf() = 
         let cyclicValue = Cyclic(Value = 0, Next = null)
         cyclicValue.Next <- cyclicValue
-        let other = roundTrip (new MemoryStream()) cyclicValue :?> Cyclic
-        Assert.AreEqual(cyclicValue.Value, other.Value)
-        Assert.AreEqual(other.Next, other)
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms cyclicValue :?> Cyclic
+            Assert.AreEqual(cyclicValue.Value, other.Value)
+            Assert.AreEqual(other.Next, other)
 
     [<Test>]
     let testCyclicDirect() = 
         let cyclicValue = Cyclic(Value = 0, Next = Cyclic(Value = 1, Next = null))
         cyclicValue.Next.Next <- cyclicValue
-        let other = roundTrip (new MemoryStream()) cyclicValue :?> Cyclic
-        Assert.AreEqual(cyclicValue.Value, other.Value)
-        Assert.AreEqual(cyclicValue.Next.Value, other.Next.Value)
-        Assert.AreEqual(other.Next.Next, other)
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms cyclicValue :?> Cyclic
+            Assert.AreEqual(cyclicValue.Value, other.Value)
+            Assert.AreEqual(cyclicValue.Next.Value, other.Next.Value)
+            Assert.AreEqual(other.Next.Next, other)
 
     [<Test>]
     let testCyclicIndirect() = 
         let cyclicValue = Cyclic(Value = 0, Next = Cyclic(Value = 1, Next = Cyclic(Value = 2, Next = null)))
         cyclicValue.Next.Next.Next <- cyclicValue
-        let other = roundTrip (new MemoryStream()) cyclicValue :?> Cyclic
-        Assert.AreEqual(cyclicValue.Value, other.Value)
-        Assert.AreEqual(cyclicValue.Next.Value, other.Next.Value)
-        Assert.AreEqual(cyclicValue.Next.Next.Value, other.Next.Next.Value)
-        Assert.AreEqual(other.Next.Next.Next, other)
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms cyclicValue :?> Cyclic
+            Assert.AreEqual(cyclicValue.Value, other.Value)
+            Assert.AreEqual(cyclicValue.Next.Value, other.Next.Value)
+            Assert.AreEqual(cyclicValue.Next.Next.Value, other.Next.Next.Value)
+            Assert.AreEqual(other.Next.Next.Next, other)
 
     [<Test>]
     let testType() = 
@@ -129,17 +159,19 @@ module SerializationTests =
         let cur = ref 0
         let next() = let ret = !cur in cur := ret + 1; ret
         do next() |> ignore; next()|> ignore; next()|> ignore
-        let other = roundTrip (new MemoryStream()) next :?> (unit -> int)
-        Assert.AreEqual(Array.init 3 (ignoreArg next), Array.init 3 (ignoreArg other))
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms next :?> (unit -> int)
+            Assert.AreEqual(Array.init 3 (ignoreArg next), Array.init 3 (ignoreArg other))
 
     [<Test>]
     let testClosureNegative() =
         let cur = ref 0
         let next() = let ret = !cur in cur := ret + 1; ret
         do next() |> ignore; next()|> ignore; next()|> ignore
-        let other = roundTrip (new MemoryStream()) next :?> (unit -> int)
-        cur := !cur + 1
-        Assert.AreNotEqual(Array.init 3 (ignoreArg next), Array.init 3 (ignoreArg other))
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms next :?> (unit -> int)
+            cur := !cur + 1
+            Assert.AreNotEqual(Array.init 3 (ignoreArg next), Array.init 3 (ignoreArg other))
 
     [<Test>]
     let testDictionaryCustomSer() =
@@ -154,9 +186,10 @@ module SerializationTests =
         let dict = new Dictionary<string, obj>()
         dict.Add("a", 1)
         dict.Add("0", dict)
-        let other = roundTrip (new MemoryStream()) dict :?> Dictionary<string, obj>
-        Assert.AreEqual(dict.["a"], other.["a"])
-        Assert.IsTrue( Object.ReferenceEquals( other, other.["0"] ) )
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms dict :?> Dictionary<string, obj>
+            Assert.AreEqual(dict.["a"], other.["a"])
+            Assert.IsTrue( Object.ReferenceEquals( other, other.["0"] ) )
 
     [<Test>]
     let testDictionaryCustomSerCyclic() =
@@ -164,8 +197,9 @@ module SerializationTests =
         let dict2 = new Dictionary<string, obj>()
         dict1.Add("2", dict2)
         dict2.Add("1", dict1)
-        let other = roundTrip (new MemoryStream()) dict1 :?> Dictionary<string, obj>
-        Assert.IsTrue( Object.ReferenceEquals( other, (other.["2"] :?> Dictionary<string, obj>).["1"]  ) )
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms dict1 :?> Dictionary<string, obj>
+            Assert.IsTrue( Object.ReferenceEquals( other, (other.["2"] :?> Dictionary<string, obj>).["1"]  ) )
 
     type [<AllowNullLiteral>] KitchenSink() = 
         member val Name: string = "Bruno" with get, set
@@ -218,9 +252,10 @@ module SerializationTests =
     [<Test>]
     let testKitchenSink() = 
         let ks = createKitchenSinkArray().[0]
-        let other = roundTrip (new MemoryStream()) ks :?> KitchenSink
-        Assert.IsTrue <|
-            Seq.forall2 (fun (ks1: KitchenSink) ks2 -> ks1.NonRecursiveEquals(ks2)) (ks.Traverse()) (other.Traverse()) 
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms ks :?> KitchenSink
+            Assert.IsTrue <|
+                Seq.forall2 (fun (ks1: KitchenSink) ks2 -> ks1.NonRecursiveEquals(ks2)) (ks.Traverse()) (other.Traverse()) 
 
     [<Test>]
     let testOtherStuff() =
@@ -232,16 +267,27 @@ module SerializationTests =
         let kitchenSinkArr = createKitchenSinkArray()
         os.SS0 <- new KitchenSink(Name = "Eric", Parents = kitchenSinkArr)
         os.SS <- kitchenSinkArr
+        for ms in CreateMemoryStreams() do
+            let other = roundTrip ms os :?> OtherStuff
+            Assert.AreEqual(os.Complex, other.Complex)
+            Assert.AreEqual(os.Complexes, other.Complexes)
+            Assert.AreEqual(os.SomeInt, other.SomeInt)
+            Assert.AreEqual(os.Stuff, other.Stuff)
+            Assert.IsTrue(os.SS0.NonRecursiveEquals(other.SS0))
+            for (k, o) in Seq.zip os.SS other.SS do
+                Assert.IsTrue <| k.NonRecursiveEquals(o)
+
+    [<AutoSerializable(false)>]
+    type MyType() =
+        member val Data1 = Array.init 10 byte
+        member val Data2 = Array.init 10 byte |> Array.rev
+        override this.Equals(other: obj) = 
+            match other with
+            | :? MyType as mt -> this.Data1 = mt.Data1 && this.Data2 = mt.Data2
+            | _ -> false
+
+    [<Test>]
+    let testNonSerializable() = 
+        testObject <| MyType()
         
-        let other = roundTrip (new MemoryStream()) os :?> OtherStuff
-
-        Assert.AreEqual(os.Complex, other.Complex)
-        Assert.AreEqual(os.Complexes, other.Complexes)
-        Assert.AreEqual(os.SomeInt, other.SomeInt)
-        Assert.AreEqual(os.Stuff, other.Stuff)
-        Assert.IsTrue(os.SS0.NonRecursiveEquals(other.SS0))
-        for (k, o) in Seq.zip os.SS other.SS do
-            Assert.IsTrue <| k.NonRecursiveEquals(o)
-
-
-
+    

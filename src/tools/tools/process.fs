@@ -672,6 +672,7 @@ type internal ThreadTracking private () as this =
             let param = ThreadStartParam( thread, nameFunc(), action, cancelFunc, threadAffinity  )
             thread.Start( param )
             ThreadTracking.TrackingThreads.Enqueue( (thread, nameFunc(), cancelFunc, threadAffinity) )  
+            Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "Tracked thread started: id = %i, name = %s" thread.ManagedThreadId (nameFunc())) 
             thread
         else
             let msg = sprintf "ThreadTracking, launching a thread when CloseAllActiveThreads have been called ."
@@ -2435,4 +2436,91 @@ type internal SingleCreation<'U>() =
                                                                e ) )
             if bLockTaken then 
                 lock.Exit() 
+
+/// A safe wrapper for CancellationTokenSource, for the secure disposale of CancellationTokenSource object. 
+/// When the SafeCTSWrapper is cancelled, the associated CancellationTokenSource is cancelled, and 
+/// after all jobs exit, the CancellationTokenSource will be disposed. 
+/// SafeCTSWrapper is not mean to be disposed itself, as that will cause .Token property to fails. 
+type internal SafeCTSWrapper(t:TimeSpan) as thisInstance = 
+    let refCount = ref 0 
+    let refDisposed = ref 0 
+    let ctsRef = ref ( if t = TimeSpan.MaxValue then new CancellationTokenSource() else new CancellationTokenSource(t) ) 
+    let cancellationRegistration = (!ctsRef).Token.Register(Action(thisInstance.DecrementAndCheckForDisposeCTS ) )
+    /// Initializes a new instance of the SafeCTSWrapper class.
+    new () = 
+        new SafeCTSWrapper(TimeSpan.MaxValue)
+    /// Initializes a new instance of the CancellationTokenSource class that will be canceled after the specified delay in milliseconds.
+    new (delayInMS) = 
+        new SafeCTSWrapper(TimeSpan(0,0,0,delayInMS))
+    /// For Testing purpose only, has the CTS structure been disposed?
+    member x.IsDisposed with get() = let cts = Volatile.Read( ctsRef ) 
+                                     Utils.IsNull cts
+    /// Gets whether cancellation has been requested
+    member x.Token with get() = let cts = Volatile.Read( ctsRef ) 
+                                if Utils.IsNotNull cts && not cts.IsCancellationRequested then 
+                                    let cnt = Interlocked.Increment( refCount )
+                                    if cnt > 0 && not cts.IsCancellationRequested  then 
+                                        new SafeCTSToken( x, cts.Token )
+                                    else
+                                        let cnt = Interlocked.Increment( refCount )
+                                        if cnt < 0 then 
+                                            x.DisposeCTS() 
+                                        null
+                                else
+                                    null
+    /// Communicates a request for cancellation.
+     member x.Cancel() = 
+        let cts = Volatile.Read( ctsRef ) 
+        if Utils.IsNotNull cts then 
+            cts.Cancel() 
+    /// Communicates a request for cancellation, and specifies whether remaining callbacks and cancelable operations should be processed.
+    member x.Cancel(throwOnFirstException:bool) = 
+        let cts = Volatile.Read( ctsRef ) 
+        if Utils.IsNotNull cts then 
+            cts.Cancel(throwOnFirstException) 
+    /// Schedules a cancel operation on this CancellationTokenSource after the specified number of milliseconds.
+    member x.CancelAfter(delayInMS:int) = 
+        let cts = Volatile.Read( ctsRef ) 
+        if Utils.IsNotNull cts then 
+            cts.CancelAfter(delayInMS) 
+    /// Schedules a cancel operation on this CancellationTokenSource after the specified number of milliseconds.
+    member x.CancelAfter(delayTime:TimeSpan) = 
+        let cts = Volatile.Read( ctsRef ) 
+        if Utils.IsNotNull cts then 
+            cts.CancelAfter(delayTime) 
+    /// Decrement and check for DisposeCTS
+    member x.DecrementAndCheckForDisposeCTS() = 
+        let cnt = Interlocked.Decrement( refCount )
+        if cnt < 0 then 
+            x.DisposeCTS() 
+    member x.DisposeCTS() = 
+        if Interlocked.Increment( refDisposed ) = 1 then 
+            let ctsValue = !ctsRef
+            let cts = Interlocked.CompareExchange( ctsRef, null, ctsValue )
+            if Object.ReferenceEquals( cts, ctsValue ) then 
+                cts.Dispose() 
+            cancellationRegistration.Dispose()
+/// A cancellation Token which is the dual of SafeCTSWrapper
+and [<AllowNullLiteral>] 
+    internal SafeCTSToken( holder:SafeCTSWrapper, token: CancellationToken ) = 
+    member x.IsCancellationRequested = token.IsCancellationRequested
+    member x.CanBeCanceled = token.CanBeCanceled
+    member x.WaitHandle = token.WaitHandle
+    member x.Register(callback:Action) = token.Register( callback )
+    member x.Register(callback:Action,useSynchronizationContext:bool) = token.Register(callback,useSynchronizationContext)
+    member x.Register(callback:Action<Object>,state:Object) = token.Register(callback,state)
+    member x.Register(callback:Action<Object>,state:Object,useSynchronizationContext:bool) = token.Register(callback,state,useSynchronizationContext)
+    member x.ThrowIfCancellationRequested() = token.ThrowIfCancellationRequested()
+    member x.Disposing(disposing) =
+        holder.DecrementAndCheckForDisposeCTS()
+    interface IDisposable with
+        override x.Dispose() =
+            x.Disposing(true)
+            GC.SuppressFinalize(x)
+
+    override x.Finalize() =
+        x.Disposing(false)
+
+
+
 

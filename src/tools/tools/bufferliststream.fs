@@ -1344,8 +1344,7 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
         x.WriteArr<byte>(buf, offset, count)
 
     // add elements from another type of array - perhaps not needed with previous one being generic
-    member x.WriteArrT(buf : System.Array, offset : int, count : int) =
-        let elemSize = Runtime.InteropServices.Marshal.SizeOf(buf.GetType().GetElementType())
+    member x.WriteArrT(buf : System.Array, offset : int, count : int, elemSize : int) =
         let mutable bOffset = offset*elemSize
         let mutable bCount = count*elemSize
         while (bCount > 0) do
@@ -1392,8 +1391,7 @@ type BufferListStream<'T>(bufSize : int, doNotUseDefault : bool) =
         x.ReadArr<byte>(buf, offset, count)
 
     // add elements from another type of array - perhaps not needed with previous one being generic
-    member x.ReadArrT(buf : System.Array, offset : int, count : int) =
-        let elemSize = Runtime.InteropServices.Marshal.SizeOf(buf.GetType().GetElementType())
+    member x.ReadArrT(buf : System.Array, offset : int, count : int, elemSize: int) =
         let mutable bOffset = offset*elemSize
         let mutable bCount = count*elemSize
         let mutable readAmt = 0

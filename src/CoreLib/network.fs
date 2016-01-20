@@ -225,8 +225,51 @@ type internal NetworkCommandQueueType =
     | Outgoing
     // Incoming connection
     | Incoming
+    // Any direction
+    | AnyDirection
     // Unknown
     | Unknown
+
+/// Network Crossbar at daemon maintains information of 
+/// which queue of client maps to queues of container, 
+/// and whch queue of container maps to queues of client
+type internal NetworkCorssBarAtDaemon() = 
+    static let dic = ConcurrentDictionary<_,ConcurrentDictionary<_,_>>()
+    /// Network sig1 connects to network sig2
+    static member AddEntry( sig1: int64, sig2:int64 ) = 
+        if sig1<>sig2 then 
+            let dic1 = dic.GetOrAdd( sig1, fun _ -> ConcurrentDictionary<_,_>())
+            dic1.Item(sig2) <- true
+            let dic2 = dic.GetOrAdd( sig2, fun _ -> ConcurrentDictionary<_,_>())
+            dic2.Item(sig1) <- true
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Add cross bar %A <-> %A"
+                                                            (LocalDNS.GetHostInfoInt64(sig1))
+                                                            (LocalDNS.GetHostInfoInt64(sig2))
+                        )
+    /// Network sig1 disconnects
+    static member RemoveEntry( sig1 ) = 
+        let bExist, dic1 = dic.TryRemove( sig1 ) 
+        if bExist then 
+            for pair in dic1 do 
+                let bExist2, dic2 = dic.TryGetValue( pair.Key )
+                if bExist2 then 
+                    dic2.TryRemove( sig1 ) |> ignore 
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Remove cross bar %A <-> %A"
+                                                                    (LocalDNS.GetHostInfoInt64(sig1))
+                                                                    (LocalDNS.GetHostInfoInt64(pair.Key))
+                                )
+                else
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Try remove, but can't find entry of cross bar %A <-> %A"
+                                                                    (LocalDNS.GetHostInfoInt64(sig1))
+                                                                    (LocalDNS.GetHostInfoInt64(pair.Key))
+                                )
+    /// Get all entry maps with sig1
+    static member GetMappedEntry(sig1) = 
+        let bExist, dic1 = dic.TryGetValue( sig1 ) 
+        if bExist then 
+            dic1 |> Seq.map( fun pair -> pair.Key )
+        else
+            Seq.empty
 
 
 /// An extension to GenericConn to process NetworkCommand
@@ -244,6 +287,8 @@ type internal NetworkCommandQueueType =
 ///            network<-SocketAsyncEventArgs           SocketAsyncEventArgs<-NetworkCommand
 ///                                                    Application writes to NetworkCommand queue using ToSend
 type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
+    static let systemwideRecvProcessor = ConcurrentDictionary<_, NetworkCommandQueueType*(NetworkCommandQueue->NetworkCommand->ManualResetEvent)>(StringComparer.OrdinalIgnoreCase)
+    static let systemwideDisconnectProcessor = ConcurrentDictionary<_, NetworkCommandQueueType*(NetworkCommandQueue->unit)>(StringComparer.OrdinalIgnoreCase)
     static let count = ref -1
     static let MagicNumber = System.Guid("45F9F0E2-AAF1-4F38-82AB-75B876E282C9")
     static let MagicNumberBuf = MagicNumber.ToByteArray()
@@ -396,6 +441,43 @@ type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
             x.ConnectionStatusSet <- ConnectionStatus.BeginConnect
             x.BeginConnect(addr, port)
     member val internal ConnectionType = NetworkCommandQueueType.Unknown with get, set
+    member private x.AddRcvdProcessorForConnectionType() = 
+            let ty = x.ConnectionType
+            for pair in systemwideRecvProcessor do 
+                let name = pair.Key
+                let connRcvd, procItem = pair.Value
+                let bInclude = 
+                    match ty with 
+                    | Loopback -> 
+                        match connRcvd with 
+                        | Loopback 
+                        | AnyDirection -> 
+                            true
+                        | _ -> 
+                            false
+                    | Incoming -> 
+                        match connRcvd with 
+                        | Incoming 
+                        | AnyDirection -> 
+                            true
+                        | _ -> 
+                            false
+                    | Outgoing -> 
+                        match connRcvd with 
+                        | Outgoing
+                        | AnyDirection -> 
+                            true
+                        | _ -> 
+                            false
+                    | _ -> 
+                        let msg = sprintf "SetConnectionType recieved a call of %A, which should not happen" ty
+                        Logger.Log( LogLevel.Error, msg)
+                        // Program should never come here
+                        failwith msg
+                if bInclude then 
+                    x.GetOrAddRecvProc( name, (procItem x))
+        
+
     // Set the connection type of the queue, if it hasn't been set before 
     member internal x.SetConnectionType( ty: NetworkCommandQueueType ) = 
         match x.ConnectionType with 
@@ -406,8 +488,65 @@ type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
             | _ -> 
                 ()
             x.ConnectionType <- ty
+            x.AddRcvdProcessorForConnectionType()
         | _ -> 
             ()    
+    // Process systemwide disconnect processor 
+    member internal x.ProcessSystemwideDisconnectProcessor( ) = 
+        for pair in systemwideDisconnectProcessor do 
+            let name = pair.Key
+            let ty, procDisconnect = pair.Value
+            let socketType = x.ConnectionType
+            let bExecute = 
+                match socketType with 
+                | Loopback -> 
+                    match ty with 
+                    | Loopback 
+                    | AnyDirection -> 
+                        true
+                    | _ -> 
+                        false
+                | Incoming -> 
+                    match ty with 
+                    | Incoming 
+                    | AnyDirection -> 
+                        true
+                    | _ -> 
+                        false
+                | Outgoing -> 
+                    match ty with 
+                    | Outgoing
+                    | AnyDirection -> 
+                        true
+                    | _ -> 
+                        false
+                | _ -> 
+                    let msg = sprintf "ProcessSystemwideDisconnectProcessor operates on a socket of unknown type, socket connection hasn't completed? %A" socketType
+                    Logger.Log( LogLevel.Error, msg)
+                    false
+            if bExecute then 
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Systemwide disconnect processor %s operates on %s."
+                                                                    name
+                                                                    (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                            )
+                procDisconnect( x )
+    /// Add a systemwide recv processor that will be registered to every queue. 
+    /// This function should be executed before queue is active to ensure that message are properly processed. 
+    /// name is used to identify the recv process, mainly for debug purpose
+    /// ty is Loopback, Incoming, Outgoing, AnyDirection: indicate what type of connection that the recv process will be added to
+    /// procItem is a recv process that will be executed on each package with signature NetworkCommandQueue->NetworkCommand->ManualResetEvent
+    static member internal AddSystemwideRecvProcessor(name, ty, procItem) = 
+        systemwideRecvProcessor.Item(name) <- (ty, procItem)
+        let queues : seq<NetworkCommandQueue> = NetworkConnections.Current.GetAllChannels()
+        for queue in queues do 
+            queue.AddRcvdProcessorForConnectionType()
+    /// Add a systemwide disconnect processor that will be registered to every queue 
+    /// name is used to identify the disonnect process, mainly for debug purpose
+    /// ty is Loopback, Incoming, Outgoing, AnyDirection: indicate what type of connection that the disconnect process will be added to
+    /// procDisconnect is a disconnect process that will be executed when a socket closes with signature NetworkCommandQueue->unit
+    static member internal AddSystemwideDisconnectProcessor( name, ty, procDisconnect ) = 
+        systemwideDisconnectProcessor.Item(name) <- (ty, procDisconnect) 
+
     // 4. Constructor for loopback connect
     // caller needs to be responsible for disposing the returned NetworkCommandQueue
     static member LoopbackConnect(port : int, onet : NetworkConnections, requireAuth : bool, myguid : Guid, rsaParam : byte[]*byte[], pwd : string) =
@@ -1004,6 +1143,8 @@ UnprocessedCmD:%d bytes Status:%A"
         if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
             Logger.LogStackTrace(LogLevel.MildVerbose)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo)
+            // Calling system wide disconnect processor
+            x.ProcessSystemwideDisconnectProcessor( )
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
@@ -1439,6 +1580,10 @@ UnprocessedCmD:%d bytes Status:%A"
         sendStream.InsertBefore( forwardHeader ) |> ignore
         x.ToSend( ControllerCommand( ControllerVerb.Forward, ControllerNoun.Message ), forwardHeader, bExpediate )
 
+    /// Performance of the network communication queue, only used in 
+    /// Distributed function
+    member val internal Performance = NetworkPerformance() with get
+
     member x.DisposeResource() = 
         x.OnDisconnect.Trigger()
         (xgc :> IDisposable).Dispose()
@@ -1465,11 +1610,11 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     let channelsCollection = ConcurrentDictionary<int64, NetworkCommandQueue>() 
     do
         CleanUp.Current.Register( 1000, x, x.Close, fun _ -> "NetworkConnections" ) |> ignore 
-    static let staticConnects = new NetworkConnections()
+    static let staticConnects : NetworkConnections = new NetworkConnections()
     static do staticConnects.Initialize()
 
     /// The current NetworkConnections - only one instantiation exists
-    static member Current with get() = staticConnects
+    static member Current with get() : NetworkConnections = staticConnects
 
     // Authentication stuff ========================
     member val private MachineID = DetailedConfig.GetMachineID
@@ -1689,44 +1834,44 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
 
     member val internal MaxMemory = 0UL with get, set
     member val private Initialized = lazy(
-        // determine max stack memory in bytes
-        let mutable maxMemory = DetailedConfig.GetMemorySpace
-        if (DeploymentSettings.MaxNetworkStackMemory > 0) then 
-            maxMemory <- Math.Min(maxMemory, uint64 DeploymentSettings.MaxNetworkStackMemory)
-        if (DeploymentSettings.MaxNetworkStackMemoryPercentage > 0.0) then
-            maxMemory <- Math.Min(maxMemory, uint64(DeploymentSettings.MaxNetworkStackMemoryPercentage*float DetailedConfig.GetMemorySpace))
-        maxMemory <- maxMemory >>> 1 // half for send, recv
-        x.MaxMemory <- maxMemory
-        let mutable bufSize = DeploymentSettings.NetworkSocketAsyncEventArgBufferSize
-        let mutable maxNumStackBufs = maxMemory / uint64 bufSize
-        if (maxNumStackBufs < 50UL) then
-            // lower the buffer size if not sufficient maximum buffers
-            bufSize <- int(maxMemory / 50UL)
-            maxNumStackBufs <- 50UL
-        if (bufSize < 64000) then
-            failwith "Not sufficient memory"
-        let numInitBufs = Math.Min(DeploymentSettings.InitNetworkSocketAsyncEventArgBuffers, int maxNumStackBufs)
-        let bufSize = bufSize // make it unmutable so it can be captured by closure
-        let maxNumStackBufs = maxNumStackBufs
-        Logger.LogF(LogLevel.Info, fun _ -> sprintf "Initialize network stack with initial buffers: %d max buffers: %d buffer size: %d network threads: %d" numInitBufs maxNumStackBufs bufSize DeploymentSettings.NumNetworkThreads)
-        x.InitStack(numInitBufs, bufSize, int maxNumStackBufs)
-        // for internal queues of SocketAsyncEventArgs in genericnetwork.fs
-        // since flow control takes into account NetworkCommand->SocketAsyncEventArgs and reverse conversion
-        // no need to control queue size here since unProcessedBytes is representative of bytes:
-        // 1. waiting to be converted from NetworkCommand->SocketAsyncEventArgs
-        // 2. on network
-        // 3. waiting to be converted from SocketAsyncEventArgs->NetworkCommand
-        x.fnQRecv <- (fun() -> 
-            let q = new FixedSizeQ<RBufPart<byte>>(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
-            q.MaxLen <- DeploymentSettings.NetworkSARecvQSize
-            q.DesiredLen <- DeploymentSettings.NetworkSARecvQSize
-            q :> BaseQ<RBufPart<byte>>
-        )
-        x.fnQSend <- Some(fun() -> new FixedLenQ<RBufPart<byte>>(DeploymentSettings.NetworkSASendQSize, DeploymentSettings.NetworkSASendQSize) :> BaseQ<RBufPart<byte>>)
-        // initialize shared memory pool for fast memory stream
-        MemoryStreamB.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
-        // start the monitoring
-        x.StartMonitor()
+            // determine max stack memory in bytes
+            let mutable maxMemory = DetailedConfig.GetMemorySpace
+            if (DeploymentSettings.MaxNetworkStackMemory > 0) then 
+                maxMemory <- Math.Min(maxMemory, uint64 DeploymentSettings.MaxNetworkStackMemory)
+            if (DeploymentSettings.MaxNetworkStackMemoryPercentage > 0.0) then
+                maxMemory <- Math.Min(maxMemory, uint64(DeploymentSettings.MaxNetworkStackMemoryPercentage*float DetailedConfig.GetMemorySpace))
+            maxMemory <- maxMemory >>> 1 // half for send, recv
+            x.MaxMemory <- maxMemory
+            let mutable bufSize = DeploymentSettings.NetworkSocketAsyncEventArgBufferSize
+            let mutable maxNumStackBufs = maxMemory / uint64 bufSize
+            if (maxNumStackBufs < 50UL) then
+                // lower the buffer size if not sufficient maximum buffers
+                bufSize <- int(maxMemory / 50UL)
+                maxNumStackBufs <- 50UL
+            if (bufSize < 64000) then
+                failwith "Not sufficient memory"
+            let numInitBufs = Math.Min(DeploymentSettings.InitNetworkSocketAsyncEventArgBuffers, int maxNumStackBufs)
+            let bufSize = bufSize // make it unmutable so it can be captured by closure
+            let maxNumStackBufs = maxNumStackBufs
+            Logger.LogF(LogLevel.Info, fun _ -> sprintf "Initialize network stack with initial buffers: %d max buffers: %d buffer size: %d network threads: %d" numInitBufs maxNumStackBufs bufSize DeploymentSettings.NumNetworkThreads)
+            x.InitStack(numInitBufs, bufSize, int maxNumStackBufs)
+            // for internal queues of SocketAsyncEventArgs in genericnetwork.fs
+            // since flow control takes into account NetworkCommand->SocketAsyncEventArgs and reverse conversion
+            // no need to control queue size here since unProcessedBytes is representative of bytes:
+            // 1. waiting to be converted from NetworkCommand->SocketAsyncEventArgs
+            // 2. on network
+            // 3. waiting to be converted from SocketAsyncEventArgs->NetworkCommand
+            x.fnQRecv <- (fun() -> 
+                let q = new FixedSizeQ<RBufPart<byte>>(int64 DeploymentSettings.MaxSendingQueueLimit, int64 DeploymentSettings.MaxSendingQueueLimit)
+                q.MaxLen <- DeploymentSettings.NetworkSARecvQSize
+                q.DesiredLen <- DeploymentSettings.NetworkSARecvQSize
+                q :> BaseQ<RBufPart<byte>>
+            )
+            x.fnQSend <- Some(fun() -> new FixedLenQ<RBufPart<byte>>(DeploymentSettings.NetworkSASendQSize, DeploymentSettings.NetworkSASendQSize) :> BaseQ<RBufPart<byte>>)
+            // initialize shared memory pool for fast memory stream
+            MemoryStreamB.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
+            // start the monitoring
+            x.StartMonitor() 
     )
 
     /// Initialize the object
@@ -1842,7 +1987,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
     // Some optimization to avoid repeated memory allocation
     member val private CurChannelList = Array.zeroCreate<_> 0 with get, set
     /// Get all channels in the collection as a sequence
-    member x.GetAllChannels() = 
+    member x.GetAllChannels() : seq< NetworkCommandQueue> = 
         // channelsCollection.Values :> seq<_>
         channelsCollection |> Seq.map( fun pair -> pair.Value )
     /// Get all loopback channels 

@@ -17,14 +17,21 @@
         environment.fs
   
     Description: 
-        Get parameters of the Prajna remote running environment. 
+        The Environment class has two functions:
+
+        1. Environment.Init()   
+            Should be called by any program that needs to use DistributedFunction, and recommend to be used always
+        2. CleanUp() 
+            Free all resources, for a clean proper shutdown. 
+
+        This class is pushed to the end so that it can use any class in Prajna Core. 
 
     Author:																	
         Jin Li, Principal Researcher
         Microsoft Research, One Microsoft Way
         Email: jinl at microsoft dot com
     Date:
-        Jan. 2015
+        Dec. 2015
     
  ---------------------------------------------------------------------------*)
 namespace Prajna.Core
@@ -36,10 +43,11 @@ open Prajna.Tools.FSharp
 open Prajna.Service
 
 /// Represent Prajna Environment for running Prajna program
+[<Sealed>]
 type Environment() =
     static let init = lazy(
         Cluster.SetCreateLocalCluster(LocalCluster.Create)
-        DistributedFunctionEnvironment.Init()
+        DistributedFunctionBuiltIn.Init()
     )
 
     /// Initialize Prajna Environment for running Prajna program

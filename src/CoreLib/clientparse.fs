@@ -668,8 +668,11 @@ type internal Listener =
                                     Logger.Log( LogLevel.MildVerbose, ( sprintf "Forward Message: forwarding queue %A has been shutdown for command %A" queueSend.RemoteEndPoint cmd ))
                         ()
                     | _ ->
-                        let msg = sprintf "Unknown Command %A with %dB payload" command ms.Length
-                        Listener.ErrorAtDaemon( queuePeer, msg )
+                        ()
+                        // Some message, such as DistributedFunction, will be parsed in another function. 
+                        // So we shouldn't throw an error message here. 
+                        // let msg = sprintf "Unknown Command %A with %dB payload" command ms.Length
+                        // Listener.ErrorAtDaemon( queuePeer, msg )
             with
             | ex ->
                 let msg = sprintf "When parsing command %A buf %A get exception %A" command (ms.GetBuffer()) ex

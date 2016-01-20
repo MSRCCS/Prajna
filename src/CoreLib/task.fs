@@ -1789,7 +1789,6 @@ and [<AllowNullLiteral; Serializable>]
     /// clientModuleName: the host client's module name
     /// clientStartTimeTicks: the ticks of the host client's start time
     static member StartTaskAsSeperateApp( sigName:string, sigVersion:int64, ip : string, port, jobip, jobport, authParams, clientProcessId, clientModuleName, clientStartTimeTicks) = 
-        DistributedFunctionEnvironment.Init()
         Process.ReportSystemThreadPoolStat()
         let (bRequireAuth, guid, rsaParam, pwd) = authParams
         // Start a client. 
@@ -1844,6 +1843,10 @@ and [<AllowNullLiteral; Serializable>]
             queue.GetOrAddRecvProc("ParseQueue", procParseQueueTask) |> ignore
             ContractStoreAtProgram.RegisterNetworkParser( queue )
             queue.Initialize()
+
+            // DistributedFunctionBuiltIn should be initialized after loopback queue is established. 
+            DistributedFunctionBuiltIn.Init()
+
             // Wait for connection to PrajnaClient to establish
             let maxWait = (PerfDateTime.UtcNow()).AddSeconds( 5. )
             while not queue.CanSend && (PerfDateTime.UtcNow()) < maxWait do
@@ -3440,6 +3443,8 @@ and internal TaskQueue() =
             let refValue1 = ref Unchecked.defaultof<_>
             if execJobSets.TryGetValue( sigVersion, refValue1 ) then 
                 let jobHolder = !refValue1
+                for pair in jobHolder.ConnectedQueue do
+                    NetworkCorssBarAtDaemon.AddEntry( incomingQueue.RemoteEndPointSignature, pair.Key )
                 jobHolder.JobLoopbackQueue <- incomingQueue
                 jobHolder.EvLoopbackEstablished.Set() |> ignore
                 jobHolder.RegisterConnectionsWithTasks()
@@ -3467,6 +3472,7 @@ and internal TaskQueue() =
         let mutable errorMsg = ""
             
         let refValue = ref Unchecked.defaultof<_>
+        NetworkCorssBarAtDaemon.RemoveEntry( incomingQueue.RemoteEndPointSignature )
         if executionTable.TryGetValue( sigName, refValue ) then 
             let execJobSets = !refValue
             let refJobHolder = ref Unchecked.defaultof<_>

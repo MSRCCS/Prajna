@@ -422,12 +422,12 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         if lowerBounds.Length = 1 && lowerBounds.[0] = 0 then
             (arrObj :?> obj[]) |> Array.iter self.WriteObject
         else
-            let inc = Serialize.incrementIndex lowerBounds lengths
-            let indices = Array.copy lowerBounds
-            if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
-                self.WriteObject(arrObj.GetValue(indices))
-                while not <| inc indices do
-                    self.WriteObject (arrObj.GetValue(indices))
+        let inc = Serialize.incrementIndex lowerBounds lengths
+        let indices = Array.copy lowerBounds
+        if lengths |> Array.forall (fun dimLen -> dimLen > 0) then
+            self.WriteObject(arrObj.GetValue(indices))
+            while not <| inc indices do
+                self.WriteObject (arrObj.GetValue(indices))
 
     let intArrayTypeInfo = typeSerializer.GetSerTypeInfo(typeof<int[]>)
     let zeroLowerBound : int[] = Array.zeroCreate 1
@@ -449,17 +449,17 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
                 else 
                     writeObjectArray(arrObj, zeroLowerBound, lengths)
         else
-            let lowerBounds : int[] = Array.init arrObj.Rank arrObj.GetLowerBound
-            let lengths : int[] = Array.init arrObj.Rank arrObj.GetLength
-            writePrimitiveArray(intArrayTypeInfo, null, null, lowerBounds)
-            writePrimitiveArray(intArrayTypeInfo, null, null, lengths)
+        let lowerBounds : int[] = Array.init arrObj.Rank arrObj.GetLowerBound
+        let lengths : int[] = Array.init arrObj.Rank arrObj.GetLength
+        writePrimitiveArray(intArrayTypeInfo, null, null, lowerBounds)
+        writePrimitiveArray(intArrayTypeInfo, null, null, lengths)
             
-            if elType.IsPrimitive then
+        if elType.IsPrimitive then
                 writePrimitiveArray(arrayTypeInfo, lowerBounds, lengths, arrObj)
-            elif elType.IsValueType then 
-                writeValueArray(elType, lowerBounds, lengths, arrObj)
-            else 
-                writeObjectArray(arrObj, lowerBounds, lengths)
+        elif elType.IsValueType then 
+            writeValueArray(elType, lowerBounds, lengths, arrObj)
+        else 
+            writeObjectArray(arrObj, lowerBounds, lengths)
 
     member private this.WriteContents (objType: SerTypeInfo, obj: obj) = 
         for field in objType.SerializedFields do 
@@ -496,11 +496,11 @@ type internal Serializer(stream: BinaryWriter, marked: Dictionary<obj, int>, typ
         if obj = null then
             stream.Write(byte ReferenceType.Null)
         else
-            match marked.TryGetValue(obj) with
-            | true, position -> 
-                stream.Write(byte ReferenceType.ObjectPosition)
-                stream.Write position
-            | _ ->
+                match marked.TryGetValue(obj) with
+                | true, position -> 
+                    stream.Write(byte ReferenceType.ObjectPosition)
+                    stream.Write position
+                | _ ->
                 let objType = obj.GetType()
                 let surrogate = 
                     if surrogateSelector = null then null 
@@ -679,29 +679,29 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
 
     member private this.ReadCustomSerializedObject(k : obj -> unit) : unit =
         this.ReadObject(reader, marked, fun ty ->
-            let deserType = ty :?> Type
-            let mutable newObj = FormatterServices.GetUninitializedObject(deserType)
-            if newObj = null then
-                failwith <| sprintf "Failed to create unintialized instance of %A." deserType
-            let refPosition = marked.Count
-            marked.Add newObj
-            let deserInfo = this.ReadSerializationInfo deserType
-            let deserConstructor = deserType.GetConstructor(Serialize.AllInstance, null, DeserConstructorArgTypes, null)
-            deserConstructor.Invoke( newObj, [| deserInfo; Serialize.theContext |]) |> ignore
-            match newObj with
+        let deserType = ty :?> Type
+        let mutable newObj = FormatterServices.GetUninitializedObject(deserType)
+        if newObj = null then
+            failwith <| sprintf "Failed to create unintialized instance of %A." deserType
+        let refPosition = marked.Count
+        marked.Add newObj
+        let deserInfo = this.ReadSerializationInfo deserType
+        let deserConstructor = deserType.GetConstructor(Serialize.AllInstance, null, DeserConstructorArgTypes, null)
+        deserConstructor.Invoke( newObj, [| deserInfo; Serialize.theContext |]) |> ignore
+        match newObj with
+        | :? IDeserializationCallback as cb -> onDeserializationList.Add(cb)
+        | _ -> ()
+        match newObj with
+        | :? IObjectReference as objRef -> 
+            let realObject = objRef.GetRealObject(Serialize.theContext)
+            match realObject with
             | :? IDeserializationCallback as cb -> onDeserializationList.Add(cb)
-            | _ -> ()
-            match newObj with
-            | :? IObjectReference as objRef -> 
-                let realObject = objRef.GetRealObject(Serialize.theContext)
-                match realObject with
-                | :? IDeserializationCallback as cb -> onDeserializationList.Add(cb)
-                | _ -> () 
-                marked.[refPosition] <- realObject
-                k realObject
-            | _ -> 
-                marked.[refPosition] <- newObj
-                k newObj
+            | _ -> () 
+            marked.[refPosition] <- realObject
+            k realObject
+        | _ -> 
+            marked.[refPosition] <- newObj
+            k newObj
         )
 
     // Due to circular IObjectReferences generated by C# Func custom serialization, 

@@ -31,19 +31,43 @@ namespace Prajna.Core
 
 open System
 
+type internal RemoteExecutionEnvironmentKindOf = 
+    | ContainerEnvironment
+    | DaemonEnvironment
+    | ClientEnvironment
+
 /// <summary> Parameters related to Prajna remote running environment </summary>
 type RemoteExecutionEnvironment() = 
+    static let remoteEnvironmentKindOf = lazy(
+        if RemoteExecutionEnvironment.ContainerName.StartsWith("AppDomain:") || 
+            RemoteExecutionEnvironment.ContainerName.StartsWith("Exe:") then 
+            RemoteExecutionEnvironmentKindOf.ContainerEnvironment
+        elif RemoteExecutionEnvironment.ContainerName.StartsWith("Daemon") then 
+            RemoteExecutionEnvironmentKindOf.DaemonEnvironment
+        else
+            RemoteExecutionEnvironmentKindOf.ClientEnvironment
+    
+    )
     /// <summary> Obtain the MachineName that the Prajna Program is executed upon. </summary>
     static member MachineName with get() = Environment.MachineName
     /// Obtain the remote container name that the Prajna program is executed upon. 
-    static member val ContainerName="" with get, set
+    static member val ContainerName:string ="" with get, set
     /// Obtain the log folder that is used by Prajna
     static member GetLogFolder() = 
         DeploymentSettings.LogFolder
     /// Obtain the folder of the service store
     static member GetServiceFolder() = 
         DeploymentSettings.ServiceFolder
+    static member internal GetExecutionEnvironment() = 
+        remoteEnvironmentKindOf.Value
     /// Is the current execution environment a remote container
     static member IsContainer() = 
-        RemoteExecutionEnvironment.ContainerName.StartsWith("AppDomain:") || 
-        RemoteExecutionEnvironment.ContainerName.StartsWith("Exe:")
+        remoteEnvironmentKindOf.Value = RemoteExecutionEnvironmentKindOf.ContainerEnvironment
+    /// Is the current execution environment a client?
+    static member IsClient() = 
+        remoteEnvironmentKindOf.Value = RemoteExecutionEnvironmentKindOf.ClientEnvironment
+    /// Is the current execution environment a daemon?
+    /// We don't expect user code in daemon outside of the Core
+    static member internal IsDaemon() = 
+        remoteEnvironmentKindOf.Value = RemoteExecutionEnvironmentKindOf.DaemonEnvironment
+

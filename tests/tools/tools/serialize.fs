@@ -387,5 +387,5 @@ module SerializationTests =
         let A = createRandomJaggedMatrix (baseSize * 100) (baseSize / 100)
         let prajnaTime, binaryTime = compareRoundTripTimes 1 A
         Assert.IsTrue(prajnaTime.TotalMilliseconds < binaryTime.TotalMilliseconds)
-        
+
 

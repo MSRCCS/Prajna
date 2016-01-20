@@ -8,5 +8,5 @@ version: 0.0.1.{build}
 
 # after build failure or success
 on_finish:
-  - ps: Add-Type -AssemblyName System.IO.Compression.FileSystem; $dest = [System.IO.Path]::Combine((Resolve-Path temp), "Log.Zip") ; [System.IO.Compression.ZipFile]::CreateFromDirectory("C:\Prajna\Log", $dest) ; Push-AppveyorArtifact $dest -FileName Log.Zip -DeploymentName to-publish
+  - ps: Add-Type -AssemblyName System.IO.Compression.FileSystem; $dest = [System.IO.Path]::"\Log.Zip" ; [System.IO.Compression.ZipFile]::CreateFromDirectory("C:\Prajna\Log", $dest) ; Push-AppveyorArtifact $dest -FileName Log.Zip -DeploymentName to-publish
 

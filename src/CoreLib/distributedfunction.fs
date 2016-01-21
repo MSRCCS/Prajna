@@ -398,6 +398,7 @@ type internal DistributedFunctionHolderBySemaphore(name:string, capacity:int, ex
     let capacityControl = ( capacity > 0 )
     let semaphore = if capacityControl then new SemaphoreSlim( capacity, capacity) else null
     let cts = new CancellationTokenSource()
+    let ctsStatus = ref 0   // 0: CTS active, 1: cancelled, 2: disposed. 
     let refCnt = ref 0 
     member x.AddRef() = Interlocked.Increment( refCnt ) 
     member x.DecRef() = Interlocked.Decrement( refCnt ) 
@@ -492,10 +493,16 @@ type internal DistributedFunctionHolderBySemaphore(name:string, capacity:int, ex
         else
             0, Int32.MaxValue
     /// Cancel all jobs related to this distributed function. 
+    /// ctsStatus will be 1 or higher after Cancel is called. 
     member x.Cancel() = 
         // This process is responsible for the disposing routine
         Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> sprintf "Function holder %s cancelled" name)
-        cts.Cancel()
+        if Interlocked.CompareExchange( ctsStatus, 1, 0 ) = 0 then 
+            // The only case that we will transition cts to cancel is that: 
+            // 1) It hasn't been cancelled before, and 
+            // 2) The current thread succeed in the Exchange, and execute the cancel operation 
+            Logger.LogF ( LogLevel.MildVerbose, fun _ -> sprintf "%A is cancelled" x)
+            cts.Cancel() 
     /// Can we dispose this job holder?
     member x.CanDispose() = 
         // Wait for all job in semaphore to exit
@@ -508,7 +515,12 @@ type internal DistributedFunctionHolderBySemaphore(name:string, capacity:int, ex
         x.Cancel()
         if capacityControl && x.CanDispose() then 
             // Dispose CancellationTokenSource and lock
-            cts.Dispose() 
+            if Interlocked.CompareExchange( ctsStatus, 2, 1 ) = 1 then 
+                // The only case that we will transition cts to dispose is that: 
+                // 1) It hasn't been disposed before, and 
+                // 2) The current thread succeed in the Exchange, and execute the dispose operation 
+                Logger.LogF ( LogLevel.MildVerbose, fun _ -> sprintf "%A is disposed" x)
+                cts.Dispose() 
         else
             // When not in capacity control, there is no lock. 
             // However, we may not be able to dispose CancellationTokenSource as there may still be job executing, and need to 
@@ -1841,11 +1853,15 @@ and DistributedFunctionStore internal () as thisStore =
         DistributedFunctionStore.Current.Unregister( publicID, domainID, schemaIn, schemaOut )        
     /// Clean Up 
     member internal x.CleanUp(timeOut:int) = 
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "DistructionFunctionStore.Cleanup")
         for pair0 in x.ExportedCollections do 
             for pair1 in pair0.Value do 
                 for pair2 in pair1.Value do 
                     for pair3 in pair2.Value do 
                         let holder = pair3.Value
+                        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Cancelling distributed function %A, %A, %A, %A"
+                                                                            pair0.Key pair1.Key pair2.Key pair3.Key
+                                        )
                         holder.Cancel() 
         let mutable bAllDisposed = false 
         let ticksStart = DateTime.UtcNow.Ticks
@@ -1859,6 +1875,9 @@ and DistributedFunctionStore internal () as thisStore =
                         for pair3 in pair2.Value do 
                             let holder = pair3.Value
                             if timeout || holder.CanDispose() then 
+                                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Unregister distributed function %A, %A, %A, %A"
+                                                                                    pair0.Key pair1.Key pair2.Key pair3.Key
+                                                )
                                 x.Unregister( pair0.Key, pair1.Key, pair2.Key, pair3.Key )
                             else
                                 bAllDisposed <- false 

@@ -768,7 +768,6 @@ type internal ContractResolver( name ) =
     member val internal  EndPointCollection = ConcurrentDictionary<int64,bool>() with get
     /// Return a set of queues to be used to send out the current request. 
     abstract GetSendQueues: Guid -> List<NetworkCommandQueue>
-    /// Return a set of queues to be used to send out the current request. 
     default x.GetSendQueues( reqID) = 
         let epList = List<_>()
         for pair in x.EndPointCollection do
@@ -1396,7 +1395,6 @@ type [<AllowNullLiteral>]
             Seq.append (ContractServerQueues.Default.GetNetworkQueues()) (sQueues.GetNetworkQueues())
     /// Construct a contract resolver for a particular contract 
     abstract ConstructContractResolver: string -> ContractResolver
-    /// Construct a contract resolver for a particular contract 
     default x.ConstructContractResolver contractName = 
         // Use default.
         null

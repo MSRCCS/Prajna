@@ -1815,7 +1815,6 @@ and DistributedFunctionStore internal () as thisStore =
             let ret = new RegisteredDistributedFunctionOne( publicID, domainID, schemaIn, schemaOut )
             // Return a disposable interface if the caller wants to unregister 
             ret :> RegisteredDistributedFunction
-    /// Unregister an function
     member internal x.Unregister( publicID: Guid, domainID: Guid, schemaIn: Guid, schemaOut:Guid ) = 
             let bExist, providerStore = x.ExportedCollections.TryGetValue( publicID ) 
             if bExist then 

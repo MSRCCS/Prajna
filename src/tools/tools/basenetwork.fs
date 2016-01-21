@@ -551,7 +551,7 @@ type Network() =
     /// The state passed into connection initialization.  When connection is created, conn.Init(socket, state) is called.
     /// </param>
     member x.Connect<'T when 'T :> IConn and  'T : (new: unit->'T)>(addr : IPAddress, port : int, state : obj) =
-        let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
+        let sock = new System.Net.Sockets.Socket(SocketType.Stream, ProtocolType.Tcp)
         let conn = new 'T() :> IConn
         let ep = IPEndPoint(addr, port)
         try

@@ -19,6 +19,7 @@ type TestEnvironment private () =
     // To use a remote cluster, set "useRemoteCluster" to true, and provide a remote cluster list file
     static let useRemoteCluster = false
     static let RemoteClusterListFile = @"path-to-a-cluster-list-file"
+    static let envStartTime = DateTime.UtcNow
 
     // Is the testing running in a Travis CI env (https://travis-ci.org)
     static let isRunningOnTravisEnv =
@@ -96,22 +97,22 @@ type TestEnvironment private () =
 
         let useRealCluster = true
 
-        let cl = 
+        let cl =
             if useRemoteCluster then
                 Cluster(RemoteClusterListFile)
             else
-                if useAppDomainForDaemonsAndContainers then
-                    Cluster(sprintf "local[%i]" clusterSize)
-                else
-                    let localClusterCfg = { Name = sprintf "LocalPP-%i" clusterSize
-                                            Version = (DateTime.UtcNow)
-                                            NumClients = clusterSize
-                                            ContainerInAppDomain = false
-                                            ClientPath = "PrajnaClient.exe" |> Some // Note: put the path of PrajnaClient here
-                                            NumJobPortsPerClient = 5 |> Some
-                                            PortsRange = (20000, 20011) |> Some
-                                          }
-                    Cluster(localClusterCfg)
+            if useAppDomainForDaemonsAndContainers then
+                Cluster(sprintf "local[%i]" clusterSize)
+            else
+                let localClusterCfg = { Name = sprintf "LocalPP-%i" clusterSize
+                                        Version = (DateTime.UtcNow)
+                                        NumClients = clusterSize
+                                        ContainerInAppDomain = false
+                                        ClientPath = "PrajnaClient.exe" |> Some // Note: put the path of PrajnaClient here
+                                        NumJobPortsPerClient = 5 |> Some
+                                        PortsRange = (20000, 20011) |> Some
+                                      }
+                Cluster(localClusterCfg)
 
         reportProcessStatistics("After local cluster is created")
         CacheService.Start(cl)
@@ -154,6 +155,9 @@ type TestEnvironment private () =
 
     /// Is cluster a remote cluster?
     member x.IsRemoteCluster with get() = useRemoteCluster
+
+    /// Start time of the testing environment
+    member x.StartTime with get() = envStartTime
 
     /// The test environment
     static member Environment with get() = env

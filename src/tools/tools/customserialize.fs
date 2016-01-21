@@ -464,6 +464,25 @@ type StreamBaseExtension =
                     StreamBaseExtension.FormatterSerializeFromTypeName( x, obj, fullname, fmt )
 
     /// <summary> 
+    /// Serialize a particular object to bytestream, using a particular schema
+    /// If obj is null, it is serialized to a specific reserved NullObjectGuid for null. 
+    /// </summary>
+    /// <param name="obj"> Object to be serialized </param> 
+    /// <param name="schemaID"> schema used to serialize the object </param>
+    [<Extension>]
+    static member SerializeObjectWithSchema( x : StreamBase<byte>, obj: Object, schemaID: Guid )=
+        if Utils.IsNull obj then 
+            x.WriteBytes( CustomizedSerialization.NullObjectGuid.ToByteArray() ) 
+        else
+            let bE, encodeFunc = CustomizedSerialization.EncoderCollectionByGuid.TryGetValue( schemaID ) 
+            if bE then 
+                encodeFunc( obj, x ) 
+            else
+                let msg = sprintf "SerializeBySchema: Can't find schema %A" schemaID
+                let ex = System.ArgumentException( msg )
+                raise( ex )
+
+    /// <summary> 
     /// Deserialize a particular object from bytestream, allow use of customizable serializer if installed. 
     /// A Guid is first read from bytestream, if it is a specific reserved NullObjectGuid, return object is null. 
     /// If the GUID is DefaultSerializerGuid, BinaryFormatter is used to deserialize the object. 
@@ -506,6 +525,31 @@ type StreamBaseExtension =
                     x.Seek( pos, SeekOrigin.Begin ) |> ignore
                     // Can't parse the guid, using the default serializer
                     StreamBaseExtension.FormatterDeserializeToTypeName( x, fullname, GenericSerialization.GetFormatter(GenericSerialization.BinaryFormatterGuid, selector)) 
+
+    /// <summary> 
+    /// Deserialize a particular object from bytestream. 
+    /// A Guid is first read from bytestream, if it is a specific reserved NullObjectGuid, return object is null. 
+    /// Use installed customized deserailizer is used to deserialize the object. 
+    /// </summary>
+    /// <param name="obj"> Object to be serialized </param> 
+    /// <param name="fullname"> TypeName of the Object to be used to lookup for installed customizable serializer </param>
+    [<Extension>]
+    static member DeserializeObjectWithSchema( x : StreamBase<byte>, schemaID: Guid )=
+        let buf = Array.zeroCreate<_> 16 
+        let pos = x.Position
+        x.ReadBytes( buf ) |> ignore
+        let markerGuid = Guid( buf ) 
+        if markerGuid = CustomizedSerialization.NullObjectGuid then 
+            null 
+        else
+            match CustomizedSerialization.DecoderCollectionByGuid.TryGetValue( schemaID ) with
+            | true, decodeFunc -> 
+                x.Seek( pos, SeekOrigin.Begin ) |> ignore 
+                decodeFunc x
+            | _ -> 
+                let msg = sprintf "DeserializeBySchema: Can't find schema %A" schemaID
+                let ex = System.ArgumentException( msg )
+                raise( ex )
 
     /// Serialize a particular object to bytestream, allow use of customizable serializer if one is installed. 
     /// The customized serializer is of typeof<'U>.FullName, even the object passed in is of a derivative type. 

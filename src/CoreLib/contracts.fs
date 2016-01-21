@@ -768,7 +768,6 @@ type internal ContractResolver( name ) =
     member val internal  EndPointCollection = ConcurrentDictionary<int64,bool>() with get
     /// Return a set of queues to be used to send out the current request. 
     abstract GetSendQueues: Guid -> List<NetworkCommandQueue>
-    /// Return a set of queues to be used to send out the current request. 
     default x.GetSendQueues( reqID) = 
         let epList = List<_>()
         for pair in x.EndPointCollection do
@@ -1189,8 +1188,12 @@ type [<AllowNullLiteral>]
         let sig64 = ch.RemoteEndPointSignature
         /// We always use signature, to avoid holding reference to NetworkCommandQueue object
         x.ConnectedServerCollection.GetOrAdd( sig64, true ) |> ignore 
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ContractServerInfoLocal, add channel to %s" (LocalDNS.GetHostInfoInt64(sig64)) )
         x.OnConnectOperation.Trigger( sig64, funcInfo )
         ch.OnDisconnect.Add( fun _ -> x.DisconnectChannel( sig64 ) )
+    /// Contains 
+    member x.ContainsSignature( sig64: int64 ) = 
+        x.ConnectedServerCollection.ContainsKey( sig64 )
     /// Cancel all pending DNS resolve operation
     member x.Cancel() = 
         x.CTS.Cancel()
@@ -1309,11 +1312,16 @@ type [<AllowNullLiteral>]
         if bResovleAgain then 
             x.DNSResolveOnce(bAutoConnect)
         else
-            if nTrafficManager >= 0 && not (token.IsCancellationRequested) then 
+            if nTrafficManager >= 1 && not (token.IsCancellationRequested) then 
                 let bStatus = token.WaitHandle.WaitOne( x.InternalToResolveAllInMillisecond / nTrafficManager ) 
                 if not bStatus then 
                     x.DNSResolveOnce(bAutoConnect)
-
+    static member ConstructFromCluster( cl: Cluster ) = 
+        let serverInfo = ContractServersInfo()
+        serverInfo.AddCluster( cl )
+        let serverInfoLocal = ContractServerInfoLocal( serverInfo )
+        serverInfoLocal.DNSResolveOnce( false )
+        serverInfoLocal
 
 /// ContractServerInfoLocalRepeatable is used to host remote servers that requires repeatable DNS resolution. 
 /// Such servers may be behind a traffic manager, in which new servers can be added for a single address, e.g., *.trafficmanager.net.
@@ -1334,6 +1342,8 @@ type [<AllowNullLiteral>]
                     x.ToBeResolvedServerCollection.Enqueue( entry )
                 let thread = ThreadTracking.StartThreadForFunctionWithCancelation( fun _ -> x.CTS.Cancel() ) ( x.ToString ) ( fun _ -> x.DNSResolveOnce(bAutoConnect) )
                 ()
+        else
+            failwith "Try to start another DNS resolution process. This is usually caused by trying to add additional servers after the DNS resolution process has been started"
 
 /// Specify additional contract servers to be used. 
 type [<AllowNullLiteral>]
@@ -1385,7 +1395,6 @@ type [<AllowNullLiteral>]
             Seq.append (ContractServerQueues.Default.GetNetworkQueues()) (sQueues.GetNetworkQueues())
     /// Construct a contract resolver for a particular contract 
     abstract ConstructContractResolver: string -> ContractResolver
-    /// Construct a contract resolver for a particular contract 
     default x.ConstructContractResolver contractName = 
         // Use default.
         null
@@ -1397,7 +1406,7 @@ type [<AllowNullLiteral>]
 
 /// <summary>
 /// ContractStoreAtProgram contains wrapped up contract and deserialization code for other program/service to access the contract. The class is to be used by Prajna 
-/// core programmers. 
+/// core programmers.  
 /// </summary>
 type internal ContractStoreAtProgram() = 
     /// <summary>

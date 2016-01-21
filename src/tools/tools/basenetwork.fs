@@ -551,7 +551,7 @@ type Network() =
     /// The state passed into connection initialization.  When connection is created, conn.Init(socket, state) is called.
     /// </param>
     member x.Connect<'T when 'T :> IConn and  'T : (new: unit->'T)>(addr : IPAddress, port : int, state : obj) =
-        let sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
+        let sock = new System.Net.Sockets.Socket(SocketType.Stream, ProtocolType.Tcp)
         let conn = new 'T() :> IConn
         let ep = IPEndPoint(addr, port)
         try
@@ -787,6 +787,7 @@ and [<AllowNullLiteral>] internal SharedComponentState() =
 /// - If processing is occuring on own thread, then that thread blocks for event to fire
 /// There is also support for multiple processing steps to take place in a single item
 type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
+    static let systemwideProcess = ConcurrentDictionary<string, ('T->ManualResetEvent)*bool>(StringComparer.Ordinal)
     let compBase = ComponentBase()
     let bRelease = ref 0
     let item : 'T ref = ref null
@@ -823,6 +824,9 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     // accessors
     member internal x.Item with get() = item
     member internal x.Closed with get() = bIsClosed and set(v) = bIsClosed <- v
+    // Systemwide processor for component
+    static member internal SystemwideProcessors with get() = systemwideProcess
+
     member internal x.Processors with get() = processors
     member internal x.WaitTimeMs with get() = waitTimeMs
 

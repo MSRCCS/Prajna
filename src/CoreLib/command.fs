@@ -131,6 +131,8 @@ type ControllerVerb =
     | FailedRequest = 48    // To requestor: error
     /// Information of the connecting container
     | ContainerInfo = 49
+    /// Failed Registration
+    | FailedRegister = 50
     /// LimitSpeed
     | LimitSpeed = 64        // network speed
     /// Decrypt
@@ -201,6 +203,8 @@ type ControllerNoun =
     | QueryReply = 16
     /// Contract
     | Contract = 17
+    /// DistributedFunction
+    | DistributedFunction = 18
     /// ClientInfo
     | ClientInfo = 20
     /// All

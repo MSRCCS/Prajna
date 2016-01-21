@@ -240,6 +240,8 @@ type internal ClientLauncher() =
                 client
             else
                 null
+        /// Create hooker for distributed function routing. 
+        Prajna.Service.DistributedFunctionBuiltIn.Init()
         let listener = Listener.StartListener()
         let monTimer = ThreadPoolTimer.TimerWait ( fun _ -> sprintf "Task Queue Monitor Timer" ) listener.TaskQueue.MonitorTasks DeploymentSettings.MonitorIntervalTaskQueueInMs DeploymentSettings.MonitorIntervalTaskQueueInMs
         

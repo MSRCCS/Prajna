@@ -430,7 +430,7 @@ type JobDependencies() =
     /// Collection of native serializer function, to avoid reinstall same serializer 
     member val internal NativeSerializerCollection = ConcurrentDictionary<Guid,string>() with get
     /// Collection of native deserializer function, to avoid reinstall same deserializer
-    member val internal NativeDeserializerCollection = ConcurrentDictionary<Guid,string>() with get
+    member val internal NativeDeserializerCollection = ConcurrentDictionary<Guid,Object>() with get
 
     /// <summary>
     /// Install a customized Memory Manager. 
@@ -484,7 +484,7 @@ type JobDependencies() =
         let retInfo = x.NativeSerializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
                                                                                  encodeInfo ),
                                                                      ( fun id oldObj -> oldObj ) )
-        if !bNewFunc && String.CompareOrdinal( encodeInfo, retInfo )=0 then 
+        if !bNewFunc || String.CompareOrdinal( encodeInfo, retInfo )<>0 then 
             // A new function is to be installed 
             let wrappedEncodeFunc (o:Object, ms ) = 
                 encodeFunc ( o :?> 'Type, ms ) 
@@ -544,16 +544,11 @@ type JobDependencies() =
     /// <param name="bAllowReplicate"> should be false, does not allow multiple serializer with same Guid.  </param>
     member x.InstallDeserializer<'Type>( id: Guid, decodeFunc: Stream -> 'Type, info:string, bAllowReplicate ) = 
         let bNewFunc = ref false
-        let decodeFuncObject = decodeFunc :> Object
-        let decodeInfo = sprintf "%s:%d" info (decodeFuncObject.GetHashCode())
-        let retInfo = x.NativeSerializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
-                                                                                 decodeInfo ),
+        let decodeFuncObj = decodeFunc :> Object
+        let retObj = x.NativeDeserializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
+                                                                                  decodeFuncObj ),
                                                                      ( fun id oldObj -> oldObj ) )
-
-        let retInfo = x.NativeDeserializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
-                                                                                   decodeInfo ),
-                                                                     ( fun id oldObj -> oldObj ) )
-        if !bNewFunc && String.CompareOrdinal( decodeInfo, retInfo )=0 then 
+        if !bNewFunc || not(Object.ReferenceEquals( retObj, decodeFuncObj )) then 
             // A new function is to be installed 
             let wrappedDecodeFunc (ms) = 
                 decodeFunc ( ms ) :> Object

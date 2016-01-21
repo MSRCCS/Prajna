@@ -12,4 +12,5 @@ nuget LibGit2Sharp
 
 github fsharp/FAKE modules/Octokit/Octokit.fsx
 
-http https://download.sysinternals.com/files/Handle.zip
+http https://download.sysinternals.com/files/handle.zip
+

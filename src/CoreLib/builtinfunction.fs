@@ -80,6 +80,7 @@ type DistributedFunctionBuiltIn() =
         let env = RemoteExecutionEnvironment.GetExecutionEnvironment() 
         match env with 
         | ContainerEnvironment -> 
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "Register Built-In function API for container %s" RemoteExecutionEnvironment.ContainerName )
             builtInStore.RegisterFunction<_>( DistributedFunctionBuiltIn.GetContainerFunctionName, DistributedFunctionBuiltIn.GetContainerLocal ) |> ignore
             builtInStore.RegisterFunction<_>( DistributedFunctionBuiltIn.TriggerRemoteExceptionFunctionName, DistributedFunctionBuiltIn.RemoteExceptionLocal ) |> ignore
             // ToDo: Register other functions of container 
@@ -89,8 +90,10 @@ type DistributedFunctionBuiltIn() =
             serverInfo.AddDaemon()
             builtInStore.ExportTo( serverInfo )
         | DaemonEnvironment -> 
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "Register Built-In function API for daemon %s" RemoteExecutionEnvironment.ContainerName )
             NetworkCommandQueue.AddSystemwideRecvProcessor( "DistributedFunctionParser@Daemon", NetworkCommandQueueType.AnyDirection, DistributedFunctionStore.ParseDistributedFunctionCrossBar )
         | ClientEnvironment ->
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "Register Built-In function API for client %s" RemoteExecutionEnvironment.ContainerName )
             getConnectedContainerLazy <-  lazy( DistributedFunctionStore.Current.TryImportSequenceFunction<string*string>( DistributedFunctionBuiltIn.GetContainerFunctionName ) )
             triggerRemoteExceptionLazy <- lazy( DistributedFunctionStore.Current.TryImportSequenceFunction<string>( DistributedFunctionBuiltIn.TriggerRemoteExceptionFunctionName ) )
             // ToDo: Register other functions of container 

@@ -65,13 +65,13 @@ type JobListener() =
     member val internal Activity = false with get, set
     member val internal ListeningThread = null with get, set
     member val JobPort = -1 with get, set
-    member val internal bTerminateListening = false with get, set
+    member val internal nTerminateListening = ref 0 with get
     member val private OnAcceptedExecutor = ExecuteEveryTrigger<NetworkCommandQueuePeer>(LogLevel.MildVerbose) with get
     member internal x.OnAccepted(action : Action<NetworkCommandQueuePeer>, infoFunc : unit -> string) =
         x.OnAcceptedExecutor.Add(action, infoFunc)
 
     member internal x.InitializeListenningTask( ) = 
-        while not x.bTerminateListening do
+        while Volatile.Read( x.nTerminateListening) = 0 do
            try 
                 let soc = x.Listener.Accept() 
                 if Utils.IsNotNull soc then 
@@ -82,8 +82,11 @@ type JobListener() =
                                                                  let eip = ep :?> IPEndPoint
                                                                  sprintf "incoming connection established from socket %A with name %A" ep (LocalDNS.GetHostByAddress( eip.Address.GetAddressBytes(),false)  ) ))
            with 
-           | e -> 
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when Accept: %A" e )         )
+           | :? ObjectDisposedException as ex -> 
+                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Accept() call on jobport %d encounters an ObjectDisposedException, Accept() loop will be terminated" x.JobPort ))
+                Volatile.Write( x.nTerminateListening, 1 )
+           | ex -> 
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when Accept: %A" ex )         )
     // 05/31/2014, Jin Li, I change the active code to synchronous code, because I observe that on the Prajna cluster, 
     // sometime the EndAccept call doesn't get called for a long time (!!!minutes!!!, even I believe that the packet comes in). 
     // change the code to synchronous listen fixed the issue. The 1st accept still can take 3-5 seconds, but it was not the dreadful minutes. 
@@ -115,10 +118,13 @@ type JobListener() =
             null
     member internal x.TerminateListenningTask() = 
         if Utils.IsNotNull x.ListeningThread then 
-            x.bTerminateListening <- true
+            // Marked the socket as closed
+            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Begin terminating listening task on %A" x.Listener.LocalEndPoint ))
+            Volatile.Write( x.nTerminateListening, 1 ) 
             x.Listener.Close() // Force to close a socket 
             x.ListeningThread.Join() // Wait for the listening thread to terminate
             x.ListeningThread <- null
+            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "End terminating listening task" ) )
             () // no way to cancel a synchronous request. 
     static member internal StartListenning o = 
         try

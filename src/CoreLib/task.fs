@@ -1845,6 +1845,12 @@ and [<AllowNullLiteral; Serializable>]
             queue.Initialize()
 
             // DistributedFunctionBuiltIn should be initialized after loopback queue is established. 
+            use msSend = new MemStream( 1024 )
+            msSend.WriteString( sigName )
+            msSend.WriteInt64( sigVersion )
+            queue.ToSend( ControllerCommand( ControllerVerb.Link, ControllerNoun.Program ), msSend ) 
+            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Link program back to daemon")
+
             DistributedFunctionBuiltIn.Init()
 
             // Wait for connection to PrajnaClient to establish
@@ -1858,11 +1864,11 @@ and [<AllowNullLiteral; Serializable>]
                     // The decoding logic isn't as well protected as the main link, this is because the module communicates with PrajnaClient, 
                     // We expect most of the errors to be weeded out by the PrajnaClient.
                     // Moreover, if there is error, the job simply dies, which is considered OK. 
-                    use msSend = new MemStream( 1024 )
-                    msSend.WriteString( sigName )
-                    msSend.WriteInt64( sigVersion )
-                    queue.ToSend( ControllerCommand( ControllerVerb.Link, ControllerNoun.Program ), msSend ) 
-                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Link program back to daemon")
+//                    use msSend = new MemStream( 1024 )
+//                    msSend.WriteString( sigName )
+//                    msSend.WriteInt64( sigVersion )
+//                    queue.ToSend( ControllerCommand( ControllerVerb.Link, ControllerNoun.Program ), msSend ) 
+//                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Link program back to daemon")
                     // This becomes the main loop for the job 
                     let mutable bIOActivity = false
                     let mutable lastActive = (PerfDateTime.UtcNow())

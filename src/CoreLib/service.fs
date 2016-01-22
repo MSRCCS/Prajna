@@ -199,6 +199,7 @@ type internal WorkerRoleInstanceService<'StartParamType when 'StartParamType :> 
 type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:string, serviceClass:WorkerRoleEntryPoint, param:'StartParamType)=
     inherit DSetAction()
     member x.StartService( ) = 
+      try
         // Bind DSet to the service, the DSet version is always the same, 
         let useCluster = if not (Utils.IsNull cl) then cl else Cluster.GetCurrent()
         if (Utils.IsNull useCluster ) then 
@@ -245,6 +246,13 @@ type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:st
                     else
                         Logger.Log( LogLevel.Warning, msg )
                         failwith msg
+      with 
+      | ex -> 
+        let msg = sprintf "Exception at DSetStartServiceAction.StartService, exception: %A" ex
+        Logger.Log( LogLevel.Error, msg )  
+        printfn "%s" msg
+        reraise()
+
     member x.RemappingCommandToLaunchService( queue, peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
         use msPayload = new MemStream( 1024 )
         msPayload.WriteGuid( x.Job.JobID )

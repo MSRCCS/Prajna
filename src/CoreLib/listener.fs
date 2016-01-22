@@ -86,7 +86,7 @@ type JobListener() =
                 Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Accept() call on jobport %d encounters an ObjectDisposedException, Accept() loop will be terminated" x.JobPort ))
                 Volatile.Write( x.nTerminateListening, 1 )
            | ex -> 
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when Accept: %A" ex )         )
+                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Exception when Accept: %A" ex )         )
     // 05/31/2014, Jin Li, I change the active code to synchronous code, because I observe that on the Prajna cluster, 
     // sometime the EndAccept call doesn't get called for a long time (!!!minutes!!!, even I believe that the packet comes in). 
     // change the code to synchronous listen fixed the issue. The 1st accept still can take 3-5 seconds, but it was not the dreadful minutes. 

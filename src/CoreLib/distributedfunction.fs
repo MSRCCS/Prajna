@@ -720,6 +720,12 @@ type internal RemoteDistributedFunctionProviderSignatureStore() =
         Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "RemoteDistributedFunctionProviderSignatureStore.Error, message from client at %s cause exception: %A"
                                                                 (LocalDNS.GetHostInfoInt64(signature)) ex
                                                     )
+    /// A certain provider has an unrecoverable error, we will need to unregister all distributed function by that provider. 
+    static member ReceiveErrorAt( signature, ex: Exception ) = 
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Receiving Error, DistributedFunction message from client at %s, exception: %A"
+                                                                (LocalDNS.GetHostInfoInt64(signature)) ex
+                                                    )
+
     /// A certain provider has disconnected, we will need to unregister all distributed function serviced by that provider.
     static member Disconnect( signature ) = 
         let clientName = (LocalDNS.GetHostInfoInt64(signature))
@@ -2350,6 +2356,10 @@ and DistributedFunctionStore internal () as thisStore =
     member x.ErrorAt( queue: NetworkCommandQueue, ex: Exception) = 
         RemoteDistributedFunctionProviderSignatureStore.ErrorAt( queue.RemoteEndPointSignature, ex )
         RemoteDistributedFunctionRequestStore.Current.OnDisconnect( queue.RemoteEndPointSignature )
+    member x.ReceiveErrorAt( queue: NetworkCommandQueue, ex: Exception) = 
+        RemoteDistributedFunctionProviderSignatureStore.ReceiveErrorAt( queue.RemoteEndPointSignature, ex )
+        RemoteDistributedFunctionRequestStore.Current.OnDisconnect( queue.RemoteEndPointSignature )
+
     /// Exception during reply 
     static member ExceptionWhenReply( jobID: Guid, signature: int64, ex: Exception ) = 
         let queue = NetworkConnections.Current.LookforConnectBySignature( signature )
@@ -2644,7 +2654,7 @@ and DistributedFunctionStore internal () as thisStore =
             | ( ControllerVerb.Error, ControllerNoun.DistributedFunction ) -> 
                 /// Should fail all distributed function to run from that client. 
                 /// Should deregister all distributed function from that client
-                x.ErrorAt( queue, exToThrow )
+                x.ReceiveErrorAt( queue, exToThrow )
             | _ -> 
                 /// Exeption is thrown for FailedRegister out of band, which may crash the program (which is fine, the user's distributed function will not work)
                 raise( exToThrow )

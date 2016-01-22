@@ -251,7 +251,7 @@ type internal DSetStartServiceAction<'StartParamType>(cl:Cluster, serviceName:st
         let msg = sprintf "Exception at DSetStartServiceAction.StartService, exception: %A" ex
         Logger.Log( LogLevel.Error, msg )  
         printfn "%s" msg
-        reraise( ex )
+        reraise()
 
     member x.RemappingCommandToLaunchService( queue, peeri, peeriPartitionArray:int[], curDSet:DSet ) = 
         use msPayload = new MemStream( 1024 )

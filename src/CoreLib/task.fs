@@ -479,7 +479,7 @@ and [<AllowNullLiteral; Serializable>]
     member val Port = 0L with get, set
     member val Thread : Thread = null with get, set
     member val ConfirmStart = false with get, set
-
+    /// Generate a membership list 
     member x.ClusterMembership( queue ) = 
         let membershipList = List<_>()
         if Utils.IsNotNull x.Clusters then 
@@ -2559,8 +2559,8 @@ and [<AllowNullLiteral; Serializable>]
                 // Send source DSet, Information. 
                 x.TrySendSrcMetadataToHost(queue, availInfo)
             else
-                // for peer
-                x.TrySyncMetadataClient()
+                let errorMsg = sprintf "ParseTaskCommandAtDaemon:Membership list of peer %d is larger than 0, this P2P path hasn't been implemented yet" peeri
+                jobAction.ThrowExceptionAtContainer( errorMsg )
             true 
         /// Write Blob is being processed here. 
         | ControllerVerb.Write, ControllerNoun.Blob ->

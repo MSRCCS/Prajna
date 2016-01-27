@@ -467,6 +467,8 @@ type JobDependencies() =
 
     /// <summary>
     /// Install a customized serializer, with a unique GUID that identified the use of the serializer in the bytestream. 
+    /// Because the system has no way to tell if an encodeFunc is different from the other, 
+    /// we will only install the first serializer of a ID. Subsequent installation will be ignored. 
     /// </summary>
     /// <param name="id"> Guid that uniquely identified the use of the serializer in the bytestream. The Guid is used by the deserializer to identify the need to 
     /// run a customized deserializer function to deserialize the object. </param>
@@ -480,15 +482,24 @@ type JobDependencies() =
         // Generate a signature according to information of the serializer, function installed and whether the serializer is to be used as default. 
         // This step is used because two instances of identical serializerFunc will be wrapped to two different object, lead to serializer to be installed 
         // multiple times (which is undesired). 
-        let encodeInfo = sprintf "%s:%A:%d" info bInstallAsDefault (encodeFuncObject.GetHashCode())
+        let encodeInfo = sprintf "%s:%A" info bInstallAsDefault
         let retInfo = x.NativeSerializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
                                                                                  encodeInfo ),
                                                                      ( fun id oldObj -> oldObj ) )
         if !bNewFunc || String.CompareOrdinal( encodeInfo, retInfo )<>0 then 
+            if String.CompareOrdinal( encodeInfo, retInfo )<>0 then 
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Slot %A, replace serializer %s with %s"
+                                                                        id retInfo encodeInfo
+                            )
+                x.NativeSerializerCollection.Item(id) <- encodeInfo
             // A new function is to be installed 
             let wrappedEncodeFunc (o:Object, ms ) = 
                 encodeFunc ( o :?> 'Type, ms ) 
             x.InstallWrappedSerializer( id, typeof<'Type>.FullName, wrappedEncodeFunc, info, bAllowReplicate, bInstallAsDefault)
+        else
+            Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "Slot %A, discard another attempt to install serializer for %s"
+                                                                    id encodeInfo
+                        )
     member internal x.InstallWrappedSerializer(id, fullname, wrappedEncodeFunc, info, bAllowReplicate, bInstallAsDefault ) =
         let tuple = fullname, info, wrappedEncodeFunc, bInstallAsDefault
         let oldTuple = x.SerializerCollection.GetOrAdd( id, tuple )
@@ -548,11 +559,16 @@ type JobDependencies() =
         let retObj = x.NativeDeserializerCollection.AddOrUpdate( id, ( fun id ->  bNewFunc := true
                                                                                   decodeFuncObj ),
                                                                      ( fun id oldObj -> oldObj ) )
-        if !bNewFunc || not(Object.ReferenceEquals( retObj, decodeFuncObj )) then 
+        if !bNewFunc then 
             // A new function is to be installed 
             let wrappedDecodeFunc (ms) = 
                 decodeFunc ( ms ) :> Object
             x.InstallWrappedDeserializer( id, typeof<'Type>.FullName, wrappedDecodeFunc, info, bAllowReplicate)
+        elif not(Object.ReferenceEquals( retObj, decodeFuncObj )) then 
+            Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "Slot %A, ignore additioonal deserializer (origin:%d, new:%d)"
+                                                                    id (retObj.GetHashCode()) (decodeFuncObj.GetHashCode())
+                        )
+
     member internal x.InstallWrappedDeserializer( id, fullname, wrappedDecodeFunc, info, bAllowReplicate) =
         let tuple = fullname, info, wrappedDecodeFunc
         let oldTuple = x.DeserializerCollection.GetOrAdd( id, tuple )

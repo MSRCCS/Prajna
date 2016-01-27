@@ -107,6 +107,10 @@ type DistributedFunctionBuiltIn() =
     static member TriggerRemoteException() = 
         let func = triggerRemoteExceptionLazy.Value
         func()
-
+    /// Trigger an exception in remote function, for testing purpose only 
+    /// The performance is measured using the particular function of GetConnectedContainers()
+    static member GetBuiltInFunctionPerformance() = 
+        let perf = builtInStore.GetPerformanceFunction<string*string>( DistributedFunctionBuiltIn.GetContainerFunctionName )
+        perf
     static member internal Init () =
         initialized.Force()

@@ -41,6 +41,7 @@ open NUnit.Framework
 
 open Prajna.Core
 open Prajna.Tools
+open Prajna.Tools.Network
 
 open Prajna.Tools.FSharp
 open Prajna.Service
@@ -223,10 +224,25 @@ type DistributedFunctionTest() =
     [<Test(Description = "Test: Builtin Function: GetContainers")>]
     member x.DistributedFunctionGetConnectedContainers() = 
         DistributedFunctionTest.WaitForContainerLaunch()
-        Logger.LogF( LogLevel.Info, fun _ -> sprintf "Start to execute GetConnectedContainers()"  )           
-        let containers = DistributedFunctionBuiltIn.GetConnectedContainers() |> Seq.toArray
-        Assert.AreEqual( TestSetup.SharedCluster.NumNodes, containers.Length )
-        Logger.LogF( LogLevel.Info, fun _ -> sprintf "Number of connected containers is %d: %A" containers.Length containers )
+        Logger.LogF( LogLevel.Info, fun _ -> sprintf "Start to execute GetConnectedContainers()"  )
+        let numTries = 5 
+        let mutable bValidMeasure = false 
+        for i = 0 to numTries do 
+            let containers = DistributedFunctionBuiltIn.GetConnectedContainers() |> Seq.toArray
+            Assert.AreEqual( TestSetup.SharedCluster.NumNodes, containers.Length )
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "Number of connected containers is %d: %A" containers.Length containers )
+            let perfArray = DistributedFunctionBuiltIn.GetBuiltInFunctionPerformance()
+            Assert.AreEqual( TestSetup.SharedCluster.NumNodes, perfArray.Length )
+            for entry in perfArray do 
+                let signature, perf = entry
+                Logger.LogF( LogLevel.Info, fun _ -> sprintf "Performance of containers %s: %s, latency = %s" 
+                                                        (LocalDNS.GetHostInfoInt64(signature))
+                                                        (perf.QueueInfo()) 
+                                                        (perf.ExpectedLatencyInfo()) )
+                if not bValidMeasure then 
+                    /// We have got some measurement 
+                    bValidMeasure <- perf.ExpectedLatencyInMS<>ServiceEndpointPerformance.DefaultExpectedLatencyInMS
+        Assert.IsTrue( bValidMeasure )                
 
     [<Test(Description = "Test: Builtin Function: TriggerRemoteException")>]
     member x.DistributedFunctionTriggerRemoteException() = 

@@ -495,7 +495,7 @@ and [<AllowNullLiteral; Serializable>]
                     if peerIdx>=0 then 
                         membershipList.Add( (cluster, peerIdx) )
             if membershipList.Count <= 0 then 
-                Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> sprintf "Incoming peer %s doesn't belong to the any cluster in the task, it must be from App" 
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> sprintf "Incoming peer %s doesn't belong to the any cluster in the task, it may belong to App/Container" 
                                                                             (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                 )
         membershipList
@@ -2538,7 +2538,7 @@ and [<AllowNullLiteral; Serializable>]
     /// true: Command parsed. 
     /// false: Command Not parsed
     member x.ParseTaskCommandAtDaemon( jobAction: SingleJobActionDaemon, queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms, taskQueue:TaskQueue ) = 
-        Logger.LogF( x.JobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "ParseTaskCommandAtDaemon: process %A from %i" cmd (x.GetIncomingQueueNumber( queue )))
+        Logger.LogF( x.JobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "ParseTaskCommandAtDaemon: process %A from %s" cmd (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) )
         match (cmd.Verb, cmd.Noun) with 
         | ControllerVerb.Unknown, _ -> 
             true

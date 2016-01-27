@@ -2534,7 +2534,7 @@ and [<AllowNullLiteral; Serializable>]
     /// true: Command parsed. 
     /// false: Command Not parsed
     member x.ParseTaskCommandAtDaemon( jobAction: SingleJobActionDaemon, queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms, taskQueue:TaskQueue ) = 
-        Logger.LogF( x.JobID, LogLevel.WildVerbose, fun _ -> sprintf "ParseTaskCommandAtDaemon: process %A from %i" cmd (x.GetIncomingQueueNumber( queue )))
+        Logger.LogF( x.JobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "ParseTaskCommandAtDaemon: process %A from %i" cmd (x.GetIncomingQueueNumber( queue )))
         match (cmd.Verb, cmd.Noun) with 
         | ControllerVerb.Unknown, _ -> 
             true
@@ -3203,10 +3203,12 @@ and internal TaskQueue() =
         | _, ControllerNoun.Job 
         | _, ControllerNoun.Blob ->
             let jobID  = ms.ReadGuid()
-            Logger.LogF( jobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "ParseCommandAtDaemon: Rcvd %A, %A from peer %s"
+            Logger.LogF( jobID, LogLevel.ExtremeVerbose, fun _ -> sprintf "ParseCommandAtDaemon: Rcvd %A, %A from peer %s"
                                                                                             cmd.Verb cmd.Noun (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) )
             using ( SingleJobActionDaemon.TryFind(jobID)) ( fun jobAction -> 
-                Logger.LogF( jobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "ParseCommandAtDaemon, find job object" )
+                Logger.LogF( jobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "ParseCommandAtDaemon, find job object for cmd %A, %A from peer %s" 
+                                                                                            cmd.Verb cmd.Noun (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                           )
                 if Utils.IsNull jobAction then 
                     Task.ErrorInSeparateApp( queue, sprintf "(%A) Failed to find Job Action object for Job %A, error has happened before? " cmd jobID ) 
                     true

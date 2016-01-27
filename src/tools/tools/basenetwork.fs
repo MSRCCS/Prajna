@@ -551,7 +551,7 @@ type Network() =
     /// The state passed into connection initialization.  When connection is created, conn.Init(socket, state) is called.
     /// </param>
     member x.Connect<'T when 'T :> IConn and  'T : (new: unit->'T)>(addr : IPAddress, port : int, state : obj) =
-        let sock = new System.Net.Sockets.Socket(SocketType.Stream, ProtocolType.Tcp)
+        let sock = new System.Net.Sockets.Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
         let conn = new 'T() :> IConn
         let ep = IPEndPoint(addr, port)
         try
@@ -573,7 +573,7 @@ type Network() =
         let mutable success = false
         let mutable sock =null 
         try
-            sock <- new Socket(SocketType.Stream, ProtocolType.Tcp)
+            sock <- new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
             let conn = new 'T() :> IConn
             try
                 // use IP v4 address, randomly pick one for local, use 0 for port since don't care
@@ -591,7 +591,7 @@ type Network() =
                 conn
             with e ->
                 try
-                    sock <- new Socket(SocketType.Stream, ProtocolType.Tcp)
+                    sock <- new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
                     sock.Connect(addrStr, port)
                     x.InitConn(conn, sock, state)
                     success <- true
@@ -618,7 +618,7 @@ type Network() =
             let mutable success = false
             let mutable sock = null
             try
-                sock <- new Socket(SocketType.Stream, ProtocolType.Tcp)
+                sock <- new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
                 let conn = new 'T() :> IConn
                 let addr = (Dns.GetHostAddresses(bind)).[0]
                 try
@@ -635,7 +635,7 @@ type Network() =
                     conn
                 with e->
                     try
-                        sock <- new Socket(SocketType.Stream, ProtocolType.Tcp)
+                        sock <- new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
                         sock.Bind(IPEndPoint(addr, 0))
                         sock.Connect(addrStr, port)
                         x.InitConn(conn, sock, state)

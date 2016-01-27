@@ -538,9 +538,11 @@ and [<AllowNullLiteral; Serializable>]
                 x.PrimaryHostQueueIndex <- -1     
         if x.PrimaryHostQueueIndex < 0 then 
             // Find a new Primary Host queue 
-            for pair in x.IncomingQueues do
-                let peeri = pair.Key
-                let queue = pair.Value
+            // use IncomingQueuesToPeerNumber as this is the primary entry guarded by unique addition
+            for pair in x.IncomingQueuesToPeerNumber do
+                let signature = pair.Key
+                let peeri = pair.Value
+                let queue = x.IncomingQueues.Item(peeri) 
                 if Utils.IsNotNull queue && not queue.Shutdown then 
                     let membershipList = x.IncomingQueuesClusterMembership.[peeri]
                     if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 

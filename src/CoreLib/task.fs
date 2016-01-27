@@ -3203,6 +3203,8 @@ and internal TaskQueue() =
         | _, ControllerNoun.Job 
         | _, ControllerNoun.Blob ->
             let jobID  = ms.ReadGuid()
+            Logger.LogF( jobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "Rcvd %A, %A from peer %s"
+                                                                                            cmd.Verb cmd.Noun (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) )
             using ( SingleJobActionDaemon.TryFind(jobID)) ( fun jobAction -> 
                 if Utils.IsNull jobAction then 
                     Task.ErrorInSeparateApp( queue, sprintf "(%A) Failed to find Job Action object for Job %A, error has happened before? " cmd jobID ) 

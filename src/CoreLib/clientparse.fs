@@ -292,7 +292,7 @@ type internal Listener =
             try 
                 match (command.Verb, command.Noun ) with 
                 | (ControllerVerb.Availability, ControllerNoun.Blob ) ->
-                    Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "ParseCommandAtDaemon Monitor: Availability, Blob rcvd ... "))
+                    Logger.LogF( DeploymentSettings.TraceLevelEveryJobBlob, ( fun _ -> sprintf "ParseCommandAtDaemon Monitor: Availability, Blob rcvd ... "))
                 | _ -> 
                     ()
                 let bParsed = x.TaskQueue.ParseCommandAtDaemon( queuePeer, command, ms ) 

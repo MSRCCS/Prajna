@@ -3064,6 +3064,7 @@ and internal TaskQueue() =
                                         msSend.WriteString( foundTask.Name ) 
                                         msSend.WriteInt64( foundTask.Version.Ticks )
                                         nodeInfo.Pack( msSend )
+                                        Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s to launch a task holder to run job .............." task.SignatureName ))
                                         queue.ToSend( ControllerCommand( ControllerVerb.InfoNode, ControllerNoun.Job ), msSend )   
                                         true
                                     else
@@ -3073,6 +3074,7 @@ and internal TaskQueue() =
                                         msSend.WriteInt64( task.Version.Ticks )
                                         if task.LaunchMode <> TaskLaunchMode.DonotLaunch then 
                                             Logger.LogF( jobID, LogLevel.Warning, ( fun _ -> sprintf "Task %s failed to secure a valid port (return port <=0 ) .............." task.SignatureName ))
+                                        Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s reserves node information, but with invalid listenning port .............." task.SignatureName ))
                                         queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )                              
                                         true
                                 else
@@ -3082,6 +3084,7 @@ and internal TaskQueue() =
                                     msSend.WriteInt64( task.Version.Ticks )
                                     if task.LaunchMode <> TaskLaunchMode.DonotLaunch then 
                                         Logger.LogF( jobID, LogLevel.Warning, ( fun _ -> sprintf "Task %s failed in port reservation .............." task.SignatureName ))
+                                    Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s fails in listening port reservation .............." task.SignatureName ))
                                     queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )   
                                     true
                             else
@@ -3098,6 +3101,7 @@ and internal TaskQueue() =
                                     msSend.WriteGuid( jobID )
                                     msSend.WriteString( task.Name ) 
                                     msSend.WriteInt64( task.Version.Ticks )
+                                    Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s failed to find a relevant task holder (or the CurNodeInfo in task holder) .............." task.SignatureName ))
                                     queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )  
                                     true
                                 else
@@ -3110,6 +3114,7 @@ and internal TaskQueue() =
                                     msSend.WriteString( task.Name ) 
                                     msSend.WriteInt64( task.Version.Ticks )
                                     nodeInfo.Pack( msSend )
+                                    Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s reuse an existing task holder to run job .............." task.SignatureName ))
                                     queue.ToSend( ControllerCommand( ControllerVerb.InfoNode, ControllerNoun.Job ), msSend )
                                     true
                         else

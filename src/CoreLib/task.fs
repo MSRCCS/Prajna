@@ -431,11 +431,16 @@ and [<AllowNullLiteral; Serializable>]
     inherit Job() 
     let mutable bAllLoaded = false
     let mutable bTerminationCalled = false
+    let mutable peerCount = -1 
     member val DSets : DSetPeer[] = null with get, set
-    member val IncomingQueues = List<_>() with get, set
-    member val IncomingQueuesToPeerNumber = ConcurrentDictionary<_,_>() with get, set
-    member val IncomingQueuesClusterMembership = List<_>() with get, set
-    member val IncomingQueuesAvailability = List<_>() with get, set
+    /// Map peer index to a queue
+    member val IncomingQueues = ConcurrentDictionary<int,NetworkCommandQueuePeer>() with get, set
+    member val IncomingQueuesToPeerNumber = ConcurrentDictionary<int64,int>() with get, set
+    /// Map a particular queue (index) to a membership list of 
+    /// ( cluster, peerindex)
+    /// ...
+    member val IncomingQueuesClusterMembership = ConcurrentDictionary<_,_>() with get, set
+    member val IncomingQueuesAvailability = ConcurrentDictionary<_, _>() with get, set
     member val PrimaryHostQueueIndex = -1 with get, set
     /// QueueAtClient resides at AppDomain/Exe, it is the local loopback interface to talk to the PrajnaClient
     member val QueueToClient : NetworkCommandQueue = null with get, set
@@ -489,22 +494,23 @@ and [<AllowNullLiteral; Serializable>]
                     let peerIdx = cluster.SearchForEndPoint( queue )
                     if peerIdx>=0 then 
                         membershipList.Add( (cluster, peerIdx) )
+            if membershipList.Count <= 0 then 
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> sprintf "Incoming peer %s doesn't belong to the any cluster in the task, it must be from App" 
+                                                                            (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                )
         membershipList
+    member x.AddIncomingQueueNumber ( queue:NetworkCommandQueuePeer ) (signature:int64) = 
+        let peeri = Interlocked.Increment( &peerCount )
+        x.IncomingQueues.Item(peeri) <- queue
+        let membershipList = x.ClusterMembership( queue )
+        x.IncomingQueuesClusterMembership.Item(peeri) <- membershipList
+        x.IncomingQueuesAvailability.Item(peeri) <- ( BlobAvailability( x.NumBlobs ) ) 
+        if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 
+            x.PrimaryHostQueueIndex <- peeri
+        peeri      
     /// Add incoming queue for the job. 
     member x.GetIncomingQueueNumber( queue:NetworkCommandQueuePeer ) = 
-        let refValue = ref Unchecked.defaultof<_>
-        if not (x.IncomingQueuesToPeerNumber.TryGetValue( queue.RemoteEndPointSignature, refValue )) then 
-            let peeri = x.IncomingQueues.Count
-            x.IncomingQueues.Add( queue )
-            x.IncomingQueuesToPeerNumber.Item( queue.RemoteEndPointSignature ) <- peeri
-            let membershipList = x.ClusterMembership( queue )
-            x.IncomingQueuesClusterMembership.Add( membershipList )
-            x.IncomingQueuesAvailability.Add( BlobAvailability( x.NumBlobs ) ) 
-            if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 
-                x.PrimaryHostQueueIndex <- peeri
-            peeri
-        else
-            !refValue
+        x.IncomingQueuesToPeerNumber.GetOrAdd( queue.RemoteEndPointSignature, x.AddIncomingQueueNumber queue  )
     /// Add a new cluster to the job
     /// The function will recheck the membership relation of each peer (represented by queue), and redefine PrimaryHostQueueIndex
     /// that defines the PrimaryHostQueue to communicate with host. 
@@ -512,18 +518,15 @@ and [<AllowNullLiteral; Serializable>]
         blob.Object <- cluster
         x.Clusters.[ blob.Index ] <- cluster
         // Peer membership examination. 
-        for peeri=0 to x.IncomingQueues.Count-1 do
-            let queue = x.IncomingQueues.[peeri]
-            let membershipList = x.ClusterMembership( queue )
-            x.IncomingQueuesClusterMembership.[peeri] <- membershipList
+//        for pair in x.IncomingQueues do
+//            let peeri = pair.Key
+//            let queue = pair.Value
+//            let membershipList = x.ClusterMembership( queue )
+//            x.IncomingQueuesClusterMembership.[peeri] <- membershipList
         // Check for PimaryHostQueueIndex
         if x.PrimaryHostQueueIndex>=0 && x.IncomingQueuesClusterMembership.[x.PrimaryHostQueueIndex].Count>0 then 
             // The previous host is no longer a primary host after adding the new cluster
             x.PrimaryHostQueueIndex <- -1    
-//            for peeri=0 to x.IncomingQueues.Count-1 do
-//                let membershipList = x.IncomingQueuesClusterMembership.[peeri]
-//                if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 
-//                    x.PrimaryHostQueueIndex <- peeri    
             x.UpdatePrimaryHostQueue()
     /// Return one host queue 
     member x.PrimaryHostQueue with get() = if x.PrimaryHostQueueIndex>=0 then x.IncomingQueues.[x.PrimaryHostQueueIndex] else null
@@ -535,8 +538,9 @@ and [<AllowNullLiteral; Serializable>]
                 x.PrimaryHostQueueIndex <- -1     
         if x.PrimaryHostQueueIndex < 0 then 
             // Find a new Primary Host queue 
-            for peeri=0 to (Math.Min(x.IncomingQueues.Count,x.IncomingQueuesClusterMembership.Count))-1 do
-                let queue = x.IncomingQueues.[peeri]
+            for pair in x.IncomingQueues do
+                let peeri = pair.Key
+                let queue = pair.Value
                 if Utils.IsNotNull queue && not queue.Shutdown then 
                     let membershipList = x.IncomingQueuesClusterMembership.[peeri]
                     if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 

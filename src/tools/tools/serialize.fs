@@ -780,7 +780,7 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
         | _ -> failwith <| sprintf "Unexpected tag: %A" tag
 
     member this.ReadObject() = 
-        let mutable root : obj ref = ref null
+        let root : obj ref = ref null
         this.ReadObject(reader, marked, fun obj -> root := obj)
         for i = 0 to delayedSetList.Count - 1 do
             let objRef, k = delayedSetList.[i]

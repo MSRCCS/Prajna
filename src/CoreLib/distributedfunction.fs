@@ -2099,7 +2099,7 @@ and DistributedFunctionStore internal () as thisStore =
         let schemaOut = Guid.Empty
         let retFunc = x.TryFindInternalLocal( publicID, domainID, schemaIn, schemaOut ) 
         retFunc 
-    /// Try import an action to execution
+    /// Try import an action
     member x.TryImportUnitActionLocal( name ) = 
         let retFunc = x.TryFindUnitActionLocal( x.DefaultImportProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -2146,7 +2146,7 @@ and DistributedFunctionStore internal () as thisStore =
                 ()
         retFunc 
 
-    /// Try import an action to execution
+    /// Try import an action
     member x.TryImportActionLocal<'T>( name ) =
         let retFunc = x.TryFindActionLocal<'T>( x.DefaultImportProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -2194,7 +2194,7 @@ and DistributedFunctionStore internal () as thisStore =
                 ()
         retFunc 
 
-    /// Try import an function with no input parameter
+    /// Try import a function with no input parameter
     member x.TryImportFunctionLocal<'TResult>( name ) =
         let retFunc = x.TryFindFunctionLocal<'TResult>( x.DefaultImportProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -2253,7 +2253,7 @@ and DistributedFunctionStore internal () as thisStore =
                     ()
         retFunc 
 
-    /// Try import a function to execution
+    /// Try import a function
     member x.TryImportFunctionLocal<'T,'TResult>( name ) =
         let retFunc = x.TryFindFunctionLocal<'T, 'TResult>( x.DefaultImportProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -2784,7 +2784,7 @@ and DistributedFunctionStore internal () as thisStore =
         let schemaOutCollection = [| Guid.Empty |]
         let stub = DistributedFunctionClientStub.Construct( serverInfo, name, publicID, domainID, schemaInCollection, schemaOutCollection ) 
         stub 
-    /// Try import an action to execution
+    /// Try import an action
     member x.TryImportUnitAction( serverInfo, name ) = 
         let stub = x.TryFindUnitAction( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedAction() = 
@@ -2809,7 +2809,7 @@ and DistributedFunctionStore internal () as thisStore =
             if Utils.IsNotNull !exRet then 
                 raise( !exRet ) 
         wrappedAction
-    /// Try import an action to execution
+    /// Try import an action
     member x.TryImportUnitAction( name ) = 
         x.TryImportUnitAction( null, name )
     /// Get performance of the unit action
@@ -2832,7 +2832,7 @@ and DistributedFunctionStore internal () as thisStore =
         let _, schemaInCollection = DistributedFunctionStore.InstallDefaultSerializer<'T>()
         let stub = DistributedFunctionClientStub.Construct( serverInfo, name, publicID, domainID, schemaInCollection, schemaOutCollection ) 
         stub
-    /// Try import an action to execution
+    /// Try import an action
     member x.TryImportAction<'T>( serverInfo, name ) =
         let stub = x.TryFindAction<'T>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedAction(param:'T) = 
@@ -2857,7 +2857,7 @@ and DistributedFunctionStore internal () as thisStore =
             if Utils.IsNotNull !exRet then 
                 raise( !exRet ) 
         wrappedAction
-    /// Try import an action to execution
+    /// Try import an action
     member x.TryImportAction<'T>( name ) =
         x.TryImportAction<'T>( null, name )
     /// Get performance of imported action
@@ -2878,7 +2878,7 @@ and DistributedFunctionStore internal () as thisStore =
         let _, schemaOutCollection = DistributedFunctionStore.InstallDefaultSerializer<'TResult>()
         let stub = DistributedFunctionClientStub.Construct( serverInfo, name, publicID, domainID, schemaInCollection, schemaOutCollection ) 
         stub
-    /// Try import an function with no input parameter
+    /// Try import a function with no input parameter
     member x.TryImportFunction<'TResult>( serverInfo, name ) =
         let stub = x.TryFindFunction<'TResult>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedFunction() = 
@@ -2912,14 +2912,14 @@ and DistributedFunctionStore internal () as thisStore =
             else 
                 !res
         wrappedFunction
-    /// Try import an function with no input parameter
+    /// Try import a function with no input parameter
     member x.TryImportFunction<'TResult>( name ) =
         x.TryImportFunction<'TResult>( null, name ) 
-    /// Try import an function with no input parameter
+    /// Get performance of a function with no input parameter
     member x.GetPerformanceFunction<'TResult>( serverInfo, name ) =
         let stub = x.TryFindFunction<'TResult>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         stub.GetServicePerformance()
-    /// Try import an function with no input parameter
+    /// Get performance of a function with no input parameter
     member x.GetPerformanceFunction<'TResult>( name ) =
         x.GetPerformanceFunction<'TResult>( null, name )
     /// <summary>
@@ -2933,7 +2933,7 @@ and DistributedFunctionStore internal () as thisStore =
         let _, schemaOutCollection = DistributedFunctionStore.InstallDefaultSerializer<'TResult>()
         let stub = DistributedFunctionClientStub.Construct( serverInfo, name, publicID, domainID, schemaInCollection, schemaOutCollection ) 
         stub
-    /// Try import a function to execution
+    /// Try import a function
     member x.TryImportFunction<'T,'TResult>( serverInfo, name ) =
         let stub = x.TryFindFunction<'T, 'TResult>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedFunction(param:'T) = 
@@ -2966,14 +2966,14 @@ and DistributedFunctionStore internal () as thisStore =
             else 
                 !res
         wrappedFunction
-    /// Try import a function to execution
+    /// Try import a function
     member x.TryImportFunction<'T,'TResult>( name ) =
         x.TryImportFunction<'T,'TResult>( null, name )
-    /// Get performance of a function to execution
+    /// Get performance of a function
     member x.GetPerformanceFunction<'T,'TResult>( serverInfo, name ) =
         let stub = x.TryFindFunction<'T, 'TResult>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         stub.GetServicePerformance()
-    /// Get performance of a function to execution
+    /// Get performance of a function
     member x.GetPerformanceFunction<'T,'TResult>( name ) =
         x.GetPerformanceFunction<'T,'TResult>( null, name ) 
 
@@ -2998,7 +2998,7 @@ and DistributedFunctionStore internal () as thisStore =
             None
         | _ -> 
             reraise()
-    /// Try import a function to execution sequence 
+    /// Try import a function to execute results in a data sequence  
     member x.TryImportSequenceFunction<'T,'TResult>( serverInfo, name, capacity ) =
         let stub = x.TryFindSequenceFunction<'T, 'TResult>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedFunction(param:'T) = 
@@ -3049,17 +3049,17 @@ and DistributedFunctionStore internal () as thisStore =
                     raise( ex  )
                 }
         wrappedFunction
-    /// Try import a function to execution sequence 
+    /// Try import a function to execute results in a data sequence 
     member x.TryImportSequenceFunction<'T,'TResult>( name, capacity ) =
         x.TryImportSequenceFunction<'T,'TResult>( null, name, capacity )
-    /// Try import a function to execution sequence 
+    /// Try import a function sequence 
     member x.TryImportSequenceFunction<'T,'TResult>( name ) =
         x.TryImportSequenceFunction<'T,'TResult>( null, name, -1 )
-    /// Get performance of a function to execution sequence 
+    /// Get performance of a function to execute results in a data sequence 
     member x.GetPerformanceSequenceFunction<'T,'TResult>( serverInfo, name ) =
         let stub = x.TryFindSequenceFunction<'T, 'TResult>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         stub.GetServicePerformance()
-    /// Get performance of a function to execution sequence 
+    /// Get performance of a function to execute results in a data sequence 
     member x.GetPerformanceSequenceFunction<'T,'TResult>( name ) =
         x.GetPerformanceSequenceFunction<'T,'TResult>( null, name ) 
 
@@ -3075,7 +3075,7 @@ and DistributedFunctionStore internal () as thisStore =
         let stub = DistributedFunctionClientStub.ConstructAggregateAllPeers( serverInfo, name, publicID, domainID, schemaInCollection, schemaOutCollection ) 
         stub
 
-    /// Try import a function to execution sequence 
+    /// Try import a function to execute results in a data sequence 
     member x.TryImportSequenceFunction<'TResult>( serverInfo, name, capacity ) =
         let stub = x.TryFindSequenceFunction<'TResult>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedFunction() = 
@@ -3126,17 +3126,17 @@ and DistributedFunctionStore internal () as thisStore =
                     raise( ex  )
                 }
         wrappedFunction
-    /// Try import a function to execution sequence 
+    /// Try import a function to execute results in a data sequence 
     member x.TryImportSequenceFunction<'TResult>( name, capacity ) =
         x.TryImportSequenceFunction<'TResult>( null, name, capacity )
-    /// Try import a function to execution sequence 
+    /// Try import a function to execute results in a data sequence 
     member x.TryImportSequenceFunction<'TResult>( name ) =
         x.TryImportSequenceFunction<'TResult>( null, name, -1 )
-    /// Get performance of a function to execution sequence 
+    /// Get performance of a function to execute results in a data sequence 
     member x.GetPerformanceSequenceFunction<'TResult>( serverInfo, name ) =
         let stub = x.TryFindSequenceFunction<'TResult>( serverInfo, name, x.DefaultImportProviderID, HashStringToGuid(name) )
         stub.GetServicePerformance()
-    /// Get performance of a function to execution sequence 
+    /// Get performance of a function to execute results in a data sequence  
     member x.GetPerformanceSequenceFunction<'TResult>( name ) =
         x.GetPerformanceSequenceFunction<'TResult>( null, name )
 
@@ -3296,7 +3296,7 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
     member x.RegisterFunction<'TResult>( name, func:unit -> Task<'TResult> ) = 
         x.RegisterFunction<'TResult>( name, store.ConcurrentCapacity, store.CurrentProviderID, HashStringToGuid( name ), 
             func, false ) 
-    /// Try import an action to execution
+    /// Try import an action
     /// The return signature is () -> Task
     member x.TryImportUnitActionLocal( name ) = 
         let retFunc = store.TryFindUnitActionLocal( store.DefaultImportProviderID, HashStringToGuid(name) )
@@ -3327,7 +3327,7 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
                 holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, null, cts.Token, observer )
                 ts.Task :> Task
             wrappedAction
-    /// Try import an action to execution
+    /// Try import an action
     member x.TryImportActionLocal<'T>( name ) =
         let retFunc = store.TryFindActionLocal<'T>( store.DefaultImportProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -3357,7 +3357,7 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
                 holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, param, cts.Token, observer )
                 ts.Task :> Task
             wrappedAction
-    /// Try import a function to execution
+    /// Try import a function
     member x.TryImportFunctionLocal<'TResult>( name ) =
         let retFunc = store.TryFindFunctionLocal<'TResult>( store.DefaultImportProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -3398,7 +3398,7 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
                 holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, null, cts.Token, observer )
                 ts.Task
             wrappedFunction
-    /// Try import an action to execution
+    /// Try import an action 
     member x.TryImportFunctionLocal<'T,'TResult>( name ) =
         let retFunc = store.TryFindFunctionLocal<'T, 'TResult>( store.DefaultImportProviderID, HashStringToGuid(name) )
         match retFunc with 
@@ -3439,7 +3439,7 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
                 holder.ExecuteWithTimebudget( Guid.Empty, Timeout.Infinite, param, cts.Token, observer )
                 ts.Task
             wrappedFunction
-    /// Try import an action to execution
+    /// Try import an action 
     /// The return signature is () -> Task
     member x.TryImportUnitAction( serverInfo, name ) = 
         let stub = store.TryFindUnitAction( serverInfo, name, store.DefaultImportProviderID, HashStringToGuid(name) )
@@ -3465,18 +3465,18 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
             stub.ExecutorForClientStub( Timeout.Infinite, null, cts.Token, observer )
             ts.Task :> Task
         wrappedAction
-    /// Try import an action to execute
+    /// Try import an action 
     member x.TryImportUnitAction( name ) = 
         x.TryImportUnitAction( null, name ) 
-    /// Get performance of an action to execution
+    /// Get performance of an action 
     member x.GetPerformanceUnitAction( serverInfo, name ) = 
         let stub = store.TryFindUnitAction( serverInfo, name, store.DefaultImportProviderID, HashStringToGuid(name) )
         stub.GetServicePerformance() 
-    /// Get performance of an action to execution
+    /// Get performance of an action 
     member x.GetPerformanceUnitAction( name ) = 
         x.GetPerformanceUnitAction( null, name )
 
-    /// Try import an action to execution
+    /// Try import an action 
     member x.TryImportAction<'T>( serverInfo, name ) =
         let stub = store.TryFindAction<'T>( serverInfo, name, store.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedAction(param:'T) = 
@@ -3500,17 +3500,17 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
             stub.ExecutorForClientStub( Timeout.Infinite, param, cts.Token, observer )
             ts.Task :> Task
         wrappedAction
-    /// Try import an action to execution
+    /// Try import an action 
     member x.TryImportAction<'T>( name ) =
         x.TryImportAction<'T>( name )
-    /// Get performance of an action to execution
+    /// Get performance of an action 
     member x.GetPerformanceAction<'T>( serverInfo, name ) =
         let stub = store.TryFindAction<'T>( serverInfo, name, store.DefaultImportProviderID, HashStringToGuid(name) )
         stub.GetServicePerformance() 
-    /// Get performance of an action to execution
+    /// Get performance of an action 
     member x.GetPerformanceAction<'T>( name ) =
         x.GetPerformanceAction<'T>( null, name )
-    /// Try import a function to execution
+    /// Try import a function
     member x.TryImportFunction<'TResult>( serverInfo, name ) =
         let stub = store.TryFindFunction<'TResult>( serverInfo, name, store.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedFunction() = 
@@ -3546,17 +3546,17 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
             stub.ExecutorForClientStub( Timeout.Infinite, null, cts.Token, observer )
             ts.Task
         wrappedFunction
-    /// Try import a function to execution
+    /// Try import a function 
     member x.TryImportFunction<'TResult>( name ) =
         x.TryImportFunction<'TResult>( null, name ) 
-    /// Get performance of a function to execution
+    /// Get performance of a function 
     member x.GetPerformanceFunction<'TResult>( serverInfo, name ) =
         let stub = store.TryFindFunction<'TResult>( serverInfo, name, store.DefaultImportProviderID, HashStringToGuid(name) )
         stub.GetServicePerformance() 
-    /// Get performance of a function to execution
+    /// Get performance of a function
     member x.GetPerformanceFunction<'TResult>( name ) =
         x.GetPerformanceFunction<'TResult>( null, name ) 
-    /// Try import a function to execution
+    /// Try import a function 
     member x.TryImportFunction<'T,'TResult>( serverInfo, name ) =
         let stub = store.TryFindFunction<'T, 'TResult>( serverInfo, name, store.DefaultImportProviderID, HashStringToGuid(name) )
         let wrappedFunction(param:'T) = 
@@ -3592,14 +3592,14 @@ type DistributedFunctionStoreAsync private( store:DistributedFunctionStore) =
             stub.ExecutorForClientStub( Timeout.Infinite, param, cts.Token, observer )
             ts.Task
         wrappedFunction
-    /// Try import a function to execution
+    /// Try import a function
     member x.TryImportFunction<'T,'TResult>( name ) =
         x.TryImportFunction<'T,'TResult>( null, name ) 
-    /// Get performance of a function to execution
+    /// Get performance of a function
     member x.GetPerformanceFunction<'T,'TResult>( serverInfo, name ) =
         let stub = store.TryFindFunction<'T, 'TResult>( serverInfo, name, store.DefaultImportProviderID, HashStringToGuid(name) )
         stub.GetServicePerformance() 
-    /// Get performance of a function to execution
+    /// Get performance of a function
     member x.GetPerformanceFunction<'T,'TResult>( name ) =
         x.GetPerformanceFunction<'T,'TResult>( null, name )
 

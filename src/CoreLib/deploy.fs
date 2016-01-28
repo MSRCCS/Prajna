@@ -348,17 +348,25 @@ type DeploymentSettings() =
     static member val internal IntervalToReconnectDaemonInMs = 2000 with get, set
     /// Travel Level for Blob Availability 
     static member val internal TraceLevelBlobAvailability = LogLevel.WildVerbose with get, set
-    /// Trace Level for Blob Send 
-    static member val internal TraceLevelBlobSend = LogLevel.WildVerbose with get, set
-    /// Trace Level for Starting job
-    static member val internal TraceLevelStartJob = LogLevel.MildVerbose with get, set
+    // JinL: use LogLevel.MildVerbose for debugging, turn up level when finished debugging. 
+    /// Trace Level for Blob Send
+    static member val internal TraceLevelBlobSend = LogLevel.MildVerbose with get, set
     /// Trace Level for Blob Rcvd
     static member val internal TraceLevelBlobRcvd = LogLevel.MildVerbose with get, set
+    /// Trace Level for Blob Rcvd
+    static member val internal TraceLevelEveryJobBlob = LogLevel.MildVerbose with get, set
+
+
+
+    /// Trace Level for Starting job
+    static member val internal TraceLevelStartJob = LogLevel.MildVerbose with get, set
     /// Whether we will touch file when dependency/assembly is copied as a SHA256 named file in the remote node. 
     /// set the parameter to LogLevel.Info will touch dependecy/assembly when they are written. 
     static member val ExecutionLevelTouchAssembly = LogLevel.ExtremeVerbose with get, set
+    // JinL: use LogLevel.MildVerbose for debugging. 
+
     /// Travel Level for Blob Send/Receive 
-    static member val internal TraceLevelBlobIO = LogLevel.MediumVerbose with get, set
+    static member val internal TraceLevelBlobIO = LogLevel.MildVerbose with get, set
     /// Validate Hash 
     static member val internal TraceLevelBlobValidateHash = LogLevel.MediumVerbose with get, set
     /// Trace Level to Monitor Seq Function

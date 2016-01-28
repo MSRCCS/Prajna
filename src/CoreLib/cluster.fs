@@ -973,67 +973,14 @@ and
             Cluster.Current <- Some cl
 
 
-    member private x.SearchForEndPointOld( queue: NetworkCommandQueue ) = 
-        if Utils.IsNull bMapped then 
-            bMapped <- Array.create x.NumNodes false
-        // Use forward mapping if that is available. 
-        if Utils.IsNotNull x.Queues then 
-            for i=0 to bMapped.Length-1 do 
-                if not bMapped.[i] then 
-                    let queuePeer = x.Queues.[i]
-                    if (Utils.IsNotNull queuePeer) && (Utils.IsNotNull queuePeer.RemoteEndPoint) then 
-                        match queuePeer.RemoteEndPoint with 
-                        | :? IPEndPoint as ep ->
-                            endpointToPeer.Item( ep ) <- i
-                            bMapped.[i] <- true
-                        | _ -> 
-                            ()
-        match queue.Socket.RemoteEndPoint with 
-        | :? IPEndPoint as ep ->
-            let refValue = ref Unchecked.defaultof<_>
-            if endpointToPeer.TryGetValue( ep, refValue ) then 
-                !refValue
-            else
-                // JinL: 12/31/2014, ideally, the function should write as a GetOrAdd, however, a remote end point will only map to one peer index. 
-                //       Since we don't expect conflict update, we will leave the code as is. 
-                // Sanjeevm: 02/25/2014
-                //printfn "DNS Address %A" ep.Address
-                try
-                    let hostEntry = Dns.GetHostEntry( ep.Address )
-                    let hostName = hostEntry.HostName
-                    let mutable idxPeer = -1
-                    let nodes = x.Nodes
-                    for i = 0 to x.NumNodes-1 do 
-                        if hostName.IndexOf( nodes.[i].MachineName, StringComparison.OrdinalIgnoreCase )>=0  then 
-                            idxPeer <- i    
-                    endpointToPeer.Item( ep ) <- idxPeer
-                    idxPeer
-                with e ->
-                    let mutable idxPeer = -1
-                    let nodes = x.Nodes
-                    let eaddr = ep.Address.GetAddressBytes()
-                    for i = 0 to x.NumNodes-1 do
-//                        if ep.Address.ToString().ToLower().Equals(nodes.[i].ExternalIPAddress.ToLower()) then
-//                            idxPeer <- i
-//                        if ep.Address.ToString().ToLower().Equals(nodes.[i].InternalIPAddress.ToLower()) then
-//                            idxPeer <- i
-                        if Utils.IsNotNull nodes.[i].InternalIPAddress then
-                            for cmpAddr in nodes.[i].InternalIPAddress do
-                                if System.Linq.Enumerable.SequenceEqual( eaddr, cmpAddr ) then 
-                                    idxPeer <- i
-                        if Utils.IsNotNull nodes.[i].ExternalIPAddress then
-                            for cmpAddr in nodes.[i].ExternalIPAddress do
-                                if System.Linq.Enumerable.SequenceEqual( eaddr, cmpAddr ) then 
-                                    idxPeer <- i
-                    endpointToPeer.Item( ep ) <- idxPeer
-                    idxPeer
-        | _ ->
-            -1
     member private x.SearchForEndPointInternal( ep:IPEndPoint ) = 
-        if Utils.IsNull bMapped then 
-            bMapped <- Array.create x.NumNodes false
+            // bMapped will not be null at this point. 
         // Use forward mapping if that is available. 
         if Utils.IsNotNull x.Queues then 
+            if Utils.IsNull bMapped then 
+                // Make sure bMapped is not null 
+                while Utils.IsNull bMapped do 
+                    Interlocked.CompareExchange( &bMapped, Array.create x.NumNodes false, null ) |> ignore 
             for i=0 to bMapped.Length-1 do 
                 if not bMapped.[i] then 
                     let queuePeer = x.Queues.[i]
@@ -1052,16 +999,23 @@ and
             //       Since we don't expect conflict update, we will leave the code as is. 
             // Sanjeevm: 02/25/2014
             //printfn "DNS Address %A" ep.Address
+            let mutable nMatches = 0 
+            let mutable idxPeer = -1
             try
                 let hostName = LocalDNS.GetHostByAddress( ep.Address.GetAddressBytes() )
-                let mutable idxPeer = -1
                 let nodes = x.Nodes
                 for i = 0 to x.NumNodes-1 do 
-                    if hostName.IndexOf( nodes.[i].MachineName, StringComparison.OrdinalIgnoreCase )>=0  then 
+                    if hostName.IndexOf( nodes.[i].MachineName, StringComparison.OrdinalIgnoreCase )>=0 then 
                         idxPeer <- i    
+                        nMatches <- nMatches + 1
+            with e ->
+                nMatches <- 2
+
+            if nMatches = 1 then 
                 endpointToPeer.Item( ep ) <- idxPeer
                 idxPeer
-            with e ->
+            else
+                nMatches <- 0 
                 let mutable idxPeer = -1
                 let nodes = x.Nodes
                 let eaddr = ep.Address.GetAddressBytes()
@@ -1070,10 +1024,15 @@ and
                         for cmpAddr in nodes.[i].InternalIPAddress do
                             if System.Linq.Enumerable.SequenceEqual( eaddr, cmpAddr ) then 
                                 idxPeer <- i
+                                nMatches <- nMatches + 1
                     if Utils.IsNotNull nodes.[i].ExternalIPAddress then
                         for cmpAddr in nodes.[i].ExternalIPAddress do
                             if System.Linq.Enumerable.SequenceEqual( eaddr, cmpAddr ) then 
                                 idxPeer <- i
+                                nMatches <- nMatches + 1
+                if nMatches <> 1 then 
+                    // If we can't determine the peer, we will use -1
+                    idxPeer <- -1    
                 endpointToPeer.Item( ep ) <- idxPeer
                 idxPeer
 

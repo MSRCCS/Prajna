@@ -431,11 +431,16 @@ and [<AllowNullLiteral; Serializable>]
     inherit Job() 
     let mutable bAllLoaded = false
     let mutable bTerminationCalled = false
+    let mutable peerCount = -1 
     member val DSets : DSetPeer[] = null with get, set
-    member val IncomingQueues = List<_>() with get, set
-    member val IncomingQueuesToPeerNumber = ConcurrentDictionary<_,_>() with get, set
-    member val IncomingQueuesClusterMembership = List<_>() with get, set
-    member val IncomingQueuesAvailability = List<_>() with get, set
+    /// Map peer index to a queue
+    member val IncomingQueues = ConcurrentDictionary<int,NetworkCommandQueuePeer>() with get, set
+    member val IncomingQueuesToPeerNumber = ConcurrentDictionary<int64,int>() with get, set
+    /// Map a particular queue (index) to a membership list of 
+    /// ( cluster, peerindex)
+    /// ...
+    member val IncomingQueuesClusterMembership = ConcurrentDictionary<_,_>() with get, set
+    member val IncomingQueuesAvailability = ConcurrentDictionary<_, _>() with get, set
     member val PrimaryHostQueueIndex = -1 with get, set
     /// QueueAtClient resides at AppDomain/Exe, it is the local loopback interface to talk to the PrajnaClient
     member val QueueToClient : NetworkCommandQueue = null with get, set
@@ -479,7 +484,7 @@ and [<AllowNullLiteral; Serializable>]
     member val Port = 0L with get, set
     member val Thread : Thread = null with get, set
     member val ConfirmStart = false with get, set
-
+    /// Generate a membership list 
     member x.ClusterMembership( queue ) = 
         let membershipList = List<_>()
         if Utils.IsNotNull x.Clusters then 
@@ -489,22 +494,23 @@ and [<AllowNullLiteral; Serializable>]
                     let peerIdx = cluster.SearchForEndPoint( queue )
                     if peerIdx>=0 then 
                         membershipList.Add( (cluster, peerIdx) )
+            if membershipList.Count <= 0 then 
+                Logger.LogF( x.JobID, LogLevel.MildVerbose, fun _ -> sprintf "Incoming peer %s doesn't belong to the any cluster in the task, it may belong to App/Container" 
+                                                                            (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                )
         membershipList
+    member x.AddIncomingQueueNumber ( queue:NetworkCommandQueuePeer ) (signature:int64) = 
+        let peeri = Interlocked.Increment( &peerCount )
+        x.IncomingQueues.Item(peeri) <- queue
+        let membershipList = x.ClusterMembership( queue )
+        x.IncomingQueuesClusterMembership.Item(peeri) <- membershipList
+        x.IncomingQueuesAvailability.Item(peeri) <- ( BlobAvailability( x.NumBlobs ) ) 
+        if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 
+            x.PrimaryHostQueueIndex <- peeri
+        peeri      
     /// Add incoming queue for the job. 
     member x.GetIncomingQueueNumber( queue:NetworkCommandQueuePeer ) = 
-        let refValue = ref Unchecked.defaultof<_>
-        if not (x.IncomingQueuesToPeerNumber.TryGetValue( queue.RemoteEndPointSignature, refValue )) then 
-            let peeri = x.IncomingQueues.Count
-            x.IncomingQueues.Add( queue )
-            x.IncomingQueuesToPeerNumber.Item( queue.RemoteEndPointSignature ) <- peeri
-            let membershipList = x.ClusterMembership( queue )
-            x.IncomingQueuesClusterMembership.Add( membershipList )
-            x.IncomingQueuesAvailability.Add( BlobAvailability( x.NumBlobs ) ) 
-            if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 
-                x.PrimaryHostQueueIndex <- peeri
-            peeri
-        else
-            !refValue
+        x.IncomingQueuesToPeerNumber.GetOrAdd( queue.RemoteEndPointSignature, x.AddIncomingQueueNumber queue  )
     /// Add a new cluster to the job
     /// The function will recheck the membership relation of each peer (represented by queue), and redefine PrimaryHostQueueIndex
     /// that defines the PrimaryHostQueue to communicate with host. 
@@ -512,18 +518,15 @@ and [<AllowNullLiteral; Serializable>]
         blob.Object <- cluster
         x.Clusters.[ blob.Index ] <- cluster
         // Peer membership examination. 
-        for peeri=0 to x.IncomingQueues.Count-1 do
-            let queue = x.IncomingQueues.[peeri]
-            let membershipList = x.ClusterMembership( queue )
-            x.IncomingQueuesClusterMembership.[peeri] <- membershipList
+//        for pair in x.IncomingQueues do
+//            let peeri = pair.Key
+//            let queue = pair.Value
+//            let membershipList = x.ClusterMembership( queue )
+//            x.IncomingQueuesClusterMembership.[peeri] <- membershipList
         // Check for PimaryHostQueueIndex
         if x.PrimaryHostQueueIndex>=0 && x.IncomingQueuesClusterMembership.[x.PrimaryHostQueueIndex].Count>0 then 
             // The previous host is no longer a primary host after adding the new cluster
             x.PrimaryHostQueueIndex <- -1    
-//            for peeri=0 to x.IncomingQueues.Count-1 do
-//                let membershipList = x.IncomingQueuesClusterMembership.[peeri]
-//                if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 
-//                    x.PrimaryHostQueueIndex <- peeri    
             x.UpdatePrimaryHostQueue()
     /// Return one host queue 
     member x.PrimaryHostQueue with get() = if x.PrimaryHostQueueIndex>=0 then x.IncomingQueues.[x.PrimaryHostQueueIndex] else null
@@ -535,8 +538,11 @@ and [<AllowNullLiteral; Serializable>]
                 x.PrimaryHostQueueIndex <- -1     
         if x.PrimaryHostQueueIndex < 0 then 
             // Find a new Primary Host queue 
-            for peeri=0 to (Math.Min(x.IncomingQueues.Count,x.IncomingQueuesClusterMembership.Count))-1 do
-                let queue = x.IncomingQueues.[peeri]
+            // use IncomingQueuesToPeerNumber as this is the primary entry guarded by unique addition
+            for pair in x.IncomingQueuesToPeerNumber do
+                let signature = pair.Key
+                let peeri = pair.Value
+                let queue = x.IncomingQueues.Item(peeri) 
                 if Utils.IsNotNull queue && not queue.Shutdown then 
                     let membershipList = x.IncomingQueuesClusterMembership.[peeri]
                     if membershipList.Count<=0 && x.PrimaryHostQueueIndex<0 then 
@@ -2534,7 +2540,7 @@ and [<AllowNullLiteral; Serializable>]
     /// true: Command parsed. 
     /// false: Command Not parsed
     member x.ParseTaskCommandAtDaemon( jobAction: SingleJobActionDaemon, queue:NetworkCommandQueuePeer, cmd:ControllerCommand, ms, taskQueue:TaskQueue ) = 
-        Logger.LogF( x.JobID, LogLevel.WildVerbose, fun _ -> sprintf "Daemon received %A from %i" cmd (x.GetIncomingQueueNumber( queue )))
+        Logger.LogF( x.JobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "ParseTaskCommandAtDaemon: process %A from %s" cmd (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) )
         match (cmd.Verb, cmd.Noun) with 
         | ControllerVerb.Unknown, _ -> 
             true
@@ -2559,8 +2565,8 @@ and [<AllowNullLiteral; Serializable>]
                 // Send source DSet, Information. 
                 x.TrySendSrcMetadataToHost(queue, availInfo)
             else
-                // for peer
-                x.TrySyncMetadataClient()
+                let errorMsg = sprintf "ParseTaskCommandAtDaemon:Membership list of peer %d is larger than 0, this P2P path hasn't been implemented yet" peeri
+                jobAction.ThrowExceptionAtContainer( errorMsg )
             true 
         /// Write Blob is being processed here. 
         | ControllerVerb.Write, ControllerNoun.Blob ->
@@ -3064,6 +3070,7 @@ and internal TaskQueue() =
                                         msSend.WriteString( foundTask.Name ) 
                                         msSend.WriteInt64( foundTask.Version.Ticks )
                                         nodeInfo.Pack( msSend )
+                                        Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s to launch a task holder to run job .............." task.SignatureName ))
                                         queue.ToSend( ControllerCommand( ControllerVerb.InfoNode, ControllerNoun.Job ), msSend )   
                                         true
                                     else
@@ -3073,6 +3080,7 @@ and internal TaskQueue() =
                                         msSend.WriteInt64( task.Version.Ticks )
                                         if task.LaunchMode <> TaskLaunchMode.DonotLaunch then 
                                             Logger.LogF( jobID, LogLevel.Warning, ( fun _ -> sprintf "Task %s failed to secure a valid port (return port <=0 ) .............." task.SignatureName ))
+                                        Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s reserves node information, but with invalid listenning port .............." task.SignatureName ))
                                         queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )                              
                                         true
                                 else
@@ -3082,6 +3090,7 @@ and internal TaskQueue() =
                                     msSend.WriteInt64( task.Version.Ticks )
                                     if task.LaunchMode <> TaskLaunchMode.DonotLaunch then 
                                         Logger.LogF( jobID, LogLevel.Warning, ( fun _ -> sprintf "Task %s failed in port reservation .............." task.SignatureName ))
+                                    Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s fails in listening port reservation .............." task.SignatureName ))
                                     queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )   
                                     true
                             else
@@ -3098,6 +3107,7 @@ and internal TaskQueue() =
                                     msSend.WriteGuid( jobID )
                                     msSend.WriteString( task.Name ) 
                                     msSend.WriteInt64( task.Version.Ticks )
+                                    Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s failed to find a relevant task holder (or the CurNodeInfo in task holder) .............." task.SignatureName ))
                                     queue.ToSend( ControllerCommand( ControllerVerb.NonExist, ControllerNoun.Job ), msSend )  
                                     true
                                 else
@@ -3110,6 +3120,7 @@ and internal TaskQueue() =
                                     msSend.WriteString( task.Name ) 
                                     msSend.WriteInt64( task.Version.Ticks )
                                     nodeInfo.Pack( msSend )
+                                    Logger.LogF( jobID, LogLevel.MildVerbose, (fun _ -> sprintf "Task %s reuse an existing task holder to run job .............." task.SignatureName ))
                                     queue.ToSend( ControllerCommand( ControllerVerb.InfoNode, ControllerNoun.Job ), msSend )
                                     true
                         else
@@ -3198,7 +3209,12 @@ and internal TaskQueue() =
         | _, ControllerNoun.Job 
         | _, ControllerNoun.Blob ->
             let jobID  = ms.ReadGuid()
+            Logger.LogF( jobID, LogLevel.ExtremeVerbose, fun _ -> sprintf "ParseCommandAtDaemon: Rcvd %A, %A from peer %s"
+                                                                                            cmd.Verb cmd.Noun (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) )
             using ( SingleJobActionDaemon.TryFind(jobID)) ( fun jobAction -> 
+                Logger.LogF( jobID, DeploymentSettings.TraceLevelEveryJobBlob, fun _ -> sprintf "ParseCommandAtDaemon, find job object for cmd %A, %A from peer %s" 
+                                                                                            cmd.Verb cmd.Noun (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+                           )
                 if Utils.IsNull jobAction then 
                     Task.ErrorInSeparateApp( queue, sprintf "(%A) Failed to find Job Action object for Job %A, error has happened before? " cmd jobID ) 
                     true

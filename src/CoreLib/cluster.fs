@@ -711,7 +711,7 @@ and
 //    let clusterUpdateTimer = Timer( ClusterInfo.PeriodicClusterUpdate, 
 //                                        clusterStatus, Timeout.Infinite, Timeout.Infinite)
     let mutable expectedClusterSize = 0 
-    let mutable queues = Array.zeroCreate<NetworkCommandQueue> 0
+    let mutable queues : NetworkCommandQueue[] = null
     let mutable bFailedMsgShown = Array.create 0 false 
     // clock for communication 
     let clock = System.Diagnostics.Stopwatch.StartNew()
@@ -1186,6 +1186,7 @@ and
         x.CommunicationInited.Force() |> ignore
 
     member internal x.QueueForWrite( peeri ) =
+        x.BeginCommunication()
         try 
             let queue = ref x.Queues.[peeri]
             if Utils.IsNull !queue then
@@ -1482,9 +1483,9 @@ and
 
     /// Start connection to all peers
     member internal x.ConnectAll() = 
+        x.InitializeQueues()
         for peeri=0 to x.NumNodes-1 do
             x.QueueForWrite(peeri) |> ignore
-        x.InitializeQueues()
 
     /// Disconnect all peers. 
     member internal x.DisconnectAll() = 

@@ -1872,7 +1872,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             MemoryStreamB.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
             // start the monitoring
             x.StartMonitor() 
-    )
+            ) with get
 
     /// Initialize the object
     member x.Initialize( ) = 

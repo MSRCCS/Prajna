@@ -138,7 +138,9 @@ and internal AssemblyCollection() =
                         with 
                         | e -> 
                             x.LoadedAssemblyCollection.Item( aRefName.FullName) <- null 
-                            Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Fail to reflection only load reference %s. Prajna will attemp to skip this assembly in remote execution, but it is possible that the remote program may fail due to miss of this assembly. Exception is %A" aRefName.FullName e ))
+                            // Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Fail to reflection only load reference %s. Prajna will attemp to skip this assembly in remote execution, but it is possible that the remote program may fail due to miss of this assembly. Exception is %A" aRefName.FullName e ))
+                            // Adjust the log level to info, as this is a known behavior. 
+                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Fail to reflection only load reference %s. Prajna will attemp to skip this assembly in remote execution, but it is possible that the remote program may fail due to miss of this assembly. " aRefName.FullName ))
     /// Get All Assemblies
     member x.GetAllAssemblies() = 
         x.LoadedAssemblyCollection.Values |> Seq.filter ( fun assem -> not (Utils.IsNull assem ) )

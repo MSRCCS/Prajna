@@ -1483,9 +1483,9 @@ and
 
     /// Start connection to all peers
     member internal x.ConnectAll() = 
-        x.InitializeQueues()
         for peeri=0 to x.NumNodes-1 do
             x.QueueForWrite(peeri) |> ignore
+        x.InitializeQueues()
 
     /// Disconnect all peers. 
     member internal x.DisconnectAll() = 

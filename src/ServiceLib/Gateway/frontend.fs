@@ -41,6 +41,7 @@ open Prajna.Tools.StringTools
 open Prajna.Tools.FSharp
 open Prajna.Tools.Network
 open Prajna.Core
+open Prajna.Service
 open Prajna.Service.ServiceEndpoint
 
 open Prajna.Service.FSharp
@@ -97,101 +98,11 @@ type OwnershipTracking() =
 /// If customized performance tracking is required, please use this function to form a customized performance tracking class 
 type SinglePerformanceConstructFunction = Func<unit, SingleQueryPerformance>
 
+type BackEndPerformance = ServiceEndpointPerformance
 
 /// Construct a performance statistics for a backend node. 
 /// If customized performance tracking is required, please use this function to form a customized performance tracking class 
 type BackEndPerformanceConstructFunction = Func<unit, BackEndPerformance>
-
-/// <summary> 
-/// Backend performance tracking, if the programer intend to track more statistics, additional
-/// information may be included. 
-/// </summary>
-and BackEndPerformance(slot, del: SinglePerformanceConstructFunction) = 
-    inherit NetworkPerformance() 
-    let totalRequestRef = ref 0L
-    let completedReqRef = ref 0L
-    let failedReqRef = ref 0L
-    let outstandingRequestRef = ref 0
-    let mutable avgNetworkRtt=300
-    let mutable avgQueuePerSlot = 100
-    let mutable avgProcessing = 1000 
-    let mutable slotsOnBackend = 0
-    member val internal QueryPerformanceCollection = Array.zeroCreate<_> slot with get, set
-    /// Maximum number of request that can be served.
-    member val MaxSlots = 0 with get, set
-    /// Current number of request that is under service 
-    member val Curslots = 0 with get, set
-    /// Number of completed queries 
-    member x.NumCompletedQuery with get() = (!completedReqRef)
-    /// Total number of queries issued 
-    member x.TotalQuery with get() = (!totalRequestRef)
-    /// Number of queries to be serviced. 
-    member x.OutstandingRequests with get() = (!outstandingRequestRef)
-    /// <summary>
-    /// If we send request to this Backend, the expected processing latency (in millisecond)
-    /// It is calculated by avgNetworkRtt + avgProcessing + ( avgQueuePerSlot * itemsInQueue )
-    /// </summary>
-    member val ExpectedLatencyInMS=100 with get, set
-    /// <summary> 
-    /// This function is called before each request is sent to backend for statistics 
-    /// </summary>
-    abstract RegisterRequest: unit -> unit
-    default x.RegisterRequest() = 
-        Interlocked.Increment( outstandingRequestRef ) |> ignore
-        x.ExpectedLatencyInMS <- avgNetworkRtt + avgProcessing * ( slotsOnBackend + Math.Max( !outstandingRequestRef, 0) )
-    /// Show the expected latency of the backend in string 
-    member x.ExpectedLatencyInfo() = 
-        sprintf "exp %dms=%d+%d*(%d+%d)"
-                    x.ExpectedLatencyInMS
-                    avgNetworkRtt avgProcessing 
-                    slotsOnBackend !outstandingRequestRef
-    /// Show the backend queue status in string 
-    member x.QueueInfo() = 
-        sprintf "total: %d completed:%d, outstanding: %d, failed:%d" !totalRequestRef !completedReqRef !outstandingRequestRef (!failedReqRef)
-    /// <summary> 
-    /// This function is called whenever a reply is received. For error/timeout, put a non-empty message in perfQ.Message, and call this function. 
-    /// If perQ.Message is not null, the execution fails. 
-    /// </summary> 
-    abstract DepositReply: SingleQueryPerformance -> unit
-    default x.DepositReply( perfQ ) = 
-        Interlocked.Increment( totalRequestRef ) |> ignore
-        Interlocked.Decrement( outstandingRequestRef ) |> ignore
-        if Utils.IsNull perfQ.Message then 
-            let items = Interlocked.Increment( completedReqRef ) 
-            let idx = int (( items - 1L ) % int64 x.QueryPerformanceCollection.Length)
-            x.QueryPerformanceCollection.[idx] <- perfQ
-            // Calculate statistics of performance
-            let mutable sumNetwork = 0
-            let mutable sumQueue = 0 
-            let mutable sumProcessing = 0 
-            let mutable sumQueueSlots = 0 
-            let maxItems = int (Math.Min( items, x.QueryPerformanceCollection.LongLength ) )
-            for i = 0 to maxItems - 1 do 
-                let pQ = x.QueryPerformanceCollection.[i]
-                sumNetwork <- sumNetwork + pQ.InNetwork
-                sumQueue <- sumQueue + pQ.InQueue
-                sumProcessing <- sumProcessing + pQ.InProcessing
-                sumQueueSlots <- sumQueueSlots + Math.Min( 0, pQ.NumItemsInQueue - pQ.NumSlotsAvailable ) 
-            avgNetworkRtt <- sumNetwork / maxItems
-            avgProcessing <- sumProcessing / maxItems
-            avgQueuePerSlot <- sumQueue / Math.Max( sumQueueSlots, 1) // Queue is usually proportional to the # of items in queue. 
-            x.MaxSlots <- Math.Max( x.MaxSlots, perfQ.NumSlotsAvailable ) 
-            x.Curslots <- perfQ.NumSlotsAvailable - perfQ.NumItemsInQueue - !outstandingRequestRef 
-            slotsOnBackend <- Math.Min( 0, perfQ.NumItemsInQueue - perfQ.NumSlotsAvailable ) 
-            x.ExpectedLatencyInMS <- avgNetworkRtt + avgProcessing + avgQueuePerSlot * ( slotsOnBackend + Math.Min( !outstandingRequestRef, 0) )
-        else
-            Interlocked.Increment( failedReqRef ) |> ignore 
-    
-    /// <summary> 
-    /// Override this function or the ConstructionDelegate if you need a customized SingleQueryPerformance
-    /// </summary>
-    member x.ConstructSingleQueryPerformance() = 
-        del.Invoke()
-    static member internal DefaultConstructionDelegate() = 
-        BackEndPerformanceConstructFunction( 
-            fun _ -> BackEndPerformance( NetworkPerformance.RTTSamples, 
-                                            SinglePerformanceConstructFunction( fun _ -> SingleQueryPerformance()) ) )
-
    
 /// Function to be executed when the frontend starts 
 type FrontEndOnStartFunction<'StartParamType> = Func< 'StartParamType, bool>
@@ -415,7 +326,7 @@ type FrontEndInstance< 'StartParamType
 
     /// <summary> performance tracking for a single backend. If you need to develop additional tracking metrics, override this delegate.
     /// </summary>
-    member val BackEndPerformanceConstructionDelegate = BackEndPerformance.DefaultConstructionDelegate() with get, set
+    member val BackEndPerformanceConstructionDelegate = BackEndPerformance.ConstructFunc with get, set
     /// Constant string for export/import contract to get the request statistics 
     static member val ContractNameFrontEndRequestStatistics = "FrontEndRequestStatistics" with get
 
@@ -579,7 +490,7 @@ type FrontEndInstance< 'StartParamType
                 null
         )
         let remoteSignature = queue.RemoteEndPointSignature
-        x.BackEndHealth.GetOrAdd( remoteSignature, fun _ -> x.BackEndPerformanceConstructionDelegate.Invoke() ) |> ignore
+        x.BackEndHealth.GetOrAdd( remoteSignature, fun _ -> x.BackEndPerformanceConstructionDelegate() ) |> ignore
         queue.OnDisconnect.Add( new UnitAction(x.CloseQueue( remoteSignature )) )
         queue.GetOrAddRecvProc( "ParseBackEnd", procItem ) |> ignore
         queue.Initialize()
@@ -657,7 +568,7 @@ type FrontEndInstance< 'StartParamType
         if not x.bTerminate then 
             try
                 let remoteSignature = queue.RemoteEndPointSignature
-                let health = x.BackEndHealth.GetOrAdd( remoteSignature, fun _ -> x.BackEndPerformanceConstructionDelegate.Invoke() )
+                let health = x.BackEndHealth.GetOrAdd( remoteSignature, fun _ -> x.BackEndPerformanceConstructionDelegate() )
                 health.ReadHeader( ms ) 
                 match cmd.Verb, cmd.Noun with 
                 | ControllerVerb.Unknown, _ ->

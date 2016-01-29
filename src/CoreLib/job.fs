@@ -2178,7 +2178,7 @@ and
 //
 //                        if Utils.IsNotNull queue then 
                             // queue shutdown marked 
-                            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Peer %d is considered as failed without JobInfo filled as it is %s" peeri (if Utils.IsNull queue then "unconnected" else "shutdown") ))
+                            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "Peer %d is considered as failed without JobInfo filled as it is %s" peeri (if Utils.IsNull queue then "unconnected" else "shutdown") ))
                             clusterJobInfo.NodesInfo.[peeri] <- null
                 clusterJobInfo.bValidMetadata <- bClusterJobInfoAvailable
                 if bClusterJobInfoAvailable then 
@@ -2646,8 +2646,13 @@ and
                 Logger.LogF( jobID, LogLevel.MildVerbose, ( fun _ -> sprintf "[May be OK] Job.JobCallback, Received command %A, payload of %dB, but job has already been closed/cancelled. Message will be discarded. " 
                                                                                 cmd ms.Length ) )
             else
-
-                let queue = cluster.Queue(inClusterPeeri)
+              let queue = if Utils.IsNotNull cluster then cluster.Queue(inClusterPeeri) else null 
+              if Utils.IsNull queue then 
+                let msg = sprintf "Fails to resolve the queue in JobCallback, cmd %A, %s:%d, inClusterPeeri: %d from cluster %A" 
+                                    cmd name verNumber inClusterPeeri cluster
+                let ex = System.NullReferenceException( msg )                                     
+                jobAction.EncounterExceptionAtCallback( ex, "___ Job.JobCallback (throw) ___" )                
+              else
                 try
                     ms.Info <- ms.Info + ":Job:" + x.Name
                     let peeri = x.OutgoingQueuesToPeerNumber.Item(queue)
@@ -2758,9 +2763,11 @@ and
                         jobAction.ThrowExceptionAtCallback( msg )
                 with 
                 | ex ->
+                    cluster.BeginCommunication()
                     let msg = sprintf "Exception in JobCallback, cmd %A, %s:%d, %A, inClusterPeeri: %d, resolve queue(PeerIndexFromEndpoint): %s, forward queue (Queue): %s" cmd name verNumber ex inClusterPeeri 
-                                        ( cluster.PeerIndexFromEndpoint |> Seq.map ( fun pair -> LocalDNS.GetShowInfo( pair.Key) + ":" + pair.Value.ToString() ) |> String.concat( "," ) )
-                                        ( cluster.Queues |> Array.mapi ( fun i queue -> i.ToString() + ":" + LocalDNS.GetShowInfo( queue.RemoteEndPoint)) |> String.concat ("," ) ) 
+                                        ( cluster.PeerIndexFromEndpoint |> Seq.map ( fun pair -> LocalDNS.GetHostInfoInt64( pair.Key) + ":" + pair.Value.ToString() ) |> String.concat( "," ) )
+                                        ( cluster.Queues |> Array.mapi ( fun i queue -> if Utils.IsNull queue then "<null>" else i.ToString() + ":" + LocalDNS.GetShowInfo( queue.RemoteEndPoint)) |> String.concat ("," ) ) 
+                    ex.Data.Add("__ First information ___", msg)
                     jobAction.EncounterExceptionAtCallback( ex, "___ Job.JobCallback (throw) ___" )
             true
         )

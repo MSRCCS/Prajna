@@ -136,7 +136,7 @@ type [<AllowNullLiteral>] NetworkCommand() =
 
 /// Statistics of network performance
 /// Used by distributed functions
-type internal NetworkPerformance() = 
+type NetworkPerformance() = 
     let startTime = (PerfADateTime.UtcNow())
     /// Number of Rtt samples to statistics
     static member val RTTSamples = 32 with get, set
@@ -196,7 +196,7 @@ type internal NetworkPerformance() =
     /// The ticks that the connection is initialized. 
     member x.StartTime with get() = startTime
     /// Wrap header for RTT estimation 
-    member x.WriteHeader( ms: Stream) = 
+    member internal x.WriteHeader( ms: Stream) = 
         let diff = x.TickDiffsInReceive
         ms.WriteInt64( diff )
         let curTicks = (PerfADateTime.UtcNowTicks())
@@ -204,16 +204,16 @@ type internal NetworkPerformance() =
         Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "to send packet, diff = %d" 
                                                                    diff ))
     /// Validate header for RTT estimation 
-    member x.ReadHeader( ms: Stream ) = 
+    member internal x.ReadHeader( ms: Stream ) = 
         let tickDIffsInReceive = ms.ReadInt64( ) 
         let sendTicks = ms.ReadInt64()
         x.PacketReport( tickDIffsInReceive, sendTicks )
     /// Write end marker 
-    member x.WriteEndMark( ms: Stream ) = 
+    member internal x.WriteEndMark( ms: Stream ) = 
         ms.WriteGuid( NetworkPerformance.BlobIntegrityGuid )
         x.SendPacket()
     /// Validate end marker
-    member x.ReadEndMark( ms: Stream ) = 
+    member internal x.ReadEndMark( ms: Stream ) = 
         let guid = ms.ReadGuid()
         guid = NetworkPerformance.BlobIntegrityGuid
 
@@ -1872,7 +1872,7 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             MemoryStreamB.InitMemStack(DeploymentSettings.InitBufferListNumBuffers, DeploymentSettings.BufferListBufferSize)
             // start the monitoring
             x.StartMonitor() 
-    )
+            ) with get
 
     /// Initialize the object
     member x.Initialize( ) = 

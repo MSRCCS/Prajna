@@ -155,6 +155,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSharpTests", "tests\CSharp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DistributedSGD", "samples\DistributedSGD\DistributedSGD.csproj", "{FD1F8CB8-3C64-4BF2-8F5B-9CE2B2F91035}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Visual.Data", "src\ServiceLib\Visual.Data\Visual.Data.csproj", "{30533B3C-1FE4-4161-95B7-26945778BF71}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -601,6 +603,18 @@ Global
 		{FD1F8CB8-3C64-4BF2-8F5B-9CE2B2F91035}.Release|Win32.ActiveCfg = Release|x64
 		{FD1F8CB8-3C64-4BF2-8F5B-9CE2B2F91035}.Release|x64.ActiveCfg = Release|x64
 		{FD1F8CB8-3C64-4BF2-8F5B-9CE2B2F91035}.Release|x64.Build.0 = Release|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Debug|Mixed Platforms.ActiveCfg = Debug|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Debug|Mixed Platforms.Build.0 = Debug|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Debug|Win32.ActiveCfg = Debug|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Debug|x64.ActiveCfg = Debug|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Debug|x64.Build.0 = Debug|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|Any CPU.ActiveCfg = Release|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|Mixed Platforms.ActiveCfg = Release|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|Mixed Platforms.Build.0 = Release|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|Win32.ActiveCfg = Release|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|x64.ActiveCfg = Release|x64
+		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -656,5 +670,6 @@ Global
 		{9DDC2A59-C4D8-4DDE-B82E-A37DF325F109} = {9AC1211D-ED52-415B-ABD1-B28390DB0BCC}
 		{6797EE77-90E4-4719-BC81-F3FA2840CA9A} = {ED8079DD-2B06-4030-9F0F-DC548F98E1C4}
 		{FD1F8CB8-3C64-4BF2-8F5B-9CE2B2F91035} = {9AC1211D-ED52-415B-ABD1-B28390DB0BCC}
+		{30533B3C-1FE4-4161-95B7-26945778BF71} = {B6B1E5E2-9BE5-4542-92C5-E85DE984C7D6}
 	EndGlobalSection
 EndGlobal

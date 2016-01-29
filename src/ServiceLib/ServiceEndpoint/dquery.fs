@@ -28,12 +28,12 @@
         The service library targets web/image/video/audio developer. 
 
     Author:																	
-        Jin Li, Principal Researcher
+        Jin Li, Partner Research Manager
         Microsoft Research, One Microsoft Way
         Email: jinl at microsoft dot com
     Date:
         Jan. 2015
-    
+        Revised Jan. 2016
  ---------------------------------------------------------------------------*)
 namespace Prajna.Service.ServiceEndpoint
 
@@ -45,95 +45,7 @@ open Prajna.Tools
 open Prajna.Tools.StringTools
 open Prajna.Tools.FSharp
 
-/// <summary>
-/// Network Performance statistics of Request
-/// </summary>
-[<AllowNullLiteral>]
-type NetworkPerformance() = 
-    let startTime = (PerfADateTime.UtcNow())
-    /// <summary> Number of Rtt samples to statistics </summary>
-    static member val RTTSamples = 32 with get, set
-    /// <summary> Threshold above which the RTT value is deemed unreliable, and will not be used </summary>
-    static member val RTTFilterThreshold = 100000. with get, set
-    // Guid written at the end to make sure that the entire blob is currently formatted 
-    static member val internal BlobIntegrityGuid = System.Guid("D1742033-5D26-4982-8459-3617C2FF13C4") with get
-    member val internal RttArray = Array.zeroCreate<_> NetworkPerformance.RTTSamples with get
-    /// Filter out 1st RTT value, as it contains initialization cost, which is not part of network RTT
-    member val internal RttCount = ref -2L with get
-    /// Last RTT from the remote node. 
-    member val LastRtt = 0. with get, set
-    member val internal nInitialized = ref 0 with get
-    /// Last ticks that the content is sent from this queue
-    member val LastSendTicks = DateTime.MinValue with get, set
-    member val internal LastRcvdSendTicks = 0L with get, set
-    member val internal TickDiffsInReceive = 0L with get, set
-    member internal x.RTT with get() = 0
-    member internal x.FirstTime() = 
-        Interlocked.CompareExchange( x.nInitialized, 1, 0 ) = 0
-    member internal x.PacketReport( tickDIffsInReceive:int64, sendTicks ) = 
-        x.LastRcvdSendTicks <- sendTicks
-        let ticksCur = (PerfADateTime.UtcNowTicks())
-        x.TickDiffsInReceive <- ticksCur - sendTicks
-        if tickDIffsInReceive<>0L then 
-            // Valid ticks 
-            let rttTicks = ticksCur - sendTicks + tickDIffsInReceive
-            let rtt = TimeSpan( rttTicks ).TotalMilliseconds
-            Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "Packet Received, send = %s, diff = %d, diffrcvd: %d"                                                                         
-                                                                       (VersionToString(DateTime(sendTicks)))
-                                                                       x.TickDiffsInReceive
-                                                                       tickDIffsInReceive ) )
-            if rtt >= 0. && rtt < NetworkPerformance.RTTFilterThreshold then 
-                x.LastRtt <- rtt
-                let idx = int (Interlocked.Increment( x.RttCount ))
-                if idx >= 0 then 
-                    x.RttArray.[idx % NetworkPerformance.RTTSamples ] <- rtt
-            else
-                Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "receive packet with unreasonable rtt of %f ms, cur %d, send %d, diff %d thrown away..."
-                                                                rtt 
-                                                                ticksCur sendTicks tickDIffsInReceive ) )
-        else
-            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "receive packet, unable to calculate RTT as TicksDiff is 0, send = %s, diff = %d" 
-                                                                       (VersionToString(DateTime(sendTicks)))
-                                                                       x.TickDiffsInReceive
-                                                                        ) )
-    /// Whether connection receives some valid data
-    member x.ConnectionReady() = 
-        (!x.RttCount)>=0L
-    /// Get the RTT of the connection
-    member x.GetRtt() = 
-        let sumRtt = Array.sum x.RttArray
-        let numRtt = Math.Min( (!x.RttCount)+1L, int64 NetworkPerformance.RTTSamples )
-        if numRtt<=0L then 
-            1000.
-        else
-            sumRtt / float numRtt
-    member internal x.SendPacket() = 
-        x.LastSendTicks <- (PerfADateTime.UtcNow())
-    /// The ticks that the connection is initialized. 
-    member x.StartTime with get() = startTime
-    /// Wrap header for RTT estimation 
-    member x.WriteHeader( ms: StreamBase<byte> ) = 
-        let diff = x.TickDiffsInReceive
-        ms.WriteInt64( diff )
-        let curTicks = (PerfADateTime.UtcNowTicks())
-        ms.WriteInt64( curTicks )
-        Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "to send packet, diff = %d" 
-                                                                   diff ))
-    /// Validate header for RTT estimation 
-    member x.ReadHeader( ms: StreamBase<byte> ) = 
-        let tickDIffsInReceive = ms.ReadInt64( ) 
-        let sendTicks = ms.ReadInt64()
-        x.PacketReport( tickDIffsInReceive, sendTicks )
-    /// Write end marker 
-    member x.WriteEndMark( ms: StreamBase<byte> ) = 
-        ms.WriteBytes( NetworkPerformance.BlobIntegrityGuid.ToByteArray() )
-        x.SendPacket()
-    /// Validate end marker
-    member x.ReadEndMark( ms: StreamBase<byte>) = 
-        let data = Array.zeroCreate<_> 16
-        ms.ReadBytes( data ) |> ignore
-        let guid = Guid( data )
-        guid = NetworkPerformance.BlobIntegrityGuid
+type NetworkPerformance = Prajna.Core.NetworkPerformance
 
 /// <summary>
 /// QueryPerformance provides a performance statistics instance for the underlying operation. 
@@ -185,48 +97,7 @@ type QueryPerformance(info: unit -> string) =
 /// <summary>
 /// SingleQueryPerformance gives out the performance of a single query. 
 /// </summary>
-[<AllowNullLiteral; Serializable>]
-type SingleQueryPerformance() = 
-    /// Time spent in assignment stage, before the request is queued to network 
-    member val InAssignment = 0 with get, set
-    /// Time spent in network (including network stack)
-    member val InNetwork = 0 with get, set
-    /// Time spent in queue of the query engine 
-    member val InQueue = 0 with get, set
-    /// Time spent in processing 
-    member val InProcessing = 0 with get, set
-    /// Number of Pending request in queue
-    member val NumItemsInQueue = 0 with get, set
-    /// Number of Slots Available
-    member val NumSlotsAvailable = 0 with get, set
-
-    /// Additional Message
-    member val Message : string = null with get, set
-    /// Serialize SingleQueryPerformance
-    static member Pack( x:SingleQueryPerformance, ms:StreamBase<byte> ) = 
-        let inQueue = if x.InQueue < 0 then 0 else if x.InQueue > 65535 then 65535 else x.InQueue
-        let inProc = if x.InProcessing < 0 then 0 else if x.InProcessing > 65535 then 65535 else x.InProcessing
-        ms.WriteUInt16( uint16 inQueue )
-        ms.WriteUInt16( uint16 inProc )
-        ms.WriteVInt32( x.NumItemsInQueue )
-        ms.WriteVInt32( x.NumSlotsAvailable )
-    /// Deserialize SingleQueryPerformance
-    static member Unpack( ms:StreamBase<byte> ) = 
-        let inQueue = int (ms.ReadUInt16())
-        let inProcessing = int (ms.ReadUInt16())
-        let numItems = ms.ReadVInt32()
-        let numSlots = ms.ReadVInt32()
-        SingleQueryPerformance( InQueue = inQueue, InProcessing = inProcessing, 
-                                NumItemsInQueue = numItems, NumSlotsAvailable=numSlots )
-    /// Show string that can be used to monitor backend performance 
-    abstract BackEndInfo: unit -> string
-    override x.BackEndInfo() = 
-        sprintf "queue: %dms, proc: %dms, items: %d, slot: %d" x.InQueue x.InProcessing x.NumItemsInQueue x.NumSlotsAvailable
-    /// Show string that can be used to monitor frontend performance 
-    abstract FrontEndInfo: unit -> string
-    override x.FrontEndInfo() = 
-        sprintf "assign: %dms, network %dms, queue: %dms, proc: %dms, items: %d, slot: %d" x.InAssignment x.InNetwork x.InQueue x.InProcessing x.NumItemsInQueue x.NumSlotsAvailable
-        
+type SingleQueryPerformance = Prajna.Service.SingleRequestPerformance
 
 
 

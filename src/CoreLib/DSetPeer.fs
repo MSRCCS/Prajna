@@ -1187,8 +1187,17 @@ and [<AllowNullLiteral>]
             |> Seq.toArray
         if metaLst.Length>0 then 
             let useMetaName, _, _ = metaLst.[metaLst.Length-1]
-            let stream = provider.Open( path, useMetaName )
-            DSetPeer.ReadFromMetaData( stream, null, jobID )
+            /// Sometime, the file open operation fails in UnitTest as another process still 
+            /// holds on to the file handle. The current process needs to back off 
+            try 
+                let stream = provider.Open( path, useMetaName )
+                DSetPeer.ReadFromMetaData( stream, null, jobID )
+            with 
+            | ex -> 
+                // Back off and retry 
+                Thread.Sleep( 10 )
+                let stream = provider.Open( path, useMetaName )
+                DSetPeer.ReadFromMetaData( stream, null, jobID )
         else
             ( None, ClientBlockingOn.DSet, null )
 

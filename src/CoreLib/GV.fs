@@ -345,7 +345,7 @@ and /// Information of Within Job cluster information.
                                 | _ -> 
                                     Logger.Fail( sprintf "ClusterJobInfo.QueueForWriteBetweenContainer, in cluster %s:%s, unknown node type %A for peer %d to connect to" 
                                                     x.LinkedCluster.Name x.LinkedCluster.VersionString ndInfo.NodeType peeri )
-                            x.LinkedCluster.PeerIndexFromEndpoint.[queue.RemoteEndPoint] <- peeri
+                            x.LinkedCluster.PeerIndexFromEndpoint.[queue.RemoteEndPointSignature] <- peeri
                             queue.GetOrAddRecvProc ("ClusterParseHost", Cluster.ParseHostCommand queue peeri) |> ignore
                             // even though queue has not yet been "connected", ToSend still works as it only queues data
                             use ms = new MemStream(1024)

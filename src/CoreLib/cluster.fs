@@ -700,7 +700,7 @@ and
  /// which remote nodes that services, contracts and data analytical jobs are running upon. 
  /// </summary> 
  [<AllowNullLiteral>]
- Cluster private ( ) =
+ Cluster private ( ) as thisInstance =
     // regular expression to match "local[n]" specification for local cluster
     let localNRegex = Regex("^local\[([1-9][0-9]*|)\]$", RegexOptions.Compiled ||| RegexOptions.CultureInvariant)
     let defaultLocalClusterVersion = DateTime.MinValue
@@ -711,7 +711,7 @@ and
 //    let clusterUpdateTimer = Timer( ClusterInfo.PeriodicClusterUpdate, 
 //                                        clusterStatus, Timeout.Infinite, Timeout.Infinite)
     let mutable expectedClusterSize = 0 
-    let mutable queues = Array.zeroCreate<NetworkCommandQueue> 0
+    let mutable queues : NetworkCommandQueue[] = null
     let mutable bFailedMsgShown = Array.create 0 false 
     // clock for communication 
     let clock = System.Diagnostics.Stopwatch.StartNew()
@@ -770,7 +770,7 @@ and
                                           config.PortsRange)
 
     member val internal MsgToHost=List<(ControllerCommand*MemStream)>() with get
-    member val internal PeerIndexFromEndpoint : ConcurrentDictionary<EndPoint, int> = ConcurrentDictionary<_,_>() with get
+    member val internal PeerIndexFromEndpoint : ConcurrentDictionary<int64, int> = ConcurrentDictionary<_,_>() with get
     member internal x.Queues with get() = queues
                              and set( q ) = queues <- q
     member val internal QueuesInitialized = 0 with get, set
@@ -973,67 +973,14 @@ and
             Cluster.Current <- Some cl
 
 
-    member private x.SearchForEndPointOld( queue: NetworkCommandQueue ) = 
-        if Utils.IsNull bMapped then 
-            bMapped <- Array.create x.NumNodes false
-        // Use forward mapping if that is available. 
-        if Utils.IsNotNull x.Queues then 
-            for i=0 to bMapped.Length-1 do 
-                if not bMapped.[i] then 
-                    let queuePeer = x.Queues.[i]
-                    if (Utils.IsNotNull queuePeer) && (Utils.IsNotNull queuePeer.RemoteEndPoint) then 
-                        match queuePeer.RemoteEndPoint with 
-                        | :? IPEndPoint as ep ->
-                            endpointToPeer.Item( ep ) <- i
-                            bMapped.[i] <- true
-                        | _ -> 
-                            ()
-        match queue.Socket.RemoteEndPoint with 
-        | :? IPEndPoint as ep ->
-            let refValue = ref Unchecked.defaultof<_>
-            if endpointToPeer.TryGetValue( ep, refValue ) then 
-                !refValue
-            else
-                // JinL: 12/31/2014, ideally, the function should write as a GetOrAdd, however, a remote end point will only map to one peer index. 
-                //       Since we don't expect conflict update, we will leave the code as is. 
-                // Sanjeevm: 02/25/2014
-                //printfn "DNS Address %A" ep.Address
-                try
-                    let hostEntry = Dns.GetHostEntry( ep.Address )
-                    let hostName = hostEntry.HostName
-                    let mutable idxPeer = -1
-                    let nodes = x.Nodes
-                    for i = 0 to x.NumNodes-1 do 
-                        if hostName.IndexOf( nodes.[i].MachineName, StringComparison.OrdinalIgnoreCase )>=0  then 
-                            idxPeer <- i    
-                    endpointToPeer.Item( ep ) <- idxPeer
-                    idxPeer
-                with e ->
-                    let mutable idxPeer = -1
-                    let nodes = x.Nodes
-                    let eaddr = ep.Address.GetAddressBytes()
-                    for i = 0 to x.NumNodes-1 do
-//                        if ep.Address.ToString().ToLower().Equals(nodes.[i].ExternalIPAddress.ToLower()) then
-//                            idxPeer <- i
-//                        if ep.Address.ToString().ToLower().Equals(nodes.[i].InternalIPAddress.ToLower()) then
-//                            idxPeer <- i
-                        if Utils.IsNotNull nodes.[i].InternalIPAddress then
-                            for cmpAddr in nodes.[i].InternalIPAddress do
-                                if System.Linq.Enumerable.SequenceEqual( eaddr, cmpAddr ) then 
-                                    idxPeer <- i
-                        if Utils.IsNotNull nodes.[i].ExternalIPAddress then
-                            for cmpAddr in nodes.[i].ExternalIPAddress do
-                                if System.Linq.Enumerable.SequenceEqual( eaddr, cmpAddr ) then 
-                                    idxPeer <- i
-                    endpointToPeer.Item( ep ) <- idxPeer
-                    idxPeer
-        | _ ->
-            -1
     member private x.SearchForEndPointInternal( ep:IPEndPoint ) = 
-        if Utils.IsNull bMapped then 
-            bMapped <- Array.create x.NumNodes false
+            // bMapped will not be null at this point. 
         // Use forward mapping if that is available. 
         if Utils.IsNotNull x.Queues then 
+            if Utils.IsNull bMapped then 
+                // Make sure bMapped is not null 
+                while Utils.IsNull bMapped do 
+                    Interlocked.CompareExchange( &bMapped, Array.create x.NumNodes false, null ) |> ignore 
             for i=0 to bMapped.Length-1 do 
                 if not bMapped.[i] then 
                     let queuePeer = x.Queues.[i]
@@ -1052,16 +999,23 @@ and
             //       Since we don't expect conflict update, we will leave the code as is. 
             // Sanjeevm: 02/25/2014
             //printfn "DNS Address %A" ep.Address
+            let mutable nMatches = 0 
+            let mutable idxPeer = -1
             try
                 let hostName = LocalDNS.GetHostByAddress( ep.Address.GetAddressBytes() )
-                let mutable idxPeer = -1
                 let nodes = x.Nodes
                 for i = 0 to x.NumNodes-1 do 
-                    if hostName.IndexOf( nodes.[i].MachineName, StringComparison.OrdinalIgnoreCase )>=0  then 
+                    if hostName.IndexOf( nodes.[i].MachineName, StringComparison.OrdinalIgnoreCase )>=0 then 
                         idxPeer <- i    
+                        nMatches <- nMatches + 1
+            with e ->
+                nMatches <- 2
+
+            if nMatches = 1 then 
                 endpointToPeer.Item( ep ) <- idxPeer
                 idxPeer
-            with e ->
+            else
+                nMatches <- 0 
                 let mutable idxPeer = -1
                 let nodes = x.Nodes
                 let eaddr = ep.Address.GetAddressBytes()
@@ -1070,10 +1024,15 @@ and
                         for cmpAddr in nodes.[i].InternalIPAddress do
                             if System.Linq.Enumerable.SequenceEqual( eaddr, cmpAddr ) then 
                                 idxPeer <- i
+                                nMatches <- nMatches + 1
                     if Utils.IsNotNull nodes.[i].ExternalIPAddress then
                         for cmpAddr in nodes.[i].ExternalIPAddress do
                             if System.Linq.Enumerable.SequenceEqual( eaddr, cmpAddr ) then 
                                 idxPeer <- i
+                                nMatches <- nMatches + 1
+                if nMatches <> 1 then 
+                    // If we can't determine the peer, we will use -1
+                    idxPeer <- -1    
                 endpointToPeer.Item( ep ) <- idxPeer
                 idxPeer
 
@@ -1213,32 +1172,36 @@ and
     override x.GetHashCode() =
         hash( x.ClusterInfo )
 
-    member private x.CommunicationInited = lazy(
-        if Utils.IsNotNull x.Nodes then 
-            x.Queues <- Array.create<NetworkCommandQueue> x.NumNodes null
-            bFailedMsgShown <- Array.create x.NumNodes false
-        if Utils.IsNull bFailedMsgShown || bFailedMsgShown.Length <> x.NumNodes then
-            failwith(sprintf "Failed to begin communication for cluster %s:%s" x.Name (VersionToString(x.Version)))
-        x.ClusterMode <- ClusterMode.Connected
-    )
-
+    member val private CommunicationInited = lazy( 
+            if Utils.IsNotNull thisInstance.Nodes then 
+                thisInstance.Queues <- Array.create<NetworkCommandQueue> thisInstance.NumNodes null
+                bFailedMsgShown <- Array.create thisInstance.NumNodes false
+            if Utils.IsNull bFailedMsgShown || bFailedMsgShown.Length <> thisInstance.NumNodes then
+                failwith(sprintf "Failed to begin communication for cluster %s:%s" thisInstance.Name (VersionToString(thisInstance.Version)))
+            thisInstance.ClusterMode <- ClusterMode.Connected
+            Object()
+            ) with get
     /// BeginCommunication: always called to ensure proper initialization of cluster structure
     member internal x.BeginCommunication() = 
-        x.CommunicationInited.Force() |> ignore
+        let a = x.CommunicationInited.Value
+        ()
 
-    member internal x.QueueForWrite( peeri ) =
+    member internal x.QueueForWrite( peeri ) : NetworkCommandQueue =
+        x.BeginCommunication()
         try 
-            let queue = ref x.Queues.[peeri]
-            if Utils.IsNull !queue then
+            let queue = x.Queues.[peeri]
+            if Utils.IsNull queue then
                 x.Queues.[peeri] <- 
                     NodeConnectionFactory.Current.DaemonConnect( x.Nodes.[peeri].MachineName, x.Nodes.[peeri].MachinePort, 
                         (fun queue -> Cluster.ParseHostCommand queue peeri), 
-                        (fun _ -> x.Queues.[peeri] <- null) )
-                x.PeerIndexFromEndpoint.[x.Queues.[peeri].RemoteEndPoint] <- peeri
-                queue := x.Queues.[peeri]
+                        (fun _ -> Logger.LogF (LogLevel.MildVerbose, fun _ -> sprintf "Queue %d of cluster %A disconnects ... " peeri x)
+                                  x.Queues.[peeri] <- null) )
+                x.PeerIndexFromEndpoint.[x.Queues.[peeri].RemoteEndPointSignature] <- peeri
                 // Read some receiving command to unblock
                 Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Attempt to connect to %s:%d as peer %d" x.Nodes.[peeri].MachineName x.Nodes.[peeri].MachinePort peeri ))
-            !queue
+                x.Queues.[peeri]
+            else
+                queue
         with 
         | e -> 
             let msg = sprintf "Cluster.QueueForWrite, exception %A" e
@@ -1438,8 +1401,14 @@ and
                             Logger.LogF( !jobIDRef, LogLevel.ExtremeVerbose, (fun _ -> sprintf "(OK, job may be cancelled) Receive cmd %A from peer %d with payload of %dB, but there is no parsing logic!" 
                                                                                                     cmd i (ms.Length) ))
                         if Utils.IsNotNull cb then 
-                            let peerIndex = x.PeerIndexFromEndpoint.[q.RemoteEndPoint]
-                            bNotBlocked <- cb.Callback( cmd, peerIndex, ms, !jobIDRef, name, ver, x )
+                            if Utils.IsNotNull x then 
+                                let bExist, peerIndex = x.PeerIndexFromEndpoint.TryGetValue(q.RemoteEndPointSignature)
+                                if bExist then 
+                                    bNotBlocked <- cb.Callback( cmd, peerIndex, ms, !jobIDRef, name, ver, x )
+                                else
+                                    bNotBlocked <- cb.Callback( cmd, -1, ms, !jobIDRef, name, ver, x )
+                            else
+                                bNotBlocked <- cb.Callback( cmd, -1, ms, !jobIDRef, name, ver, null )
                         else 
                             let bExist, staticCommandCallback = staticCallback.TryGetValue( cmd )
                             if bExist then 
@@ -1508,13 +1477,13 @@ and
 
             q.GetPendingCommandEventIfNeeded()
 
-    member private x.QueuesInitFunc = lazy(
-        for peeri=0 to x.NumNodes-1 do
-            let queue = x.QueueForWrite(peeri)
+    member val private QueuesInitFunc = lazy(
+        for peeri=0 to thisInstance.NumNodes-1 do
+            let queue = thisInstance.QueueForWrite(peeri)
             if Utils.IsNotNull queue then
                 queue.Initialize()
-        x.QueuesInitialized = 1
-    )
+        thisInstance.QueuesInitialized = 1
+        ) with get
 
     /// Initialize write queues
     member internal x.InitializeQueues() =

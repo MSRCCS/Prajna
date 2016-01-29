@@ -1574,6 +1574,9 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional argument - unused for now</param>
     member x.ToForward( endPoint:IPEndPoint, command:ControllerCommand, sendStream:StreamBase<byte>, ?bExpediateSend ) = 
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "To forward (wrapped packet) %A to %s" 
+                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                    )
         let bExpediate = defaultArg bExpediateSend false
         use forwardHeader = sendStream.GetNew()
         forwardHeader.WriteVInt32( 1 )
@@ -1589,6 +1592,9 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional argument - unused for now</param>
     member x.ToForward( endPoints:IPEndPoint[], command:ControllerCommand, sendStream:StreamBase<byte>, ?bExpediateSend ) = 
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "To forward (wrapped packet) %A to %s" 
+                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                    )
         let bExpediate = defaultArg bExpediateSend false
         use forwardHeader = sendStream.GetNew()
         forwardHeader.WriteVInt32( endPoints.Length )

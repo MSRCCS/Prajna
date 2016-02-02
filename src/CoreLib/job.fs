@@ -680,6 +680,8 @@ and
     member val RemoteMappingDirectory = "" with get, set
     /// Environment Variables for the job
     member val JobEnvVars = List<string*string>() with get
+    /// Configuration for the job 
+    member val JobConfiguration : string = null with get, set
     /// Assembly bindings for the job
     member val JobAsmBinding : AssemblyBinding option = None with get, set
     /// Start Blob Serial Number that will define this 
@@ -1296,6 +1298,9 @@ and
                 ms.WriteString(fst x.JobEnvVars.[vari])
                 ms.WriteString(snd x.JobEnvVars.[vari])
 
+            // Add Configruation 
+            ms.WriteString( x.JobConfiguration )
+
             // Add asm bindings
             x.JobAsmBinding |> ConfigurationUtils.PackAsmBinding ms
 
@@ -1496,6 +1501,9 @@ and
                 let result = ReplaceString value DeploymentSettings.EnvStringGetJobDirectory x.JobDirectory StringComparison.OrdinalIgnoreCase
                 Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Set Environment Variable %s to %s [(%s)]" envvar result value))
                 x.JobEnvVars.Add((envvar, result))
+
+            let configuration = ms.ReadString() 
+            x.JobConfiguration <- if StringTools.IsNullOrEmpty configuration then null else configuration
             
             x.JobAsmBinding <- ConfigurationUtils.UnpackAsmBinding ms
             
@@ -2067,6 +2075,8 @@ and
             x.JobEnvVars.Clear()
             for vari = 0 to curJob.EnvVars.Count-1 do
                 x.JobEnvVars.Add(curJob.EnvVars.[vari])
+
+            x.JobConfiguration <- ConfigurationUtils.GetConfigurationForCurrentExe()
 
             // Get the current exe's asm binding information
             x.JobAsmBinding <- ConfigurationUtils.GetAssemblyBindingsForCurrentExe()

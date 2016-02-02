@@ -185,6 +185,23 @@ module internal ConfigurationUtils =
          runtimeSection.SectionInformation.SetRawXml(runtimeElem.ToString())
          config.Save()
 
+    /// Get the content of the current configuration file 
+    let GetConfigurationForCurrentExe() = 
+        try
+            let config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None)
+            if Utils.IsNotNull config && not ( StringTools.IsNullOrEmpty config.FilePath) then 
+                let content = FileTools.ReadFromFile( config.FilePath )
+                Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Read the configuration for the current exe : %s (%d chars) " config.FilePath content.Length )
+                content
+            else
+                null 
+        with
+        | :? ConfigurationErrorsException as ex -> Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Fail to load the configuration for current exe due to an ConfigurationErrorsException : %A" ex)
+                                                   null
+        | ex -> Logger.LogF(LogLevel.Warning, fun _ -> sprintf "Fail to get/parse the configuration for current exe due to an unexpected exception: %A" ex)
+                null
+        
+
     /// Get the content of assemblyBinding (if any) from the current app's configuration
     let GetAssemblyBindingsForCurrentExe () = 
         try

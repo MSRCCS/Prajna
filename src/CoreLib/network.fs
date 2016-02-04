@@ -1141,7 +1141,7 @@ UnprocessedCmD:%d bytes Status:%A"
     abstract Close : unit -> unit
     default x.Close() =
         if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
-            Logger.LogStackTrace(LogLevel.MildVerbose)
+            // Logger.LogStackTrace(LogLevel.MildVerbose)
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo)
             // Calling system wide disconnect processor
             x.ProcessSystemwideDisconnectProcessor( )

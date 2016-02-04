@@ -157,6 +157,7 @@ module  FileTools =
             sb.AppendLine(sprintf "Failed to Create hard link %s <-- %s with exception %A" dstFileName existingFileName e ) |> ignore
             false, sb.ToString()
 
+    /// Copy file to a destination 
     let internal CopyFile dstFileName existingFileName = 
         let sb = StringBuilder()
         if File.Exists dstFileName then

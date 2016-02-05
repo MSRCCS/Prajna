@@ -932,16 +932,26 @@ type internal ClusterInfo( b:  ClusterInfoBase ) =
                 for i in 2..lines.Length do
                     // each line has the format  machine-name
                     let items = lines.[i - 1].Split([|','|])
-                    if items.Length <> 1 then
+                    if items.Length > 2 then
                         failwith (sprintf "Cluster list file has a invalid line (line %d): %s" i lines.[i - 1])
                     let machineName = items.[0]
+                    let machinePort = 
+                        if items.Length=2 then 
+                            let b, pt = Int32.TryParse( items.[1] ) 
+                            if b then 
+                                pt 
+                            else
+                                port
+                        else port
+                    
                     
                     // Generate machine id from machine name
-                    let ba = let arr = System.Text.Encoding.ASCII.GetBytes(machineName)
+                    let usename = machineName + ":" + port.ToString()
+                    let ba = let arr = System.Text.Encoding.ASCII.GetBytes(usename)
                              if arr.Length >= 8 then arr
                              else Array.zeroCreate<byte> 8 |> Array.mapi ( fun i v -> if i < arr.Length then arr.[i] else v )
                     let id = BitConverter.ToUInt64(ba, 0) 
-                    yield ClientInfo(ClientStatus(Name = machineName, InternalPort = port, MachineID = id))
+                    yield ClientInfo(ClientStatus(Name = machineName, InternalPort = machinePort, MachineID = id))
             |]
         ClusterInfo(ListOfClients = clients, Name = clusterName) |> Some, passwd
 

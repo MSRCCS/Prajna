@@ -104,12 +104,47 @@ module  FileTools =
 
     /// <summary>
     /// Create a file stream to read
+    /// Only when the file is still hold by another process, wait for a small file to try to read. 
     /// </summary>
     let CreateFileStreamForRead( fname ) = 
-        new FileStream( fname, FileMode.Open, FileAccess.Read, FileShare.Read, (1<<<20), FileOptions.SequentialScan )
+        let mutable nTry = 3 
+        let mutable ret = null 
+        while Utils.IsNull ret && nTry > 0 do 
+            try 
+                ret <- new FileStream( fname, FileMode.Open, FileAccess.Read, FileShare.Read, (1<<<20), FileOptions.SequentialScan )
+                if Utils.IsNull ret then 
+                    nTry <- 0 
+            with 
+            | :? System.IO.IOException as ex -> 
+                if ex.Message.IndexOf( "being used by another process") > 0 then 
+                    System.Threading.Thread.Sleep( 10 )
+                    nTry <- nTry - 1
+                else
+                    nTry <- 0 
+                    reraise()
+            | ex -> 
+                reraise()
+        ret
 
     let internal CreateFileStreamForReadWOBuffer( fname ) = 
-        new FileStream( fname, FileMode.Open, FileAccess.Read, FileShare.Read, 0, FileOptions.SequentialScan )
+        let mutable nTry = 3 
+        let mutable ret = null 
+        while Utils.IsNull ret && nTry > 0 do 
+            try 
+                ret <- new FileStream( fname, FileMode.Open, FileAccess.Read, FileShare.Read, 0, FileOptions.SequentialScan )
+                if Utils.IsNull ret then 
+                    nTry <- 0 
+            with 
+            | :? System.IO.IOException as ex -> 
+                if ex.Message.IndexOf( "being used by another process") > 0 then 
+                    System.Threading.Thread.Sleep( 10 )
+                    nTry <- nTry - 1
+                else
+                    nTry <- 0 
+                    reraise()
+            | ex -> 
+                reraise()
+        ret 
 
     let internal WriteBytesToFileP filename bytes offset len = 
         use fileStream = CreateFileStreamForWrite( filename )

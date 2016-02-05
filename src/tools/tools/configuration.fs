@@ -19,6 +19,10 @@
     Description: 
         Utilities for handling Application Configurations
 
+    Author:
+        Weirong Zhu, Jun. 2015
+        Jin Li, Feb. 2016
+
  ---------------------------------------------------------------------------*)
 namespace Prajna.Tools
 
@@ -184,6 +188,158 @@ module internal ConfigurationUtils =
          runtimeElem.Add(asmXml)
          runtimeSection.SectionInformation.SetRawXml(runtimeElem.ToString())
          config.Save()
+
+    let rec showConfigurationGroup (configGroup:ConfigurationSectionGroup, level:int ) = 
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "===== %s configuration group %s" (System.String(' ', level*2))
+                                                                configGroup.Name )
+        for groupSub in configGroup.SectionGroups do 
+            showConfigurationGroup( groupSub, level + 1 )    
+        for sectionSub in configGroup.Sections do 
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "===== %s section %A" (System.String(' ', level*2))
+                                                                     sectionSub )
+
+    let showConfiguration (config:Configuration) =
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "================= Configuration file %s =================="
+                                                                config.FilePath
+                            )
+        for group in config.SectionGroups do 
+            showConfigurationGroup( group, 1 )
+        for section in config.Sections do 
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Section %s: %A" section.SectionInformation.Name
+                                                                    section
+                                )
+            match section with 
+            | :? AppSettingsSection as appSection -> 
+                let sections = appSection.Settings
+                for key in sections.AllKeys do 
+                    let kv = sections.Item(key) 
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "AppSetting %s = %s" key kv.Value
+                                        )
+            | _ -> 
+                ()
+            
+        let settings = config.AppSettings.Settings
+        if settings.AllKeys.Length = 0 then 
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "App Setting is empty" )
+        else
+            for key in settings.AllKeys do 
+                let kv = settings.Item( key )
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "App Setting: Key %s = %s" kv.Key kv.Value )
+
+    /// Merge configuration of group
+    let rec CombineConfigurationGroup (groupDst: ConfigurationSectionGroup) (groupMerge: ConfigurationSectionGroup ) = 
+        for groupMergeSub in groupMerge.SectionGroups do 
+            let groupDstSub = groupDst.SectionGroups.Get( groupMergeSub.Name ) 
+            if Utils.IsNull groupDstSub then 
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Try to merge configuration %s onto empty destination" groupMergeSub.Name )
+                groupDst.SectionGroups.Add( groupMergeSub.Name, groupMergeSub )   
+            else
+                CombineConfigurationGroup groupDstSub groupMergeSub 
+        for sectionMergeSub in groupMerge.Sections do 
+            let mutable bExist = false
+            for sectionDstSub in groupDst.Sections do 
+                if sectionMergeSub.SectionInformation.Name = sectionDstSub.SectionInformation.Name then 
+                    bExist <- true
+                    match sectionMergeSub with 
+                    | :? AppSettingsSection as appSectionMerge -> 
+                        match sectionDstSub with 
+                        | :? AppSettingsSection as appSectionDst -> 
+                            let settingMerge = appSectionMerge.Settings
+                            let settingDst = appSectionDst.Settings
+                            for key in settingMerge.AllKeys do 
+                                let kv = settingMerge.Item(key)
+                                settingDst.Add( kv )
+//                                let kvDst = settingDst.Item( key )
+//                                if Utils.IsNull kvDst then 
+//                                    settingDst.Add( kv )
+//                                else
+//                                    settingDst.Remove( key )
+//                                    settingDst.Add( kv )
+                        | _ ->
+                            ()
+                    | _ -> 
+                        ()
+
+            if bExist then 
+                // Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Try to remove configuration section %s" sectionMergeSub.SectionInformation.Name )
+                // groupDst.Sections.Remove( sectionMergeSub.SectionInformation.Name )
+                ()
+            else
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Try to add configuration section %s" sectionMergeSub.SectionInformation.Name )
+                groupDst.Sections.Add( sectionMergeSub.SectionInformation.Name, sectionMergeSub )
+
+    /// Merge configuration
+    let CombineConfiguration (configDst: Configuration) (configMerge: Configuration ) = 
+        for groupMerge in configMerge.SectionGroups do 
+            let groupDst = configDst.GetSectionGroup( groupMerge.Name ) 
+            if Utils.IsNull groupDst then 
+                configDst.SectionGroups.Add( groupMerge.Name, groupMerge )
+            else
+                CombineConfigurationGroup groupDst groupMerge
+        for secMerge in configMerge.Sections do 
+            let secDst = configDst.GetSection( secMerge.SectionInformation.Name ) 
+            if Utils.IsNull secDst then 
+                configDst.Sections.Add( secMerge.SectionInformation.Name, secDst )
+            else
+                // Unable to combine sections
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Section %s already exist, unable to merge" secMerge.SectionInformation.Name)
+        let mergeSettings = configMerge.AppSettings.Settings
+        for key in mergeSettings.AllKeys do 
+            let kv = mergeSettings.Item( key )
+            configDst.AppSettings.Settings.Add( kv )   
+
+    /// OpenConfigurationFileAsXML
+    let OpenConfigurationFileAsXML (filename: string) = 
+        let fname = if filename.IndexOf(".config") > 0 then filename else Path.Combine( filename, ".config")
+        let doc = XDocument.Load( fname )
+        doc
+
+    let openConfigurationFile (filename: string) = 
+        let fileMap = ExeConfigurationFileMap (ExeConfigFilename  = filename)
+        ConfigurationManager.OpenMappedExeConfiguration( fileMap, ConfigurationUserLevel.None )
+
+    /// Merge configuration files
+    let CombineConfigurationFile (fileDst: string) ( fileMerge: string ) =
+        try  
+            let configMerge = openConfigurationFile( fileMerge )
+            if Utils.IsNotNull configMerge then 
+                // Do nothing if the file to merge doesn't exist 
+                let mutable bCopy = false
+                try 
+                    let configDst = openConfigurationFile( fileDst )
+                    if Utils.IsNull configDst then 
+                        bCopy <- true
+                    else   
+                        showConfiguration( configDst )
+                        showConfiguration( configMerge )
+                        CombineConfiguration configDst configMerge
+                        configDst.Save()
+                with 
+                | :? ConfigurationErrorsException as ex -> 
+                    Logger.LogF(LogLevel.MildVerbose, fun _ ->  sprintf "Fail to load the configuration due to an ConfigurationErrorsException : %A" ex)
+                    Logger.LogF(LogLevel.MildVerbose, fun _ ->  sprintf "----------------- %s -----------------------------" fileDst )
+                    Logger.LogF(LogLevel.MildVerbose, fun _ ->  let strDst = FileTools.ReadFromFile fileDst 
+                                                                strDst )
+                | ex -> 
+                    Logger.LogF(LogLevel.MildVerbose, fun _ ->  sprintf "Fail to parse the configuration due to an ConfigurationErrorsException : %A" ex)
+                    Logger.LogF(LogLevel.MildVerbose, fun _ ->  sprintf "----------------- %s -----------------------------" fileDst )
+                    Logger.LogF(LogLevel.MildVerbose, fun _ ->  let strDst = FileTools.ReadFromFile fileDst 
+                                                                strDst )
+                if bCopy then 
+                    FileTools.CopyFile fileDst fileMerge |> ignore 
+
+        with
+        | :? ConfigurationErrorsException as ex -> 
+            Logger.LogF(LogLevel.MildVerbose, fun _ ->  sprintf "Fail to load the configuration due to an ConfigurationErrorsException : %A" ex)
+            Logger.LogF(LogLevel.MildVerbose, fun _ ->  sprintf "----------------- %s -----------------------------" fileMerge )
+            Logger.LogF(LogLevel.MildVerbose, fun _ ->  let strMerge = FileTools.ReadFromFile fileMerge 
+                                                        strMerge )
+        | ex -> 
+            Logger.LogF(LogLevel.MildVerbose, fun _ ->  sprintf "Fail to parse the configuration due to an ConfigurationErrorsException : %A" ex)
+            Logger.LogF(LogLevel.MildVerbose, fun _ ->  sprintf "----------------- %s -----------------------------" fileMerge )
+            Logger.LogF(LogLevel.MildVerbose, fun _ ->  let strMerge = FileTools.ReadFromFile fileMerge 
+                                                        strMerge )
+
 
     /// Get the content of the current configuration file 
     let GetConfigurationForCurrentExe() = 

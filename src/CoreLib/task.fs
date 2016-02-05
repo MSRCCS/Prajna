@@ -328,6 +328,9 @@ and [<AllowNullLiteral>]
                                         let useConfig = useExeutable + ".config"
                                         FileTools.SaveToFile useConfig ta.JobConfiguration
                                         Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Save configuration file %s: %d chars" useConfig ta.JobConfiguration.Length) )
+                                        if File.Exists masterConfig then 
+                                            ConfigurationUtils.CombineConfigurationFile useConfig masterConfig
+                                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Merge configuration file %s to %s chars" masterConfig useConfig) )
                                     elif File.Exists masterConfig then
                                         // Also make sure the config file is co-located with the executable
                                         let useConfig = useExeutable + ".config"

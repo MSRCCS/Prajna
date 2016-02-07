@@ -1198,7 +1198,7 @@ and [<AllowNullLiteral; Serializable>]
                         x.JobReady.Reset() |> ignore
                         x.ResolveDSetParent( dset ) 
                         x.RegisterInJobCallback( dset, true )
-                        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Contruct Job Execution Graph for task %s of DSet %s ............." taskName dset.Name ))
+                        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Construct Job Execution Graph for task %s of DSet %s ............." taskName dset.Name ))
                         Logger.Do( LogLevel.MildVerbose, ( fun _ -> x.ShowAllDObjectsInfo() ))
                         x.BeginAllSync jbInfo dset
                     if not (!bExistPriorTasks) then 

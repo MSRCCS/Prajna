@@ -1,6 +1,7 @@
 ﻿namespace Prajna.Nano
 
 open System
+open System.Threading
 open System.IO
 open System.Collections.Generic
 open System.Collections.Concurrent
@@ -60,7 +61,7 @@ type BufferStreamConnection() =
                     do matchOrThrow possibleExc2
                     Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "%d bytes written." bufferToSend.Length)
             with
-                | :? IOException -> ()
+                | :? IOException -> writeQueue.CompleteAdding()
         }
 
     interface IConn with 
@@ -72,8 +73,11 @@ type BufferStreamConnection() =
             (this :> IConn).Socket <- socket
             let onConnect : BufferQueue -> BufferQueue -> unit = downcast state
             onConnect readQueue writeQueue
-            receiveBuffers socket |> Async.Start
-            sendBuffers socket |> Async.Start
+            Async.Start(receiveBuffers socket)
+            Async.Start(sendBuffers socket)
 
-        member this.Close() = ()  
-
+        member this.Close() = 
+            (this :> IConn).Socket.Shutdown(SocketShutdown.Both)
+            readQueue.CompleteAdding()
+            writeQueue.CompleteAdding()
+              

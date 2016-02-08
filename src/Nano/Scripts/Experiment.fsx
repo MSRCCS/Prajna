@@ -15,7 +15,7 @@ let cn = new ClientNode("127.0.0.1", 1500)
 let cn2 = new ClientNode("127.0.0.1", 1500)
 
 async {
-    let mutable acc = 0
+    let acc = ref 0
     for i = 1 to 1 do
         let! r1 = cn.NewRemote(fun _ -> "Test2")
         let! r2 = r1.Run(fun str -> str.Length)
@@ -23,9 +23,9 @@ async {
         let! r3 = cn2.NewRemote(fun _ -> "Test33")
         let! r4 = r3.Run(fun str -> str.Length)
 
-        acc <- acc + (r2.GetValue() |> Async.RunSynchronously) + (r4.GetValue() |> Async.RunSynchronously)
+        acc := !acc + (r2.GetValue() |> Async.RunSynchronously) + (r4.GetValue() |> Async.RunSynchronously)
 
-    printfn "%d" acc
+    printfn "%d" !acc
 }
 |> Async.RunSynchronously
 printfn ""

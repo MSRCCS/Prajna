@@ -1,6 +1,7 @@
 ﻿namespace Prajna.Nano
 
 open System
+open System.Threading
 open System.IO
 open System.Collections.Generic
 open System.Collections.Concurrent
@@ -21,13 +22,14 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
         | RunDelegate(pos,func) ->
             let argument : obj[] = if pos = -1 then null else (Array.init 1 (fun _ -> objects.[pos]))
             let ret = func.DynamicInvoke(argument)
-            Logger.LogF(LogLevel.Info, fun _ -> sprintf "Ran method")
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Ran method")
             if func.Method.ReturnType <> typeof<Void> then
                 let retPos = lock objects (fun _ -> objects.Add ret; objects.Count - 1)
                 RunDelegateResponse(retPos)
             else
                 RunDelegateResponse(-1)
         | GetValue(pos) -> 
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Returning GetValue response")
             GetValueResponse(objects.[pos])
 
     // Eventually deserialization/serialization can be done in parallel for various requests.
@@ -39,7 +41,7 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
             for bytes in readQueue.GetConsumingEnumerable() do
                 async {
                     let (Numbered(number,request)) : Numbered<Request> = downcast serializer.Deserialize(new MemoryStream(bytes)) 
-                    Logger.LogF(LogLevel.Info, fun _ -> sprintf "Deserialized request: %d bytes." bytes.Length)
+                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Deserialized request: %d bytes." bytes.Length)
                     let numberedResponse = Numbered(number, handleRequest request)
                     let responseStream = new MemoryStream()
                     serializer.Serialize(responseStream, numberedResponse)
@@ -53,14 +55,21 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting request handler")
         processRequests() |> Async.Start
 
+    member this.Shutdown() =
+        readQueue.CompleteAdding()
+
 type ServerNode(port: int) =
 
     static let network = new ConcreteNetwork()
     let objects = new List<obj>()
-    
+    let handlers = new List<ServerRequestHandler>()
+
     let onConnect readQueue writeQueue =
         let handler = ServerRequestHandler(readQueue, writeQueue, objects)
         handler.Start()
+        lock handlers (fun _ ->
+            handlers.Add(handler)
+        )
 
     do
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting server node")
@@ -68,8 +77,7 @@ type ServerNode(port: int) =
 
     interface IDisposable with
         
-        member __.Dispose() = network.StopListen()
-        
-
-
-
+        member __.Dispose() = 
+            network.StopListen()
+            for handler in handlers do
+                handler.Shutdown()

@@ -12,6 +12,13 @@ open Prajna.Nano
 [<TestFixture(Description = "Tests for Nano project")>]
 module NanoTests =
 
+    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "wild"|])
+
+
+    [<TearDown>]
+    let TearDown() =
+        SharedClient<byte[]>.Shutdown()
+
     [<Test>]
     let NanoStartLocalServer() = 
         use __ = new ServerNode(1500)
@@ -19,8 +26,8 @@ module NanoTests =
 
     [<Test>]
     let NanoConnectClient() = 
-        use __ = new ServerNode(1500)
-        use ___ = new ClientNode("127.0.0.1", 1500) 
+        use sn = new ServerNode(1500)
+        use cn = new ClientNode("127.0.0.1", 1500) 
         ()
 
     [<Test>]
@@ -31,15 +38,17 @@ module NanoTests =
 
     [<Test>]
     let NanoGetValue() = 
-        use __ = new ServerNode(1500)
-        use cn = new ClientNode("127.0.0.1", 1500)
+        use sn = new ServerNode(1501)
+        use cn = new ClientNode("127.0.0.1", 1501)
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> "Test")
-                return! r.GetValue()
+                let! ret =  r.GetValue()
+                return ret
             }
             |> Async.RunSynchronously
         Assert.AreEqual(value, "Test")
+        SharedClient<byte[]>.Shutdown()
 
     [<Test>]
     let NanoRunRemote() = 
@@ -69,9 +78,10 @@ module NanoTests =
             return col.GetConsumingEnumerable()
         }
 
-    let makeSquares (cn: ClientNode) (numAsyncs: int) (maxWait: int) =
+    let makeSquares (cns: ClientNode[]) (rndClient: Random) (numAsyncs: int) (maxWait: int) =
         let sqr x = x * x
         [|for i in 1..numAsyncs ->
+            let cn = cns.[rndClient.Next(cns.Length)]
             async {
                 let! r1 = cn.NewRemote(fun _ -> i)
                 let! r2 = r1.Run(fun x ->
@@ -87,40 +97,70 @@ module NanoTests =
                 return! r2.GetValue()
             }|]
 
-    let nanoParallelWild (numAsyncs: int) (maxWait: int) = 
+    let nanoParallelWild (numAsyncs: int) (maxWait: int) (numClients: int) = 
         use __ = new ServerNode(1500)
-        let cn = new ClientNode("127.0.0.1", 1500)
-        let sw = Stopwatch.StartNew()
-        let sqr x = x * x
-        // Have to use weird printf <| sprintf form so VSTest doesn't insert newlines where we don't want
-        printfn "%s" <| sprintf "Running %d asyncs (%d round-trips) in parallel." numAsyncs (numAsyncs * 3)
-        let rets =
-            makeSquares cn numAsyncs maxWait
-            |> inAnyOrder
-            |> Async.RunSynchronously
-        for x in rets do
-            printf "%s" <| sprintf "%d, " x 
-            Assert.IsTrue(let sqrt = Math.Sqrt(float x) in sqrt = Math.Round(sqrt))
-        printfn "%s" <| sprintf "Took: %A." sw.Elapsed
+        let cns = Array.init numClients (fun _ -> new ClientNode("127.0.0.1", 1500))
+        try
+            let sw = Stopwatch.StartNew()
+            let sqr x = x * x
+            let rnd = new Random()
+            // Have to use weird printf <| sprintf form so VSTest doesn't insert newlines where we don't want
+            printfn "%s" <| sprintf "Running %d asyncs (%d round-trips) in parallel." numAsyncs (numAsyncs * 3)
+            let rets =
+                makeSquares cns rnd numAsyncs maxWait
+                |> inAnyOrder
+                |> Async.RunSynchronously
+            for x in rets do
+                printf "%s" <| sprintf "%d, " x 
+                Assert.IsTrue(let sqrt = Math.Sqrt(float x) in sqrt = Math.Round(sqrt))
+            printfn "%s" <| sprintf "Took: %A." sw.Elapsed
+        finally
+            cns |> Array.iter (fun cn -> (cn :> IDisposable).Dispose())
 
     [<Test>]
-    let NanoParallelAnyOrder() = nanoParallelWild 10 1000
+    let NanoParallelAnyOrder() = 
+        nanoParallelWild 36 1000 1
 
     [<Test>]
-    let NanoParallelAnyOrderNoWait() = nanoParallelWild 20 0
+    let NanoParallelAnyOrderNoWait() = 
+        do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "info"|])
+        nanoParallelWild 333 0 1
+
+    [<Test>]
+    let NanoParallelAnyOrderNoWaitManyClients() = 
+        do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "info"|])
+        nanoParallelWild 50 0 5
 
     [<Test>]
     let NanoParallelForkJoin() =
         use __ = new ServerNode(1500)
-        let cn = new ClientNode("127.0.0.1", 1500)
+        let cns = Array.init 1 (fun _ -> new ClientNode("127.0.0.1", 1500))
+        try
+            let sw = Stopwatch.StartNew()
+            let sqr x = x * x
+            let numSquares = 50
+            let rets =
+                makeSquares cns (Random()) numSquares 0
+                |> Async.Parallel
+                |> Async.RunSynchronously
+            printfn "%s" <| sprintf "%d asyncs (%d round-trips) in parallel took: %A." numSquares (numSquares * 3) sw.Elapsed
+            Assert.AreEqual(rets, [|1..numSquares|] |> Array.map sqr)
+        finally
+            cns |> Array.iter (fun cn -> (cn :> IDisposable).Dispose())
+
+    [<Test>]
+    let NanoTwoClients() =
+        use __ = new ServerNode(1500)
+        use cn1 = new ClientNode("127.0.0.1", 1500)
+        use cn2 = new ClientNode("127.0.0.1", 1500)
         let sw = Stopwatch.StartNew()
-        let sqr x = x * x
-        let numSquares = 20
-        let rets =
-            makeSquares cn numSquares 0
-            |> Async.Parallel
-            |> Async.RunSynchronously
-        printfn "%s" <| sprintf "%d asyncs (%d round-trips) in parallel took: %A." numSquares (numSquares * 3) sw.Elapsed
-        Assert.AreEqual(rets, [|1..numSquares|] |> Array.map sqr)
+        async {
+            let! r1 = cn1.NewRemote(fun _ -> 2)
+            let! r2 = cn2.NewRemote(fun _ -> 3)
+            let! r1Squared = r1.Run(fun x -> x * x)
+            let! r2Squared = r2.Run(fun x -> x * x)
+            return ()
+        }
+        |> Async.RunSynchronously
 
 

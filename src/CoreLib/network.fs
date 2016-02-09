@@ -441,7 +441,14 @@ type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
             x.ConnectionStatusSet <- ConnectionStatus.BeginConnect
             x.BeginConnect(addr, port)
     member val internal ConnectionType = NetworkCommandQueueType.Unknown with get, set
+    static member private MonitorPacket ( queue:NetworkCommandQueue ) (cmd:NetworkCommand) = 
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Recv command %A of %dB from %s"
+                                                                                    cmd.cmd cmd.ms.Length (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
+            )
+        (null)
     member private x.AddRcvdProcessorForConnectionType() = 
+            Logger.Do ( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> 
+                x.GetOrAddRecvProc( "Monitor Process", NetworkCommandQueue.MonitorPacket x ) )
             let ty = x.ConnectionType
             for pair in systemwideRecvProcessor do 
                 let name = pair.Key
@@ -1496,6 +1503,9 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="offset">The offset into the buffer to send</param>
     /// <param name="arrCount">The length of content in buffer to send (starting at offset)</param>
     member x.ToSendEncrypt (command, arr:byte[], offset:int, arrCount:int) =
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send encrypted packet %A of %dB to %s" 
+                                                                            command arrCount (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                    )
         if (connectionStatus < ConnectionStatus.Verified) then
             eVerified.Wait() |> ignore
         use ms = new MemStream(arrCount + 8)
@@ -1515,6 +1525,9 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional - Unused parameter</param>
     member x.ToSend (command, sendStream:StreamBase<byte>, ?bExpediateSend) =
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send packet %A to %s" 
+                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                    )
         let cmd = new NetworkCommand(command, sendStream)
         x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
         Interlocked.Add(unProcessedBytes, int64 (cmd.CmdLen())) |> ignore
@@ -1524,6 +1537,9 @@ UnprocessedCmD:%d bytes Status:%A"
         x.LastSendTicks <- (PerfDateTime.UtcNow())
 
     member x.ToSendNonBlock (command, sendStream:StreamBase<byte>, ?bExpediateSend) =
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send NonBlocking packet %A to %s" 
+                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                    )
         let cmd = new NetworkCommand(command, sendStream)
         x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
         Interlocked.Add(unProcessedBytes, int64 (cmd.CmdLen())) |> ignore
@@ -1538,6 +1554,9 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="startPos">Start sending from this position</param>
     /// <param name="bExpediateSend">Optional - Unused parameter</param>
     member x.ToSendFromPos (command, sendStream:StreamBase<byte>, startPos:int64, ?bExpediateSend) =
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send packet %A with start pos to %s" 
+                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                    )
         let cmd = new NetworkCommand(command, sendStream, startPos)
         x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
         Interlocked.Add(unProcessedBytes, int64 (cmd.CmdLen())) |> ignore
@@ -1555,6 +1574,9 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional argument - unused for now</param>
     member x.ToForward( endPoint:IPEndPoint, command:ControllerCommand, sendStream:StreamBase<byte>, ?bExpediateSend ) = 
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "To forward (wrapped packet) %A to %s" 
+                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                    )
         let bExpediate = defaultArg bExpediateSend false
         use forwardHeader = sendStream.GetNew()
         forwardHeader.WriteVInt32( 1 )
@@ -1570,6 +1592,9 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional argument - unused for now</param>
     member x.ToForward( endPoints:IPEndPoint[], command:ControllerCommand, sendStream:StreamBase<byte>, ?bExpediateSend ) = 
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "To forward (wrapped packet) %A to %s" 
+                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+                    )
         let bExpediate = defaultArg bExpediateSend false
         use forwardHeader = sendStream.GetNew()
         forwardHeader.WriteVInt32( endPoints.Length )
@@ -1802,9 +1827,9 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
             else
                 (false, (null, null))
 
-    //member val internal CmdProcPoolRecv = ThreadPoolWithWaitHandles<string>("Cmd Process Recv") with get
+    //member val internal CmdProcPoolRecv = ThreadPoolWithWaitHandlesSystem<string>("Cmd Process Recv") with get
     member internal x.CmdProcPoolRecv with get() = x.netPool
-    //member val internal CmdProcPoolSend = ThreadPoolWithWaitHandles<string>("Cmd Process Send") with get
+    //member val internal CmdProcPoolSend = ThreadPoolWithWaitHandlesSystem<string>("Cmd Process Send") with get
     member internal x.CmdProcPoolSend with get() = x.netPool
 
     // Current speed limit on outgoing interface - for all channels

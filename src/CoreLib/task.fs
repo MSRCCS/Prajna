@@ -852,7 +852,7 @@ and [<AllowNullLiteral; Serializable>]
             | WildMixFrom ( childDSet, _ ) -> 
                 // Start thread 
                 let threadPoolName = sprintf "Threadpool for DSet %s:%s (WildMixFrom)" dset.Name dset.VersionString
-                dset.ThreadPool <- new ThreadPoolWithWaitHandles<int>( threadPoolName, NumParallelExecution = dset.NumParallelExecution  )
+                dset.ThreadPool <- new ThreadPoolWithWaitHandlesSystem<int>( threadPoolName, NumParallelExecution = dset.NumParallelExecution  )
                 dset.InitializeCache( true ) 
                 Logger.LogF( LogLevel.MediumVerbose, (fun _ -> sprintf "Eqneueing %d partitions for exectution" dset.NumPartitions))
                 using ( jbInfo.TryExecuteSingleJobAction()) ( fun jobAction -> 
@@ -873,7 +873,7 @@ and [<AllowNullLiteral; Serializable>]
             ()
     member val JobInfoCollections = ConcurrentDictionary<string,JobInformation>() with get
     member val AsyncExecutionEngine = ConcurrentDictionary<string,AsyncExecutionEngine>() with get
-    member val SyncExecutionEngine  = ConcurrentDictionary<string,ThreadPoolWithWaitHandles<int>>() with get
+    member val SyncExecutionEngine  = ConcurrentDictionary<string,ThreadPoolWithWaitHandlesSystem<int>>() with get
         
     member x.BeginAllSync jbInfo ( dset: DSet ) = 
         x.TraverseAllObjects TraverseUpstream (List<_>(DeploymentSettings.NumObjectsPerJob)) dset (x.ResetAll jbInfo)
@@ -1167,7 +1167,7 @@ and [<AllowNullLiteral; Serializable>]
     member x.SyncJobExecutionAsSeparateApp ( queueHost:NetworkCommandQueue, endPoint:Net.IPEndPoint, dset: DSet, usePartitions ) 
                 taskName syncAction beginJob endJob= 
         let constructThreadPool() = 
-            new ThreadPoolWithWaitHandles<int>( sprintf "DSet %s:%s" dset.Name dset.VersionString, 
+            new ThreadPoolWithWaitHandlesSystem<int>( sprintf "DSet %s:%s" dset.Name dset.VersionString, 
                 NumParallelExecution = if dset.NumParallelExecution<=0 then DeploymentSettings.NumParallelJobs( Environment.ProcessorCount ) else dset.NumParallelExecution )
         let bIsMainProject = 
             if taskName <> "ReadToNetwork" then 
@@ -1198,7 +1198,7 @@ and [<AllowNullLiteral; Serializable>]
                         x.JobReady.Reset() |> ignore
                         x.ResolveDSetParent( dset ) 
                         x.RegisterInJobCallback( dset, true )
-                        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Contruct Job Execution Graph for task %s of DSet %s ............." taskName dset.Name ))
+                        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Construct Job Execution Graph for task %s of DSet %s ............." taskName dset.Name ))
                         Logger.Do( LogLevel.MildVerbose, ( fun _ -> x.ShowAllDObjectsInfo() ))
                         x.BeginAllSync jbInfo dset
                     if not (!bExistPriorTasks) then 
@@ -1237,7 +1237,7 @@ and [<AllowNullLiteral; Serializable>]
                                 let bDone = Component<_>.ThreadPoolWait tasks
                                 endJob jbInfo
                                 // Release the resource of the execution engine
-                                let tp = ref Unchecked.defaultof<ThreadPoolWithWaitHandles<int>>
+                                let tp = ref Unchecked.defaultof<ThreadPoolWithWaitHandlesSystem<int>>
                                 let ret = x.SyncExecutionEngine.TryRemove( dsetFullName, tp )
                                 if (ret) then
                                     (!tp).CloseAllThreadPool()

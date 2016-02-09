@@ -1455,7 +1455,7 @@ and [<AllowNullLiteral>]
     member private x.SyncDecodeToDownstreamImpl jbInfo parti meta o = 
         x.SyncExecuteDownstream jbInfo parti meta o
 
-    member val internal ThreadPool : ThreadPoolWithWaitHandles<int> = null with get, set
+    member val internal ThreadPool : ThreadPoolWithWaitHandlesSystem<int> = null with get, set
     member val internal SyncExecuteDownstream: JobInformation -> int -> BlobMetadata -> Object -> unit = this.SyncExecuteDownstreamImpl with get, set
     member private x.SyncExecuteDownstreamImpl jbInfo parti meta o = 
         Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "Default SyncExecuteDownstream is called upon for %A %s:%s, the blob %A will be discarded" x.ParamType x.Name x.VersionString meta))
@@ -1524,15 +1524,18 @@ and [<AllowNullLiteral>]
         if not (Utils.IsNull threadPool) then             
             let threadPoolName = threadPool.ThreadPoolName
             let closeDownstream() =
-                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Done wait for handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName))
+                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Done wait for handle done execution for ThreadPoolWithWaitHandlesSystem:%s" threadPoolName))
                 Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s CanCloseDownstreamEvent set" x.ParamType x.Name x.VersionString ))
                 x.CanCloseDownstreamEvent.Set() |> ignore
 
             let contWaitAllJobDone() = 
                 Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s waiting for ThreadPool Jobs" x.ParamType x.Name x.VersionString ))
                 let event = threadPool.WaitForAllNonBlocking()
-                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Starting wait for handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName))
-                ThreadPoolWait.WaitForHandle (fun _ -> sprintf "Wait For handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName) event closeDownstream null
+                Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Starting wait for handle done execution for ThreadPoolWithWaitHandlesSystem:%s" threadPoolName))
+                if event.IsSet then 
+                    Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s done waiting (no need to queue in thread pool)" x.ParamType x.Name x.VersionString ))                        
+                else
+                    ThreadPoolWait.WaitForHandle (fun _ -> sprintf "Wait For handle done execution for ThreadPoolWithWaitHandlesSystem:%s" threadPoolName) (event.WaitHandle) closeDownstream null
 
             Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s wait for upstream close events & threadpool jobs" x.ParamType x.Name x.VersionString ))
             x.BaseWaitForUpstreamEvents waithandles contWaitAllJobDone
@@ -1570,7 +1573,7 @@ and [<AllowNullLiteral>]
                 if ( Utils.IsNull x.ThreadPool ) then
                     lock ( x ) ( fun _ -> 
                         if Utils.IsNull x.ThreadPool then 
-                            x.ThreadPool <- new ThreadPoolWithWaitHandles<int>( (sprintf "Forked threads for execution on %A %s:%s" x.ParamType x.Name x.VersionString), NumParallelExecution = numParallelExecutions  ) 
+                            x.ThreadPool <- new ThreadPoolWithWaitHandlesSystem<int>( (sprintf "Forked threads for execution on %A %s:%s" x.ParamType x.Name x.VersionString), NumParallelExecution = numParallelExecutions  ) 
                 )
                 for pi = 0 to func.Length - 1 do
                     let funci = func.[pi]

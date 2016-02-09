@@ -20,6 +20,7 @@ open Prajna.Tools.FSharp
 type DKVTests () =
     inherit Prajna.Test.Common.Tester()
 
+    static let mutable numDSetSort = 0 
     let cluster = TestSetup.SharedCluster
     let clusterSize = TestSetup.SharedClusterSize   
 
@@ -267,9 +268,14 @@ type DKVTests () =
         Assert.IsTrue(binSize >= numElemsInBin1)
         Assert.IsTrue(binSize >= numElemsInBin2)
         
-        let guid1 = Guid.NewGuid().ToString("D")
-        let guid2 = Guid.NewGuid().ToString("D")
-        
+        let cnt = Interlocked.Increment( &numDSetSort ) 
+        // Use fix name to ease debugging. 
+        // let guid1 = Guid.NewGuid().ToString("D")
+        let guid1 = "SourceDKVForSort_" + cnt.ToString()
+        // let guid2 = Guid.NewGuid().ToString("D")
+        let cnt = Interlocked.Increment( &numDSetSort )
+        let guid2 = "SourceDKVForSort_" + cnt.ToString()
+
         let size1 = binSize * numBins1
 
         let a = (DSet<int*int64> ( Name = guid1, Cluster = cluster, SerializationLimit = binSize / 2, NumParallelExecution = numParallelExecution))

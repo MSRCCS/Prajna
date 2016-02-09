@@ -57,6 +57,8 @@ module DistributedFunctionBuiltInInitializationModule =
             )
 /// A set of built in distributed functions. 
 type DistributedFunctionBuiltIn() = 
+    static let pool = SystemThreadPool()
+
     static let initialized = lazy ( DistributedFunctionBuiltIn.InitOnce() )
     static let builtInStore = DistributedFunctionStore.Current
             

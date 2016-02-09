@@ -156,7 +156,7 @@ type internal OneCleanUp ( o:Object, infoFunc, f, earlyCleanUp: unit -> unit ) =
 // ContainerJobCollection:          500
 // DistributedFunctionStore:        700
 // Cluster:                   1000
-// ThreadPoolWithWaitHandles:       1500
+// ThreadPoolWithWaitHandlesSystem:       1500
 // ThreadPoolWait:                  2000
 // LocalCluster:        2500
 // ThreadTracking:      3000
@@ -228,7 +228,12 @@ type internal CleanUp private () =
         if Utils.IsNotNull retCleanUp then 
             cleanUpStore.TryRemove( retKey ) |> ignore 
             retCleanUp.CleanUpFunc()
-
+    /// Just unhook clean up, do not call the clean up function as it is already been called. 
+    member x.Unregister( o: Object ) = 
+        let retKey, retCleanUp = x.FindObject( o )
+        if Utils.IsNotNull retCleanUp then 
+            cleanUpStore.TryRemove( retKey ) |> ignore 
+        
     member private x.FlushAllListeners () =
         for listener in Trace.Listeners do 
             listener.Flush() 
@@ -1441,18 +1446,57 @@ type internal WaitHandleCollection(collectionName:string, initialCapacity:int)  
         
 type internal ThreadPoolStart<'K> = 
     struct
-        val UsePool: ThreadPoolWithWaitHandles<'K>
+        val UsePool: ThreadPoolWithWaitHandlesSystem<'K>
         val ThreadID: int
         new( pool, id ) = { UsePool=pool; ThreadID=id; }
     end
 
+
+and /// System Threadpool is use to govern the minimum thread used in the system and 
+    /// Control thread adjustment behavior 
+    internal SystemThreadPool() = 
+    static let _, minIOThs = ThreadPool.GetMinThreads()
+    static let minThs = Environment.ProcessorCount
+    static let mutable numBlockedThs = 0 
+    static let mutable minSystemThs = 
+        // In UT, daemons/containers/app use the same process thus share the same thread pool
+        // make the min thread a bit higher 
+        if not Runtime.RunningOnMono then
+            minThs * 4
+        else
+            // Mono uses thread pool threads to wait for WaitHandles given to ThreadPool.RegisterWaitForSingleObject (CLR does not)
+            // Also it seems under the pattern of repeatedly RegisterWait->wakeup->RegisterWait, Mono uses more thread pool threads and these threads do not 
+            // quickly become available for new work items. 
+            // As a result, a higher MinThreads threshold is needed (especially for tests)
+            minThs * 16
+    static do 
+        let bSuccess = ThreadPool.SetMinThreads(minSystemThs, minIOThs) 
+        let nThreads = minSystemThs
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "SetMinThreads to %d, %d" nThreads minIOThs  )
+    /// Enter a blocking area
+    static member Enter() = 
+        let cnt = Interlocked.Increment(&numBlockedThs)
+        if cnt + minThs > minSystemThs then 
+            let oldValue = minSystemThs
+            let newValue = oldValue + minThs
+            if Interlocked.CompareExchange( &minSystemThs, newValue, oldValue )=oldValue then 
+                ThreadPool.SetMinThreads(newValue, minIOThs) |> ignore
+                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "%d thread blocks, Increase MinThreads to %d, %d" cnt newValue minIOThs  )
+    /// Exit a blocking area            
+    static member Exit() = 
+        let cnt = Interlocked.Decrement(&numBlockedThs) 
+        if cnt < 0 then 
+            /// The number of blocked thread should never be smaller than 0 
+            Interlocked.Increment(&numBlockedThs) |> ignore 
+
+#if USE_CUSTOMIZED_THREADPOOL
 
 /// <summary> 
 /// Managing blocking event in thread pool. </summary>
 and internal ThreadPoolWaitHandles() = 
     static member val private Current = ThreadPoolWaitHandles() with get
     member val private Thread2ThreadPoolMap = ConcurrentDictionary<_,_>() with get
-    member private x.RegisterThread(y: ThreadPoolWithWaitHandlesBase ) = 
+    member private x.RegisterThread(y: ThreadPoolWithWaitHandlesCustomizedBase ) = 
         let id = Thread.CurrentThread.ManagedThreadId
         x.Thread2ThreadPoolMap.GetOrAdd( id, y ) |> ignore
     member private x.UnRegisterThread() = 
@@ -1515,7 +1559,7 @@ and internal ThreadPoolWaitHandles() =
         ThreadPoolWaitHandles.Current.SafeWaitAny( handles, Timeout.Infinite )
     static member safeWaitAny ( handles,  millisecondsTimeout ) = 
         ThreadPoolWaitHandles.Current.SafeWaitAny( handles, millisecondsTimeout )
-    static member RegisterThread(y: ThreadPoolWithWaitHandlesBase ) = 
+    static member RegisterThread(y: ThreadPoolWithWaitHandlesCustomizedBase ) = 
         ThreadPoolWaitHandles.Current.RegisterThread(y)
     static member UnRegisterThread() = 
         ThreadPoolWaitHandles.Current.UnRegisterThread()
@@ -1527,7 +1571,7 @@ and internal ThreadPoolWaitHandles() =
 /// If the action can be executed again, it will return null, false, so that it will be queued for execution in the next cycle. 
 /// If the action is terminated, it will return *, true, and it will be dequeued. </summary>
 and [<AllowNullLiteral; AbstractClass>]
-    internal ThreadPoolWithWaitHandlesBase() = 
+    internal ThreadPoolWithWaitHandlesCustomizedBase() = 
     let mutable threadpoolName = ""
     member x.ThreadPoolName with get() = threadpoolName and set(v) = threadpoolName <- v
     member val NumThreads : int ref = ref 0 with get
@@ -1539,12 +1583,12 @@ and [<AllowNullLiteral; AbstractClass>]
     member val NumberOfWaitedTasks = ref 0 with get
     /// NumberOfBlockedThreads counts for number of RepeatableFunction that blocks a thread for execution. The blocking behavior here is ungraceful, as 
     /// a safeWaitOne is called in the middle of a Repeatable function, and it is not possible for the call stack to be cleared for repeated entry. The actual thread of the 
-    /// execution engine (ThreadPoolWithWaitHandles) is blocked. If the system detects enough of such thread blocking, a new thread will be launched to compensate for the 
+    /// execution engine (ThreadPoolWithWaitHandlesSystem) is blocked. If the system detects enough of such thread blocking, a new thread will be launched to compensate for the 
     /// blocked (non running ) thread. 
     member val NumberOfBlockedThreads : int ref = ref 0 with get
     abstract TryExecute: unit -> unit
-    /// TraceLevel for the life cycle of ThreadPoolWithWaitHandles
-    static member val TraceLevelThreadPoolWithWaitHandles = LogLevel.WildVerbose with get, set
+    /// TraceLevel for the life cycle of ThreadPoolWithWaitHandlesSystem
+    static member val TraceLevelThreadPoolWithWaitHandlesSystem = LogLevel.WildVerbose with get, set
 /// <summary> 
 /// Managed a customzied thread pool of N Threads that executes a set of (key, func() -> handle, bTerminated ).
 /// The threads are uniquenly allocated to execute the set of jobs enqueued to the thread pool. 
@@ -1553,20 +1597,20 @@ and [<AllowNullLiteral; AbstractClass>]
 /// If the action can be executed again, it will return null, false, so that it will be queued for execution in the next cycle. 
 /// If the action is terminated, it will return *, true, and it will be dequeued. </summary>
 and [<AllowNullLiteral>]
-    internal ThreadPoolWithWaitHandles<'K> private () =
-    inherit ThreadPoolWithWaitHandlesBase()
+    internal ThreadPoolWithWaitHandlesCustomized<'K> private () =
+    inherit ThreadPoolWithWaitHandlesCustomizedBase()
     new (name : string) as x =
-        new ThreadPoolWithWaitHandles<'K>()
+        new ThreadPoolWithWaitHandlesCustomized<'K>()
         then
             x.ThreadPoolName <- name
 //            ThreadPoolWait.RegisterThreadPool(name)
             PoolTimer.AddTimer(x.ToMonitor, 100L, 100L)
-            x.CleanUp <- CleanUp.Current.Register( 1500, x, (x.OperationsToCloseAllThreadPool), (fun _ -> sprintf "ThreadPoolWithWaitHandles for %s" name) )
+            x.ThreadPoolCleanUp <- CleanUp.Current.Register( 1500, x, (x.OperationsToCloseAllThreadPool), (fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem for %s" name) )
             ()
             //x.MonitorTimer <- new Timer(x.ToMonitor, null, 5000, 10000)
             //x.MonitorTimer <- ThreadPoolTimer.TimerWait (fun _ -> "ThreadPool Monitor") (fun _ -> x.ToMonitor(null)) (5000) (10000)
     new (name : string, numThreads : int) as x =
-        new ThreadPoolWithWaitHandles<'K>(name)
+        new ThreadPoolWithWaitHandlesCustomized<'K>(name)
         then
             x.NumParallelExecution <- numThreads
     /// TraceLevel for Task tracking
@@ -1574,7 +1618,7 @@ and [<AllowNullLiteral>]
     static member val DefaultNumParallelExecution = 4 with get, set
     static member val MinActiveThreads = 1 with get, set
 
-    member val CleanUp = null with get, set
+    member val ThreadPoolCleanUp = null with get, set
     member val MonitorTimer : Timer = null with get, set
     //member val MonitorTimer : ThreadPoolTimer = null with get, set
     /// Cancel all jobs 
@@ -1582,7 +1626,7 @@ and [<AllowNullLiteral>]
     /// <summary> if bSyncExecution is true, the task will be executed on the same thread (in sync mode). </summary>
     member val bSyncExecution = false with get, set 
     member val NumParallelExecution = 0 with get, set
-    member val CalculateNumParallelExecution = ( fun (numJobs:int) -> Math.Min( ThreadPoolWithWaitHandles<'K>.DefaultNumParallelExecution, numJobs) ) with get, set
+    member val CalculateNumParallelExecution = ( fun (numJobs:int) -> Math.Min( ThreadPoolWithWaitHandlesCustomized<'K>.DefaultNumParallelExecution, numJobs) ) with get, set
     member x.GetNumParallelExecution numJobs =   
         if x.NumParallelExecution > 0 then Math.Min( x.NumParallelExecution, numJobs)  else x.CalculateNumParallelExecution numJobs 
     member val TaskList = ConcurrentDictionary<_,ConcurrentQueue<_>>() with get, set
@@ -1620,23 +1664,25 @@ and [<AllowNullLiteral>]
     /// <param name="info"> a function that returns information of the action. </param>
     member x.EnqueueRepeatableFunctionWithAffinityMask (affinityMask:IntPtr) (func: unit -> ManualResetEvent * bool) (cts:CancellationToken) (key:'K) infoFunc =
         if (!x.nAllCancelled)<>0 then 
-            let msg = sprintf "ThreadPoolWithWaitHandles.EnqueueActionWithAffinityMask, try to enqueue job after CloseAll() called"
+            let msg = sprintf "ThreadPoolWithWaitHandlesSystem.EnqueueActionWithAffinityMask, try to enqueue job after CloseAll() called"
             Logger.Log( LogLevel.Error, msg )
             failwith msg
         else
             let bSuccess = x.TaskStatus.TryAdd( key , (infoFunc, ref null, ref false, ref DateTime.MinValue ) )
             if bSuccess then 
                 x.AllAffinityTasks.AddOrUpdate( affinityMask, 1, (fun _ v -> v+1) ) |> ignore
-                x.TaskList.AddOrUpdate( affinityMask, ThreadPoolWithWaitHandles<'K>.CreateQueue (cts, key, func, affinityMask), 
-                    ThreadPoolWithWaitHandles<'K>.AddToQueue (cts, key, func, affinityMask) ) |> ignore
+//                x.TaskList.AddOrUpdate( affinityMask, ThreadPoolWithWaitHandlesCustomized<'K>.CreateQueue (cts, key, func, affinityMask), 
+//                    ThreadPoolWithWaitHandlesCustomized<'K>.AddToQueue (cts, key, func, affinityMask) ) |> ignore
                 let numTasks = Interlocked.Increment( x.NumberOfTasks )
+                let queue = x.TaskList.GetOrAdd( affinityMask, fun _ -> ConcurrentQueue<_>() )
+                queue.Enqueue( (cts, key, func, affinityMask) )
                 Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "Enqueue job %s (key:%A) for execution, numTasks = %d" (infoFunc(key)) key numTasks))
                 x.HandleWaitForMoreJob.Set() |> ignore
-    static member CreateQueue tuple mask = 
-        ConcurrentQueue( Seq.singleton tuple )
-    static member AddToQueue tuple mask queue = 
-        queue.Enqueue( tuple )
-        queue
+//    static member CreateQueue tuple mask = 
+//        ConcurrentQueue( Seq.singleton tuple )
+//    static member AddToQueue tuple mask queue = 
+//        queue.Enqueue( tuple )
+//        queue
 
     /// <summary>
     /// Enqueue a function for repeated execution, until the action returns (*, false). The action is uniqueuely identified by a key, which can be used to get information
@@ -1681,7 +1727,7 @@ and [<AllowNullLiteral>]
                     let numWaitedTasks = Volatile.Read(x.NumberOfWaitedTasks)
                     let curNumThreads = numThreads
                     Logger.LogF(LogLevel.WildVerbose, fun _ -> sprintf "TryExecute: pool = %s, nThreads = %i, numBlockedThreads = %i, numTasks = %i, numWaitedTasks = %i" x.ThreadPoolName curNumThreads numBlockedThreads numTasks numWaitedTasks)
-                    if not (numThreads - numBlockedThreads < ThreadPoolWithWaitHandles<'K>.MinActiveThreads && numThreads < numTasks - numWaitedTasks) then
+                    if not (numThreads - numBlockedThreads < ThreadPoolWithWaitHandlesCustomized<'K>.MinActiveThreads && numThreads < numTasks - numWaitedTasks) then
                         exitsLoop <- true
                     else 
                         let allAffinityMasks = x.AllAffinityTasks.ToArray() |> Array.map ( fun pair -> pair.Key )
@@ -1697,16 +1743,16 @@ and [<AllowNullLiteral>]
                                 let curNumThreads = Interlocked.Decrement( x.NumThreads )
                                 if curNumThreads = 0 then                            
                                     x.HandleDoneExecution.Set() |> ignore
-                                    Logger.LogF(LogLevel.WildVerbose, fun _ ->  sprintf "ThreadPoolWithWaitHandles:%s, TryExecuteN set HandleDoneExecution" x.ThreadPoolName)
+                                    Logger.LogF(LogLevel.WildVerbose, fun _ ->  sprintf "ThreadPoolWithWaitHandlesSystem:%s, TryExecuteN set HandleDoneExecution" x.ThreadPoolName)
                             else
                                 x.HandleDoneExecution.Reset() |> ignore
                                 let curNumThreads = numThreads
-                                Logger.LogF(LogLevel.WildVerbose, fun _ ->  sprintf "ThreadPoolWithWaitHandles:%s, TryExecuteN reset HandleDoneExecution (numThreads = %i)" x.ThreadPoolName curNumThreads)
+                                Logger.LogF(LogLevel.WildVerbose, fun _ ->  sprintf "ThreadPoolWithWaitHandlesSystem:%s, TryExecuteN reset HandleDoneExecution (numThreads = %i)" x.ThreadPoolName curNumThreads)
                                 let threadID = numThreads - 1
                                 let useAffinityMask = allAffinityMasks.[ threadID % allAffinityMasks.Length ]
                                 let cancelFunc() = 
                                     x.CancelThis.Cancel()    
-                                let nameFunc() = sprintf "ThreadPoolWithWaitHandles:%s, thread %d" x.ThreadPoolName threadID
+                                let nameFunc() = sprintf "ThreadPoolWithWaitHandlesSystem:%s, thread %d" x.ThreadPoolName threadID
                                 let thread = ThreadTracking.StartThreadForActionWithCancelation useAffinityMask cancelFunc nameFunc (Action<_>(x.ExecuteOneJob x.CancelThis.Token useAffinityMask threadID))
                                 ()
                 x.InLaunchingEvent.Set()
@@ -1770,10 +1816,10 @@ and [<AllowNullLiteral>]
                                             let wrappedInfo() = 
                                                 "Requeue " + infoFunc( key )  
                                             Interlocked.Increment( x.NumberOfWaitedTasks ) |> ignore
-//                                            Logger.Do(ThreadPoolWithWaitHandles<'K>.TrackTaskTraceLevel, ( fun _ -> 
+//                                            Logger.Do(ThreadPoolWithWaitHandlesCustomized<'K>.TrackTaskTraceLevel, ( fun _ -> 
 //                                                let cnt = x.TaskTracking.AddOrUpdate( key, 1, (fun key v -> v + 1 ) ) 
 //                                                if cnt <> 1 then 
-//                                                    Logger.Log( LogLevel.Warning, ( sprintf "ThreadPoolWithWaitHandles.ExecuteOneJob enqueued %d jobs for task %s at thread %d" cnt (infoFunc(key)) threadID ))
+//                                                    Logger.Log( LogLevel.Warning, ( sprintf "ThreadPoolWithWaitHandlesSystem.ExecuteOneJob enqueued %d jobs for task %s at thread %d" cnt (infoFunc(key)) threadID ))
 //                                            ))
                                             x.AffinityWaitingJobs.AddOrUpdate( affinityMask, 1, fun _ v -> v + 1 ) |> ignore
                                             ThreadPoolWait.WaitForHandle wrappedInfo handle (x.Continue cts key action affinityMask) x.HandleWaitForMoreJob
@@ -1791,10 +1837,10 @@ and [<AllowNullLiteral>]
                     let bEntryExist = x.TaskStatus.TryGetValue( key, tuple )
                     if bEntryExist then 
                         let infoFunc, _, _, _ = !tuple
-                        let errMsg = sprintf "!!! Exception !!! ThreadPoolWithWaitHandles.ExecuteOneJob to execute task %s at thread %d with exception %A" (infoFunc(key)) threadID e
+                        let errMsg = sprintf "!!! Exception !!! ThreadPoolWithWaitHandlesSystem.ExecuteOneJob to execute task %s at thread %d with exception %A" (infoFunc(key)) threadID e
                         Logger.Log( LogLevel.Error, errMsg )
                     else
-                        let errMsg = sprintf "!!! Exception !!! ThreadPoolWithWaitHandles.ExecuteOneJob failed at thread %d with exception %A" threadID e
+                        let errMsg = sprintf "!!! Exception !!! ThreadPoolWithWaitHandlesSystem.ExecuteOneJob failed at thread %d with exception %A" threadID e
                         Logger.Log( LogLevel.Error, errMsg )
 
         while Volatile.Read(x.InLaunching) <> 0 do 
@@ -1816,17 +1862,17 @@ and [<AllowNullLiteral>]
                 x.TryExecute()
             else                 
                 x.HandleDoneExecution.Set() |> ignore
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "ThreadPoolWithWaitHandles:%s, ExecuteOneJob set HandleDoneExecution" x.ThreadPoolName))
+                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem:%s, ExecuteOneJob set HandleDoneExecution" x.ThreadPoolName))
 
         ThreadPoolWaitHandles.UnRegisterThread ( )
-        Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, ( fun _ -> sprintf "ThreadPoolWithWaitHandles:%s, terminating thread %d surviving threads %d" x.ThreadPoolName threadID curThreads ))
+        Logger.LogF(ThreadPoolWithWaitHandlesCustomizedBase.TraceLevelThreadPoolWithWaitHandlesSystem, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem:%s, terminating thread %d surviving threads %d" x.ThreadPoolName threadID curThreads ))
 
     /// The continuetion 
     member x.Continue cts key action affinityMask () = 
-//        Logger.Do(ThreadPoolWithWaitHandles<'K>.TrackTaskTraceLevel, ( fun _ -> 
+//        Logger.Do(ThreadPoolWithWaitHandlesCustomized<'K>.TrackTaskTraceLevel, ( fun _ -> 
 //            let cnt = x.TaskTracking.AddOrUpdate( key, -1, (fun key v -> v - 1 ) ) 
 //            if cnt <> 0 then 
-//                Logger.Log( LogLevel.Warning, ( sprintf "ThreadPoolWithWaitHandles.ExecuteOneJob at dequeue, had %d jobs for key %A" cnt key ))
+//                Logger.Log( LogLevel.Warning, ( sprintf "ThreadPoolWithWaitHandlesSystem.ExecuteOneJob at dequeue, had %d jobs for key %A" cnt key ))
 //            ))
         let tuple = ref Unchecked.defaultof<_>
         if x.TaskStatus.TryGetValue( key, tuple ) then 
@@ -1839,13 +1885,13 @@ and [<AllowNullLiteral>]
             let nJobsAffinity = x.AffinityWaitingJobs.AddOrUpdate( affinityMask, 0, (fun _ v -> v-1) ) 
             Interlocked.Decrement( x.NumberOfWaitedTasks ) |> ignore
         else
-            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Continue, requeing task %A for execution" key ))
+            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem.Continue, requeing task %A for execution" key ))
             let taskQueue = ref null
             let mutable bFindQueue = x.TaskList.TryGetValue( affinityMask, taskQueue )
             if bFindQueue then 
                 (!taskQueue).Enqueue( cts, key, action, affinityMask )
             else
-                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Continue, can't find the execution queue for affinity mask %A" affinityMask ))
+                Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem.Continue, can't find the execution queue for affinity mask %A" affinityMask ))
             let nJobsAffinity = x.AffinityWaitingJobs.AddOrUpdate( affinityMask, 0, (fun _ v -> v-1) ) 
             Interlocked.Decrement( x.NumberOfWaitedTasks ) |> ignore
             x.HandleWaitForMoreJob.Set() |> ignore
@@ -1853,17 +1899,17 @@ and [<AllowNullLiteral>]
     member x.Finished affinityMask cts key action threadID = 
         let nJobs = x.AllAffinityTasks.AddOrUpdate( affinityMask, 0, (fun _ v -> v-1) ) 
         let numTasks = Interlocked.Decrement( x.NumberOfTasks )  
-        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished (%s), %d jobs left in affinity group %A, numTasks = %d"  x.ThreadPoolName nJobs affinityMask numTasks))
+        Logger.LogF( LogLevel.WildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem.Finished (%s), %d jobs left in affinity group %A, numTasks = %d"  x.ThreadPoolName nJobs affinityMask numTasks))
         let tuple = ref Unchecked.defaultof<_>
         if x.TaskStatus.TryRemove( key, tuple ) then 
             let infoFunc, _, _, _ = !tuple       
             if cts.IsCancellationRequested || (!x.nAllCancelled)<>0 then 
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, cancelled task %s" (infoFunc(key)) ))
+                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem.Finished, cancelled task %s" (infoFunc(key)) ))
             else
-                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, done exeucting task %s on thread %d" (infoFunc(key)) threadID))
+                Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem.Finished, done exeucting task %s on thread %d" (infoFunc(key)) threadID))
                 x.CompletedTasks.Item( key ) <- (PerfADateTime.UtcNow())
         else
-            Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "ThreadPoolWithWaitHandles.Finished, done exeucting task of key %A on thread %d, but can't find entry in TaskStatus" key (threadID) ))
+            Logger.LogF( LogLevel.Warning, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem.Finished, done exeucting task of key %A on thread %d, but can't find entry in TaskStatus" key (threadID) ))
 
     /// Check if all tasks have been executed. 
     member x.CheckForAll() = 
@@ -1874,9 +1920,9 @@ and [<AllowNullLiteral>]
     /// True: done execution, False: not complete execution during timeout. 
     member x.WaitForAll( timeOut:int ) = 
         x.TryExecute() 
-        Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, (fun _ -> sprintf "ThreadPoolWithWaitHandles:%s, WaitForAll: Starting wait for handle done execution" x.ThreadPoolName))
+        Logger.LogF(ThreadPoolWithWaitHandlesCustomizedBase.TraceLevelThreadPoolWithWaitHandlesSystem, (fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem:%s, WaitForAll: Starting wait for handle done execution" x.ThreadPoolName))
         let ret = x.HandleDoneExecution.WaitOne( timeOut )
-        Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, (fun _ -> sprintf "Done wait for handle done execution"))
+        Logger.LogF(ThreadPoolWithWaitHandlesCustomizedBase.TraceLevelThreadPoolWithWaitHandlesSystem, (fun _ -> sprintf "Done wait for handle done execution"))
         x.CheckForAll()
         ret
     /// Execute all
@@ -1887,7 +1933,7 @@ and [<AllowNullLiteral>]
     /// Forced to close all 
     member x.OperationsToCloseAllThreadPool() = 
         if Interlocked.CompareExchange( x.nAllCancelled, 1, 0 )=0 then 
-            Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, (fun _ -> sprintf "Attempt to close threadpool %s" x.ThreadPoolName))
+            Logger.LogF(ThreadPoolWithWaitHandlesCustomizedBase.TraceLevelThreadPoolWithWaitHandlesSystem, (fun _ -> sprintf "Attempt to close threadpool %s" x.ThreadPoolName))
             let spin = SpinWait()
             x.CancelThis.Cancel()
             // Waiting all threads to unblock and shutdown. 
@@ -1913,12 +1959,12 @@ and [<AllowNullLiteral>]
                     x.Finished affinityMask cts key action -1 
             x.TaskStatus.Clear()
 //            ThreadPoolWait.UnregisterThreadPool( x.ThreadPoolName )
-            Logger.LogF(ThreadPoolWithWaitHandlesBase.TraceLevelThreadPoolWithWaitHandles, (fun _ -> sprintf "Threadpool %s closed" x.ThreadPoolName))
+            Logger.LogF(ThreadPoolWithWaitHandlesCustomizedBase.TraceLevelThreadPoolWithWaitHandlesSystem, (fun _ -> sprintf "Threadpool %s closed" x.ThreadPoolName))
     member x.CloseAllThreadPool() = 
-        if Utils.IsNull x.CleanUp then 
+        if Utils.IsNull x.ThreadPoolCleanUp then 
             x.OperationsToCloseAllThreadPool()
         else
-            x.CleanUp.CleanUpThisOnly()
+            x.ThreadPoolCleanUp.CleanUpThisOnly()
     static member val MaxContinuationDurationInMilliSeconds = 50L with get, set
     static member val MonitorDurationInMilliSeconds = 10000L with get, set
     member val DetectDeadLockTicksRef = ref (PerfADateTime.UtcNowTicks()) with get
@@ -1927,7 +1973,7 @@ and [<AllowNullLiteral>]
         Logger.Do( LogLevel.ExtremeVerbose, ( fun _ -> 
            let cur = (PerfADateTime.UtcNowTicks())
            let old = !x.MonitorTicksRef
-           if cur - old > TimeSpan.TicksPerMillisecond * ThreadPoolWithWaitHandles<_>.MonitorDurationInMilliSeconds then 
+           if cur - old > TimeSpan.TicksPerMillisecond * ThreadPoolWithWaitHandlesCustomized<_>.MonitorDurationInMilliSeconds then 
                if Interlocked.CompareExchange( x.MonitorTicksRef, cur, old) = old then 
                    Logger.LogF( LogLevel.ExtremeVerbose, (fun _ ->
                       let mutable prtStr = System.Text.StringBuilder() 
@@ -1968,13 +2014,13 @@ and [<AllowNullLiteral>]
             if Interlocked.CompareExchange( x.DetectDeadLockTicksRef, cur, old) = old then 
                 /// detect any deadlock 
                 try 
-                    ThreadPoolWait.ShowLongContinuation( int ThreadPoolWithWaitHandles<_>.MaxContinuationDurationInMilliSeconds )
+                    ThreadPoolWait.ShowLongContinuation( int ThreadPoolWithWaitHandlesCustomized<_>.MaxContinuationDurationInMilliSeconds )
 //                    for tuple in ThreadPoolWait.WaitingThreads do
 //                            let (pool, _) = tuple
 //                            let continueTicks = pool.ContinueTicks 
 //                            if continueTicks >=0L then 
 //                                let cur = (PerfADateTime.UtcNowTicks())
-//                                if cur - continueTicks > ThreadPoolWithWaitHandles<_>.MaxContinuationDurationInMilliSeconds * TimeSpan.TicksPerMillisecond then 
+//                                if cur - continueTicks > ThreadPoolWithWaitHandlesSystem<_>.MaxContinuationDurationInMilliSeconds * TimeSpan.TicksPerMillisecond then 
 //                                    let elapseMs = ( cur - continueTicks )/ TimeSpan.TicksPerMillisecond
 //                                    Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Possible Deadlocks! cont() of %s has been in executionin ThreadPoolWait for more than %d ms. Possible deadlock or poor performance in implementing cont() (there should not be any blocking operation or long running operation in cont()) " 
 //                                                                                       (pool.ContinueInfo())
@@ -1994,7 +2040,299 @@ and [<AllowNullLiteral>]
             x.CancelThis.Dispose()
             GC.SuppressFinalize( x ) 
 
+/// Currently, the customzied threadpool finished the unittest in 4:04
+and internal ThreadPoolWithWaitHandles<'K> = ThreadPoolWithWaitHandlesCustomized<'K>
+#else
 
+and /// Allow wait and control thread pool behavior 
+    ThreadPoolWaitHandles() = 
+        static member safeWaitOne ( ev:WaitHandle,  millisecondsTimeout: int ) = 
+            let mutable bStatus = ev.WaitOne(0)
+            if not bStatus then 
+                SystemThreadPool.Enter( )
+                try 
+                    bStatus <- ev.WaitOne( millisecondsTimeout )
+                finally 
+                    SystemThreadPool.Exit( )    
+                bStatus
+            else
+                bStatus
+        static member safeWaitOne ( ev:WaitHandle ) = 
+            ThreadPoolWaitHandles.safeWaitOne( ev, Timeout.Infinite )
+        static member safeWaitOne ( ev:ManualResetEvent,  millisecondsTimeout: int , shouldReset) =
+            let mutable bStatus = ev.WaitOne(0)
+            let ret =
+                if not bStatus then 
+                    SystemThreadPool.Enter( )
+                    try 
+                        bStatus <- ev.WaitOne(millisecondsTimeout)
+                    finally 
+                        SystemThreadPool.Exit( )    
+                    bStatus
+                else 
+                    bStatus
+            if shouldReset then
+                ev.Reset() |> ignore
+            ret
+        static member safeWaitOne ( ev:ManualResetEvent, shouldReset ) = 
+            ThreadPoolWaitHandles.safeWaitOne( ev, shouldReset )    
+        static member safeWaitAny ( handles: WaitHandle[] ) = 
+            SystemThreadPool.Enter( )
+            try 
+                WaitHandle.WaitAny( handles, Timeout.Infinite )
+            finally 
+                SystemThreadPool.Exit( )    
+        static member safeWaitAny ( handles:WaitHandle[],  millisecondsTimeout: int ) = 
+            SystemThreadPool.Enter( )
+            try 
+                WaitHandle.WaitAny( handles, millisecondsTimeout )
+            finally 
+                SystemThreadPool.Exit( )    
+        
+/// <summary> 
+/// Managed a customzied thread pool of N Threads that executes a set of (key, func() -> handle, bTerminated ).
+/// The threads are uniquenly allocated to execute the set of jobs enqueued to the thread pool. 
+/// Key is used to identified the action, so that if the user desired, he/she can print some information of on the action. 
+/// If the action is to block, it will return handle, false, so that the thread will wait on the handles. 
+/// If the action can be executed again, it will return null, false, so that it will be queued for execution in the next cycle. 
+/// If the action is terminated, it will return *, true, and it will be dequeued. </summary>
+and [<AllowNullLiteral>]
+    internal ThreadPoolWithWaitHandlesSystem<'K> private () =
+    let mutable monitorTicks = DateTime.UtcNow.Ticks
+    /// Number of tasks pending execution 
+    let mutable numTasks = 0 
+    let mutable cleanUp = 0 
+    /// this will cancel all tasks
+    let ctsAllTasks = new CancellationTokenSource()
+    /// 0: Not in Wait All, 1: in Wait All.
+    let mutable inWait = 0 
+    new (name : string) as x =
+        new ThreadPoolWithWaitHandlesSystem<'K>()
+        then
+            x.ThreadPoolName <- name
+//            ThreadPoolWait.RegisterThreadPool(name)
+            PoolTimer.AddTimer(x.ToMonitor, 100L, 100L)
+            x.ThreadPoolCleanUp <- CleanUp.Current.Register( 1500, x, (x.CloseAllThreadPoolByCleanup), (fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem for %s" name) )
+            ()
+    new (name : string, numThreads : int) as x =
+        new ThreadPoolWithWaitHandlesSystem<'K>(name)
+        then
+            x.NumParallelExecution <- numThreads
+    member val ThreadPoolName = "<none>" with get, set
+    static member val TrackTaskTraceLevel = LogLevel.MildVerbose with get, set
+    static member val DefaultNumParallelExecution = 4 with get, set
+    member val ThreadPoolCleanUp = null with get, set
+    member val MonitorTimer : Timer = null with get, set
+    /// <summary> if bSyncExecution is true, the task will be executed on the same thread (in sync mode), 
+    /// A threadpool thread will be blocked in this case, which is highly not recommended.  </summary>
+    member val bSyncExecution = false with get, set 
+    member val NumParallelExecution = 0 with get, set
+    member val CalculateNumParallelExecution = ( fun (numJobs:int) -> Math.Min( ThreadPoolWithWaitHandlesSystem<'K>.DefaultNumParallelExecution, numJobs) ) with get, set
+    member x.GetNumParallelExecution numJobs =   
+        if x.NumParallelExecution > 0 then Math.Min( x.NumParallelExecution, numJobs)  else x.CalculateNumParallelExecution numJobs 
+    /// Reset: the interface is retained for compatibility purpose only. 
+    member x.Reset() = 
+        ()
+    /// Track the execution status of the function in the operation. 
+    member val TaskStatus = ConcurrentDictionary<_,_>() with get
+    /// Whether all operation has done execution
+    member val HandleDoneExecution = new ManualResetEventSlim(false) with get
+    member private x.WakeupWorkItem (func: unit -> ManualResetEvent * bool) (cts:CancellationToken) (key:'K) (infoFunc:'K->string) () = 
+        let bExist, tuple = x.TaskStatus.TryGetValue( key ) 
+        if bExist then 
+            /// Not waiting any more 
+            let _, handleHolder, waitStatus, waitTime = tuple 
+            handleHolder := null 
+            waitStatus := false 
+        x.ExecuteWorkItem func cts key infoFunc null 
+    member private x.ExecuteWorkItem (func: unit -> ManualResetEvent * bool) (cts:CancellationToken) (key:'K) (infoFunc:'K->string) (o:obj) = 
+                let checkCancel() = cts.IsCancellationRequested || ctsAllTasks.IsCancellationRequested
+                let mutable bDoneExecution = checkCancel()
+                let mutable bExitLoop = bDoneExecution
+                try
+                    while not bExitLoop do 
+                        bExitLoop <- true
+                        let handle, bTerminate = func()
+                        if not bTerminate then 
+                            if Utils.IsNull handle then 
+                                bDoneExecution <- checkCancel()
+                                if not bDoneExecution then 
+                                    // Queue back to threadpool for execution. 
+                                    let wc = WaitCallback( x.ExecuteWorkItem func cts key infoFunc)
+                                    let bQueued = ThreadPool.QueueUserWorkItem( wc )                                    
+                                    () 
+                                else
+                                    /// Operation already cancelled, and will not be queued. 
+                                    ()
+                            else
+                                let bExist, tuple = x.TaskStatus.TryGetValue( key ) 
+                                if bExist then 
+                                    let infoFunc, handleHolder, waitStatus, waitTime = tuple
+                                    waitStatus := true
+                                    waitTime := DateTime.UtcNow.Ticks 
+                                    handleHolder := handle
+                                    bDoneExecution <- checkCancel()
+                                    if not bDoneExecution then 
+                                        if x.bSyncExecution then 
+                                            // Wait on exeuction, and execute this job again. 
+                                            handle.WaitOne() |> ignore
+                                            handleHolder := null 
+                                            waitStatus := false
+                                            bExitLoop <- false /// This is the only case in which the loop will be reexecuted. 
+                                        else
+                                            // Queue this function to be executed when we are done waiting
+                                            ThreadPoolWait.WaitForHandle ( fun _ -> infoFunc key ) handle (x.WakeupWorkItem func cts key infoFunc  ) null
+                                else
+                                    // Can't find entry, we will not queue the item 
+                                    let errMsg = sprintf "!!! Error !!! ThreadPoolWithWaitHandlesSystem of %s execute task %s need to wait, but can't find TaskStatus entry, operation will cancel" x.ThreadPoolName (infoFunc(key)) 
+                                    Logger.Log( LogLevel.Error, errMsg )
+                                    bDoneExecution <- true
+                        else 
+                            bDoneExecution <- true
+                with 
+                | ex -> 
+                    let bEntryExist, tuple = x.TaskStatus.TryRemove( key )
+                    if bEntryExist then 
+                        let infoFunc, _, _, _ = tuple
+                        let errMsg = sprintf "!!! Exception !!! ThreadPoolWithWaitHandlesSystem of %s execute task %s encounter exception %A" x.ThreadPoolName (infoFunc(key)) ex
+                        Logger.Log( LogLevel.Error, errMsg )
+                    else
+                        let errMsg = sprintf "!!! Exception !!! ThreadPoolWithWaitHandlesSystem of %s failed without finding the TaskStatus entry with exception %A " x.ThreadPoolName ex
+                        Logger.Log( LogLevel.Error, errMsg )
+                    /// In any case, the execution of this repeatable function is terminated. 
+                    bDoneExecution <- true 
+                if bDoneExecution then 
+                    let bExist, tuple = x.TaskStatus.TryRemove( key )
+                    if bExist then 
+                        let infoFunc, _, _, _ = tuple       
+                        if checkCancel() then 
+                            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s is finished, cancelled task %s" x.ThreadPoolName (infoFunc(key)) ))
+                        else
+                            Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s is finished, done exeucting task %s " x.ThreadPoolName (infoFunc(key)) ))
+                    else
+                        Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s, done executing task of key %A, but can't find entry in TaskStatus" x.ThreadPoolName key ))
+                    Interlocked.Decrement( &numTasks ) |> ignore 
+                    if Volatile.Read( &inWait ) = 1 then 
+                        // Only set HandleDoneExecution when we are waiting in WaitAll. 
+                        x.HandleDoneExecution.Set() |> ignore    
+    /// <summary>
+    /// Enqueue an action for repeated execution, until the action returns (*, true). 
+    /// The first of tuple is a ManualResetEvent that signals whether the repeatable action needs to wait, 
+    /// The second of tuple is a boolean, when true, signals that the action terminates, and when false, signals that the action still executes. 
+    /// The action is uniqueuely identified by a key, which can be used to get information
+    /// of the action. 
+    /// </summary>
+    /// <param name="affinityMask"> Reserved for thread affinity mask (currently not supported by .Net). </param>
+    /// <param name="action"> The function to be enqueued.  </param>
+    /// <param name="key"> The key that uniquely identified the action.  </param>
+    /// <param name="info"> a function that returns information of the action. </param>
+    member x.EnqueueRepeatableFunction (func: unit -> ManualResetEvent * bool) (cts:CancellationToken) (key:'K) infoFunc =
+        Interlocked.Increment( &numTasks ) |> ignore 
+        /// If multiple key is used, then the function may not be tracked properly 
+        x.TaskStatus.TryAdd( key , (infoFunc, ref null, ref false, ref DateTime.MinValue.Ticks ) ) |> ignore 
+        let wc = WaitCallback( x.ExecuteWorkItem func cts key infoFunc)
+        let bQueued = ThreadPool.QueueUserWorkItem( wc )
+        if inWait = 1 then 
+            Logger.LogF( LogLevel.Info, fun _ -> sprintf "!!! Warning !!! EnqueueRepeatableFunction of pool %s of %A by %s is called when WaitAll has been executed, this is not a supported usage"
+                                                    x.ThreadPoolName key (infoFunc(key)) )
+    static member val MonitorDurationInMilliSeconds = 10000L with get, set
+    /// Monitor activity of the thread pool 
+    member x.ToMonitor ( o: obj ) = 
+        Logger.Do( LogLevel.ExtremeVerbose, ( fun _ -> 
+           let cur = DateTime.UtcNow.Ticks 
+           let old = monitorTicks
+           if cur - old > TimeSpan.TicksPerMillisecond * ThreadPoolWithWaitHandlesSystem<_>.MonitorDurationInMilliSeconds then 
+               if Interlocked.CompareExchange( &monitorTicks, cur, old) = old then 
+                   Logger.LogF( LogLevel.ExtremeVerbose, (fun _ -> x.StatusString("Monitor") ))
+           ))
+    member x.StatusString(title) = 
+                      let prtStr = System.Text.StringBuilder() 
+                      prtStr.Append( sprintf "=====================  %s %s ==================\n" title x.ThreadPoolName ) |> ignore
+                      for task in x.TaskStatus do
+                          let key = task.Key
+                          let tuple = task.Value
+                          let (_, ev : ManualResetEvent ref, status, _) = tuple
+                          let firedInfo =
+                              if (Utils.IsNotNull !ev) then
+                                  (!ev).WaitOne(0).ToString()
+                              else
+                                  "<null>"
+                          prtStr.Append ( sprintf "%A still in execution, event fired: %s Status: %b\n" key firedInfo !status ) |> ignore
+                      prtStr.ToString()
+        
+
+    /// Try execute the task in the system thread pool 
+    member x.TryExecute() = 
+        // nothing, as function will start to be scheduled in EnqueueRepeatableFunction
+        ()
+    member x.WaitForAll( timeOut: int ) = 
+        /// Mark that we are entering waiting status 
+        Volatile.Write( &inWait, 1 )
+        let mutable bDoneWaiting = false 
+        let startTicks = DateTime.UtcNow.Ticks 
+        while not bDoneWaiting do 
+            if Volatile.Read( &numTasks ) = 0 then 
+                bDoneWaiting <- true
+            if not bDoneWaiting then 
+                bDoneWaiting <- ctsAllTasks.IsCancellationRequested
+            if not bDoneWaiting then 
+                let elapse = ( DateTime.UtcNow.Ticks - startTicks ) / TimeSpan.TicksPerMillisecond
+                if timeOut >= 0 && int elapse > timeOut then 
+                    /// Timeout 
+                    bDoneWaiting <- true      
+            if not bDoneWaiting then 
+                /// Only Wait when we have some operation in execution and the task is not cancelled
+                x.HandleDoneExecution.WaitHandle.WaitOne( timeOut ) |> ignore 
+    member x.CloseAllThreadPool() = 
+        CleanUp.Current.CleanUpOneObject( x )
+    member x.CloseAllThreadPoolByCleanup() = 
+        /// Only one clean up 
+        if Interlocked.Increment( &cleanUp ) = 1 then 
+            x.Cancel() 
+    /// Execute all
+    /// True: done execution, False: not complete execution during timeout. 
+    member x.WaitForAllNonBlocking() = 
+        x.HandleDoneExecution
+    /// Cancel all jobs in the threadpool 
+    /// Note that since we use system threadpool, we can't actually cancel a queued work item, but can only wait for that 
+    /// job to be scheduled and cancel it 
+    member x.Cancel() = 
+        if not ctsAllTasks.IsCancellationRequested then 
+            ctsAllTasks.Cancel() |> ignore 
+            for pair in x.TaskStatus do 
+                let key = pair.Key
+                let infoFunc, handleHolder, waitStatus, waitTime = pair.Value
+                let handle = !handleHolder
+                if Utils.IsNotNull handle then 
+                    handle.Set() |> ignore 
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem, tried to wakeup %A of %s, to cancel its execution "
+                                                                        key (infoFunc(key)) )
+                else
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem, attempt to cancel operation %A of %s queued in Threadpool ..... "
+                                                                        key (infoFunc(key)) )
+            
+    member val WaitInMillisecondAtDispose = 2000 with get, set
+    /// Check if all tasks have been executed. 
+    /// Print a message if there is still task left. 
+    member x.CheckForAll() = 
+        if not x.TaskStatus.IsEmpty then 
+            let info = x.StatusString( "Following items of threadpool is still live at disposal/termination: ")
+            Logger.Log( LogLevel.MildVerbose, info ) 
+    override x.Finalize() =
+        x.CloseAllThreadPool()
+    interface IDisposable with
+        member x.Dispose() = 
+            GC.SuppressFinalize( x ) 
+            x.CloseAllThreadPool() // Cancel operation will be called. 
+            x.WaitForAll( x.WaitInMillisecondAtDispose )
+            x.CheckForAll() 
+            x.HandleDoneExecution.Dispose()
+            ctsAllTasks.Dispose()
+
+/// Currently, the system threadpool finished the unittest in 4:16
+and internal ThreadPoolWithWaitHandles<'K> = ThreadPoolWithWaitHandlesSystem<'K>
+
+#endif
 
 /// <summary> 
 /// A collection of thread pool timer. 

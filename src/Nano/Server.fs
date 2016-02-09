@@ -32,28 +32,26 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Returning GetValue response")
             GetValueResponse(objects.[pos])
 
-    // Eventually deserialization/serialization can be done in parallel for various requests.
-    // We just need to tag requests and responses so we can match them up
-    // For now, correctness and simplicity are more important
+    let onNewBuffer (requestBytes: byte[]) =
+        async {
+            let (Numbered(number,request)) : Numbered<Request> = downcast serializer.Deserialize(new MemoryStream(requestBytes)) 
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Deserialized request: %d bytes." requestBytes.Length)
+            let numberedResponse = Numbered(number, handleRequest request)
+            let responseStream = new MemoryStream()
+            serializer.Serialize(responseStream, numberedResponse)
+            writeQueue.Add (responseStream.GetBuffer().[0..(int responseStream.Length)-1])
+        }
+        |> Async.Start
+
     let processRequests() = 
         async {
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting to consume request bytes")
-            for bytes in readQueue.GetConsumingEnumerable() do
-                async {
-                    let (Numbered(number,request)) : Numbered<Request> = downcast serializer.Deserialize(new MemoryStream(bytes)) 
-                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Deserialized request: %d bytes." bytes.Length)
-                    let numberedResponse = Numbered(number, handleRequest request)
-                    let responseStream = new MemoryStream()
-                    serializer.Serialize(responseStream, numberedResponse)
-                    writeQueue.Add (responseStream.GetBuffer().[0..(int responseStream.Length)-1])
-                }
-                |> Async.Start
-            writeQueue.CompleteAdding()
+            QueueMultiplexer<byte[]>.AddQueue(readQueue, onNewBuffer, fun _ -> writeQueue.CompleteAdding())
         }
 
     member this.Start() =
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting request handler")
-        processRequests() |> Async.Start
+        processRequests()  |> Async.Start
 
     member this.Shutdown() =
         readQueue.CompleteAdding()
@@ -66,9 +64,9 @@ type ServerNode(port: int) =
 
     let onConnect readQueue writeQueue =
         let handler = ServerRequestHandler(readQueue, writeQueue, objects)
-        handler.Start()
         lock handlers (fun _ ->
             handlers.Add(handler)
+            handler.Start()
         )
 
     do

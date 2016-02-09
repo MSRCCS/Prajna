@@ -7,6 +7,8 @@ open System.Diagnostics
 
 open NUnit.Framework
 
+open Prajna.Tools
+open Prajna.Tools.FSharp
 open Prajna.Nano
 
 [<TestFixture(Description = "Tests for Nano project")>]
@@ -17,7 +19,7 @@ module NanoTests =
 
     [<TearDown>]
     let TearDown() =
-        SharedClient<byte[]>.Shutdown()
+        QueueMultiplexer<byte[]>.Shutdown()
 
     [<Test>]
     let NanoStartLocalServer() = 
@@ -34,7 +36,11 @@ module NanoTests =
     let NanoNewRemote() = 
         use __ = new ServerNode(1500) 
         use cn = new ClientNode("127.0.0.1", 1500)
-        cn.NewRemote(fun _ -> 5) |> ignore
+        async {
+            let! r = cn.NewRemote(fun _ -> 5)
+            return ()
+        }
+        |> Async.RunSynchronously
 
     [<Test>]
     let NanoGetValue() = 
@@ -48,7 +54,6 @@ module NanoTests =
             }
             |> Async.RunSynchronously
         Assert.AreEqual(value, "Test")
-        SharedClient<byte[]>.Shutdown()
 
     [<Test>]
     let NanoRunRemote() = 
@@ -81,7 +86,9 @@ module NanoTests =
     let makeSquares (cns: ClientNode[]) (rndClient: Random) (numAsyncs: int) (maxWait: int) =
         let sqr x = x * x
         [|for i in 1..numAsyncs ->
-            let cn = cns.[rndClient.Next(cns.Length)]
+            let clientNum = rndClient.Next(cns.Length)
+            let cn = cns.[clientNum]
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Chose client %d for number %d" clientNum i)
             async {
                 let! r1 = cn.NewRemote(fun _ -> i)
                 let! r2 = r1.Run(fun x ->
@@ -123,13 +130,18 @@ module NanoTests =
 
     [<Test>]
     let NanoParallelAnyOrderNoWait() = 
-        do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "info"|])
-        nanoParallelWild 333 0 1
+        do Logger.ParseArgs([|"-verbose"; "info"|])
+        nanoParallelWild 100 0 1
+
+    [<Test>]
+    let NanoParallelAnyOrderManyClients() = 
+        do Logger.ParseArgs([|"-verbose"; "info"|])
+        nanoParallelWild 100 300 100
 
     [<Test>]
     let NanoParallelAnyOrderNoWaitManyClients() = 
-        do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "info"|])
-        nanoParallelWild 50 0 5
+        do Logger.ParseArgs([|"-verbose"; "info"|])
+        nanoParallelWild 100 0 100
 
     [<Test>]
     let NanoParallelForkJoin() =

@@ -15,9 +15,6 @@ open Prajna.Tools.Network
 
 type BufferQueue = BlockingCollection<byte[]>
 
-type ConcreteNetwork() = 
-    inherit Network()
-
 type BufferStreamConnection() =
 
     // Eventually these should change to using MemoryStreamB's, so we get better buffer management
@@ -47,22 +44,32 @@ type BufferStreamConnection() =
                 | :? IOException -> readQueue.CompleteAdding()
         }
 
-    let sendBuffers(socket: Socket) = 
-        let writer = new NetworkStream(socket)
-        async {
-            Logger.LogF(LogLevel.Info, fun _ -> sprintf "BufferStreamConnection: starting to write")
-            try
-                for bufferToSend in writeQueue.GetConsumingEnumerable() do
+    let onNewBuffer (writer: NetworkStream) =
+        let semaphore = new SemaphoreSlim(1) 
+        fun (bufferToSend: byte[]) ->
+            async {
+                try
                     Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Responding with %d bytes." bufferToSend.Length)
                     let countBytes = BitConverter.GetBytes(bufferToSend.Length)
+                    do! semaphore.WaitAsync() |> Async.AwaitIAsyncResult |> Async.Ignore
                     let! possibleExc = Async.Catch <| writer.AsyncWrite countBytes
                     do matchOrThrow possibleExc
                     let! possibleExc2 = Async.Catch <| writer.AsyncWrite bufferToSend
                     do matchOrThrow possibleExc2
                     Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "%d bytes written." bufferToSend.Length)
-            with
-                | :? IOException -> writeQueue.CompleteAdding()
-        }
+                    semaphore.Release() |> ignore
+                with
+                    | :? IOException -> 
+                        semaphore.Release() |> ignore
+                        writeQueue.CompleteAdding()
+
+            } 
+            |> Async.Start
+
+
+    let sendBuffers(socket: Socket) = 
+        let writer = new NetworkStream(socket)
+        QueueMultiplexer<byte[]>.AddQueue(writeQueue, onNewBuffer writer)
 
     interface IConn with 
 
@@ -74,7 +81,7 @@ type BufferStreamConnection() =
             let onConnect : BufferQueue -> BufferQueue -> unit = downcast state
             onConnect readQueue writeQueue
             Async.Start(receiveBuffers socket)
-            Async.Start(sendBuffers socket)
+            sendBuffers socket
 
         member this.Close() = 
             (this :> IConn).Socket.Shutdown(SocketShutdown.Both)

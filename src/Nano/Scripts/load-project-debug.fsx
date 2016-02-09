@@ -2,6 +2,7 @@
 #I __SOURCE_DIRECTORY__
 #load "load-references-debug.fsx"
 #load "../AssemblyInfo.fs"
+      "../QueueMultiplexer.fs"
       "../BufferStreamConnection.fs"
       "../BaseADTs.fs"
       "../Server.fs"

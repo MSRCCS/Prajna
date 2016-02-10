@@ -19,9 +19,6 @@ type QueueMultiplexer<'T> private () =
     static let MaxSocketsPerThread = 60
     static let mutable allInstances = new List<QueueMultiplexer<'T>>()
     
-    // TODO: network has no business being here. Move it somewhere else.
-    static let mutable network = new ConcreteNetwork() :> Network
-
     let mutable readQueues : BlockingCollection<'T>[] = Array.zeroCreate 0
     let mutable callbacks : List<'T -> unit> = new List<_>()
     let mutable shutdowns : List<unit -> unit> = new List<_>()
@@ -76,16 +73,11 @@ type QueueMultiplexer<'T> private () =
             sharedInstance.AddQueue(bufferQueue, callback, shutdown)
         ) 
 
-    static member Connect<'TConn when 'TConn :> IConn and 'TConn : (new: unit -> 'TConn)>(addr: string, port, onConnect) : IConn = 
-        network.Connect<'TConn>(addr, port, onConnect)
-
     static member Shutdown() =
         lock allInstances (fun _ ->
             for sc in allInstances do
                 sc.Shutdown()
             allInstances <- new List<QueueMultiplexer<'T>>()
-            (network :> IDisposable).Dispose()
-            network <- new ConcreteNetwork()
         )
 
 

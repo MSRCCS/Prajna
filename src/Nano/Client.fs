@@ -16,6 +16,8 @@ type RequestId = RequestId of IP: int * Port : int * Id: int
 
 type ClientNode(addr: string, port: int) =
 
+    static let network = new ConcreteNetwork()
+
     let mutable writeQueue : BufferQueue = null
 
     let callbacks = new ConcurrentDictionary<int64, Response -> unit>()
@@ -37,7 +39,7 @@ type ClientNode(addr: string, port: int) =
 
     do
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting client node")
-        QueueMultiplexer<byte[]>.Connect<BufferStreamConnection>(addr, port, onConnect) |> ignore
+        network.Connect<BufferStreamConnection>(addr, port, onConnect) |> ignore
 
     member internal this.Run(request: Request) : Async<Response> =
         let memStream = new MemoryStream()

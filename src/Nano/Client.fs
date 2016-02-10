@@ -76,19 +76,25 @@ type ClientNode(addr: string, port: int) =
         member __.Dispose() = 
             writeQueue.CompleteAdding()
 
-and Remote<'T> internal (pos: int, node: ClientNode) =
+and Remote<'T> =
     
-    member __.Run(func: Func<'T, 'U>) =
+    [<NonSerialized>]
+    val mutable node : ClientNode 
+    val mutable pos: int
+
+    internal new(pos: int, node: ClientNode) =  {node = node; pos = pos}
+
+    member this.Run(func: Func<'T, 'U>) =
         async {
-            let! response = node.Run( RunDelegate(pos, func) )
+            let! response = this.node.Run( RunDelegate(this.pos, func) )
             match response with
-            | RunDelegateResponse(pos) -> return new Remote<'U>(pos, node)
+            | RunDelegateResponse(pos) -> return new Remote<'U>(pos, this.node)
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
 
-    member __.GetValue() =
+    member this.GetValue() =
         async {
-            let! response = node.Run( GetValue(pos) )
+            let! response = this.node.Run( GetValue(this.pos) )
             match response with
             | GetValueResponse(obj) -> return obj :?> 'T
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))

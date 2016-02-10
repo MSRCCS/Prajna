@@ -58,7 +58,7 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
 
 type ServerNode(port: int) =
 
-    static let network = new ConcreteNetwork()
+    let network = new ConcreteNetwork()
     let objects = new List<obj>()
     let handlers = new List<ServerRequestHandler>()
 

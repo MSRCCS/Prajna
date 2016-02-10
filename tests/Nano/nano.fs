@@ -104,17 +104,20 @@ module NanoTests =
                 return! r2.GetValue()
             }|]
 
-    let nanoParallelWild (numAsyncs: int) (maxWait: int) (numClients: int) = 
-        use __ = new ServerNode(1500)
-        let cns = Array.init numClients (fun _ -> new ClientNode("127.0.0.1", 1500))
+    let disposeAll xs = xs |> Seq.iter(fun x -> (x :> IDisposable).Dispose())
+
+    let nanoParallelWild (numAsyncs: int) (maxWait: int) (numClients: int) (numServers: int) = 
+        let baseServerPort = 1500
+        let servers = Array.init numServers (fun i -> new ServerNode(baseServerPort + i))
+        let rnd = new Random()
+        let clients = Array.init numClients (fun _ -> new ClientNode("127.0.0.1", baseServerPort + rnd.Next(numServers)))
         try
             let sw = Stopwatch.StartNew()
             let sqr x = x * x
-            let rnd = new Random()
             // Have to use weird printf <| sprintf form so VSTest doesn't insert newlines where we don't want
             printfn "%s" <| sprintf "Running %d asyncs (%d round-trips) in parallel." numAsyncs (numAsyncs * 3)
             let rets =
-                makeSquares cns rnd numAsyncs maxWait
+                makeSquares clients rnd numAsyncs maxWait
                 |> inAnyOrder
                 |> Async.RunSynchronously
             for x in rets do
@@ -122,26 +125,27 @@ module NanoTests =
                 Assert.IsTrue(let sqrt = Math.Sqrt(float x) in sqrt = Math.Round(sqrt))
             printfn "%s" <| sprintf "Took: %A." sw.Elapsed
         finally
-            cns |> Array.iter (fun cn -> (cn :> IDisposable).Dispose())
+            disposeAll clients
+            disposeAll servers
 
     [<Test>]
     let NanoParallelAnyOrder() = 
-        nanoParallelWild 36 1000 1
+        nanoParallelWild 36 1000 1 1
 
     [<Test>]
     let NanoParallelAnyOrderNoWait() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
-        nanoParallelWild 100 0 1
+        nanoParallelWild 100 0 1 1
 
     [<Test>]
     let NanoParallelAnyOrderManyClients() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
-        nanoParallelWild 100 300 100
+        nanoParallelWild 100 300 100 10
 
     [<Test>]
     let NanoParallelAnyOrderNoWaitManyClients() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
-        nanoParallelWild 100 0 100
+        nanoParallelWild 100 0 100 10
 
     [<Test>]
     let NanoParallelForkJoin() =

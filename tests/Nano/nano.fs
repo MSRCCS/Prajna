@@ -129,21 +129,21 @@ module NanoTests =
             disposeAll servers
 
     [<Test>]
-    let NanoParallelAnyOrder() = 
+    let NanoParallel() = 
         nanoParallelWild 36 1000 1 1
 
     [<Test>]
-    let NanoParallelAnyOrderNoWait() = 
+    let NanoParallelNoWait() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
         nanoParallelWild 100 0 1 1
 
     [<Test>]
-    let NanoParallelAnyOrderManyClients() = 
+    let NanoParallelManyToMany() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
         nanoParallelWild 100 300 100 10
 
     [<Test>]
-    let NanoParallelAnyOrderNoWaitManyClients() = 
+    let NanoParallelNoWaitManyToMany() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
         nanoParallelWild 100 0 100 10
 

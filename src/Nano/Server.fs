@@ -11,7 +11,7 @@ open Prajna.Tools.FSharp
 
 open BaseADTs
 
-type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: BlockingCollection<byte[]>, objects: List<obj>) =
+type ServerRequestHandler(readQueue: BufferQueue, writeQueue: BufferQueue, objects: List<obj>) =
     
     let serializer = 
         let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
@@ -32,21 +32,22 @@ type ServerRequestHandler(readQueue: BlockingCollection<byte[]>, writeQueue: Blo
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Returning GetValue response")
             GetValueResponse(objects.[pos])
 
-    let onNewBuffer (requestBytes: byte[]) =
+    let onNewBuffer (requestBytes: MemoryStreamB) =
         async {
-            let (Numbered(number,request)) : Numbered<Request> = downcast serializer.Deserialize(new MemoryStream(requestBytes)) 
+            let (Numbered(number,request)) : Numbered<Request> = downcast serializer.Deserialize(requestBytes) 
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Deserialized request: %d bytes." requestBytes.Length)
             let numberedResponse = Numbered(number, handleRequest request)
-            let responseStream = new MemoryStream()
+            let responseStream = new MemoryStreamB()
             serializer.Serialize(responseStream, numberedResponse)
-            writeQueue.Add (responseStream.GetBuffer().[0..(int responseStream.Length)-1])
+            responseStream.Seek(0L, SeekOrigin.Begin) |> ignore
+            writeQueue.Add responseStream
         }
         |> Async.Start
 
     let processRequests() = 
         async {
             Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting to consume request bytes")
-            QueueMultiplexer<byte[]>.AddQueue(readQueue, onNewBuffer, fun _ -> writeQueue.CompleteAdding())
+            QueueMultiplexer<MemoryStreamB>.AddQueue(readQueue, onNewBuffer, fun _ -> writeQueue.CompleteAdding())
         }
 
     member this.Start() =

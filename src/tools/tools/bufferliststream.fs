@@ -1865,6 +1865,19 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
             if (writeAmt <> toRead) then
                 failwith "Write to memstream from file fails as file is out data"
 
+    member x.AsyncWriteFromStream(fh : Stream, count : int64) : Async<unit> =
+        async {
+            let mutable bCount = count
+            while (bCount > 0L) do
+                let (buf, pos, amt) = x.GetWriteBuffer()
+                let toRead = int (Math.Min(bCount, int64 amt))
+                let! writeAmt = fh.AsyncRead(buf.Buffer, pos, toRead)
+                bCount <- bCount - int64 writeAmt
+                x.MoveForwardAfterWrite(int64 writeAmt)
+                if (writeAmt <> toRead) then
+                    failwith "Write to memstream from file fails as file is out data"
+        }
+
     member x.WriteFromStreamAlign(fh : Stream, count : int64, align : int) =
         let mutable bCount = count
         while (bCount > 0L) do
@@ -1938,6 +1951,18 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
             let readAmt = Math.Min(bCount, int64 amt)
             fh.Write(buf.Buffer, int pos, int readAmt)
             x.MoveForwardAfterRead(readAmt)
+            bCount <- bCount - readAmt
+
+    member x.AsyncReadToStream(fh : Stream, count : int64) =
+        async {
+            let mutable bCount = count
+            while (bCount > 0L) do
+                let (buf, pos, amt) = x.GetReadBuffer()
+                let readAmt = Math.Min(bCount, int64 amt)
+                do! fh.AsyncWrite(buf.Buffer, int pos, int readAmt)
+                x.MoveForwardAfterRead(readAmt)
+                bCount <- bCount - readAmt
+        }
 
     // read count starting from offset, and don't move position forward
     override x.ReadToStream(s : Stream, offset : int64, count : int64) =

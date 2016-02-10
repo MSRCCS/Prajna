@@ -12,8 +12,7 @@ open Prajna.Tools
 open Prajna.Tools.FSharp
 open Prajna.Tools.Network
 
-
-type BufferQueue = BlockingCollection<byte[]>
+type BufferQueue = BlockingCollection<MemoryStreamB>
 
 type BufferStreamConnection() =
 
@@ -37,26 +36,32 @@ type BufferStreamConnection() =
                     let countBytes = matchOrThrow countBytesOrExc
                     let count = BitConverter.ToInt32(countBytes, 0)
                     Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Read count: %d." count)
-                    let! receivedBufferOrExc = Async.Catch <| reader.AsyncRead count
-                    let receivedBuffer = matchOrThrow receivedBufferOrExc
-                    readQueue.Add receivedBuffer
+                    let memoryStream = new MemoryStreamB()
+                    let! unitOrExc = Async.Catch <| memoryStream.AsyncWriteFromStream(reader, int64 count)
+                    matchOrThrow unitOrExc
+                    memoryStream.Seek(0L, SeekOrigin.Begin) |> ignore
+                    readQueue.Add memoryStream
             with
                 | :? IOException -> readQueue.CompleteAdding()
         }
 
     let onNewBuffer (writer: NetworkStream) =
         let semaphore = new SemaphoreSlim(1) 
-        fun (bufferToSend: byte[]) ->
+        fun (bufferToSend: MemoryStreamB) ->
             async {
                 try
                     Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Responding with %d bytes." bufferToSend.Length)
-                    let countBytes = BitConverter.GetBytes(bufferToSend.Length)
+                    let countBytes = BitConverter.GetBytes(int bufferToSend.Length)
                     do! semaphore.WaitAsync() |> Async.AwaitIAsyncResult |> Async.Ignore
                     let! possibleExc = Async.Catch <| writer.AsyncWrite countBytes
                     do matchOrThrow possibleExc
-                    let! possibleExc2 = Async.Catch <| writer.AsyncWrite bufferToSend
-                    do matchOrThrow possibleExc2
-                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "%d bytes written." bufferToSend.Length)
+                    let mark = bufferToSend.GetBufferPosLength()
+                    let! unitOrExc = Async.Catch <| bufferToSend.AsyncReadToStream(writer, bufferToSend.Length)
+                    do matchOrThrow unitOrExc
+                    let getPosition (x,y,z) = y
+                    Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "%d bytes written." (int bufferToSend.Position - getPosition mark))
+                    // TODO: Do we need to reset the stream?
+                    //bufferToSend.Position
                     semaphore.Release() |> ignore
                 with
                     | :? IOException -> 
@@ -69,7 +74,7 @@ type BufferStreamConnection() =
 
     let sendBuffers(socket: Socket) = 
         let writer = new NetworkStream(socket)
-        QueueMultiplexer<byte[]>.AddQueue(writeQueue, onNewBuffer writer)
+        QueueMultiplexer<MemoryStreamB>.AddQueue(writeQueue, onNewBuffer writer)
 
     interface IConn with 
 

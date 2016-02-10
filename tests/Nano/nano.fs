@@ -21,6 +21,10 @@ module NanoTests =
     let TearDown() =
         QueueMultiplexer<byte[]>.Shutdown()
 
+    [<SetUp>]
+    let SetUp() = 
+        do MemoryStreamB.InitSharedPool()
+
     [<Test>]
     let NanoStartLocalServer() = 
         use __ = new ServerNode(1500)
@@ -44,8 +48,8 @@ module NanoTests =
 
     [<Test>]
     let NanoGetValue() = 
-        use sn = new ServerNode(1501)
-        use cn = new ClientNode("127.0.0.1", 1501)
+        use sn = new ServerNode(1500)
+        use cn = new ClientNode("127.0.0.1", 1500)
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> "Test")
@@ -54,6 +58,21 @@ module NanoTests =
             }
             |> Async.RunSynchronously
         Assert.AreEqual(value, "Test")
+
+    [<Test>]
+    let NanoBigArrayRoundTrip() = 
+        use sn = new ServerNode(1500)
+        use cn = new ClientNode("127.0.0.1", 1500)
+        let bigMatrix = Array.zeroCreate<float32> 25000000 // = 100MB
+        let sw = Stopwatch.StartNew()
+        let value = 
+            async {
+                let! r = cn.NewRemote(fun _ -> bigMatrix)
+                let! ret =  r.GetValue()
+                return ret
+            }
+            |> Async.RunSynchronously
+        printf "%s" <| sprintf "Big matrix round-trip took: %A" sw.Elapsed
 
     [<Test>]
     let NanoRunRemote() = 
@@ -135,7 +154,7 @@ module NanoTests =
     [<Test>]
     let NanoParallelNoWait() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
-        nanoParallelWild 100 0 1 1
+        nanoParallelWild 333 0 1 1
 
     [<Test>]
     let NanoParallelManyToMany() = 

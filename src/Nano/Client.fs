@@ -26,25 +26,26 @@ type ClientNode(addr: string, port: int) =
         let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
         GenericSerialization.GetDefaultFormatter(CustomizedSerializationSurrogateSelector(memStreamBConstructors))
 
-    let onNewBuffer (responseBytes: byte[]) =
+    let onNewBuffer (responseBytes: MemoryStreamB) =
         async { 
-            let (Numbered(number,response)) = serializer.Deserialize(new MemoryStream(responseBytes)) :?> Numbered<Response>
+            let (Numbered(number,response)) = serializer.Deserialize(responseBytes) :?> Numbered<Response>
             callbacks.[number] response
         }
         |>  Async.Start 
     
     let onConnect readQueue wq =
         writeQueue <- wq
-        QueueMultiplexer<byte[]>.AddQueue(readQueue, onNewBuffer)
+        QueueMultiplexer<MemoryStreamB>.AddQueue(readQueue, onNewBuffer)
 
     do
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting client node")
         network.Connect<BufferStreamConnection>(addr, port, onConnect) |> ignore
 
     member internal this.Run(request: Request) : Async<Response> =
-        let memStream = new MemoryStream()
+        let memStream = new MemoryStreamB()
         let numberedRequest = newNumbered request
         serializer.Serialize(memStream, numberedRequest)
+        memStream.Seek(0L, SeekOrigin.Begin) |> ignore
         let responseHolder : Response option ref = ref None
         let semaphore = new SemaphoreSlim(0) 
         let callback (response: Response) = 
@@ -54,7 +55,7 @@ type ClientNode(addr: string, port: int) =
             )
         callbacks.AddOrUpdate(numberedRequest.N, callback, Func<_,_,_>(fun _ _ -> raise <| Exception("Unexpected pre-existing request number."))) |> ignore
         lock responseHolder (fun _ ->
-            writeQueue.Add (memStream.GetBuffer().[0..(int memStream.Length)-1])
+            writeQueue.Add memStream
             async {
                 do! Async.AwaitIAsyncResult(semaphore.WaitAsync(), 10) |> Async.Ignore
                 while !responseHolder = None do

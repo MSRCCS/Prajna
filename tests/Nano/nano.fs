@@ -1,6 +1,9 @@
 ﻿namespace Nano.Tests
 
 open System
+open System.IO
+open System.Net
+open System.Net.Sockets
 open System.Threading
 open System.Collections.Concurrent
 open System.Diagnostics
@@ -23,6 +26,7 @@ module NanoTests =
 
     [<SetUp>]
     let SetUp() = 
+        do BufferListStream<byte>.BufferSizeDefault <- 1 <<< 24
         do MemoryStreamB.InitSharedPool()
 
     [<Test>]
@@ -59,12 +63,15 @@ module NanoTests =
             |> Async.RunSynchronously
         Assert.AreEqual(value, "Test")
 
+    let baseNumFloatsForPerf = 75000000 // 0.3GB
+
     [<Test>]
-    let NanoBigArrayRoundTrip() = 
+    let NanoBigArrayRoundTrip() =
         use sn = new ServerNode(1500)
-        use cn = new ClientNode("127.0.0.1", 1500)
-        let bigMatrix = Array.zeroCreate<float32> 25000000 // = 100MB
         let sw = Stopwatch.StartNew()
+        use cn = new ClientNode("127.0.0.1", 1500)
+        let r = Random()
+        let bigMatrix = Array.init<float32> baseNumFloatsForPerf (fun _ -> r.NextDouble() |> float32) 
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> bigMatrix)
@@ -73,6 +80,56 @@ module NanoTests =
             }
             |> Async.RunSynchronously
         printf "%s" <| sprintf "Big matrix round-trip took: %A" sw.Elapsed
+
+    [<Test>]
+    let NanoBigArrayRawSocket() = 
+        let numFloats = baseNumFloatsForPerf * 2
+        let numBytes = numFloats * sizeof<float32>
+        let r = Random()
+
+        let bigMatrix = Array.init<float32> numFloats (fun _ -> r.NextDouble() |> float32) 
+
+        let server = new TcpListener(IPAddress.Loopback, 1500)
+        server.Start()
+
+        let swa = Stopwatch.StartNew()
+
+        let swt = new Stopwatch()
+
+        let clientThread = 
+            new Thread(new ThreadStart(fun _ ->
+                let client = new Socket(SocketType.Stream, ProtocolType.IP)
+                client.Connect(IPAddress.Loopback, 1500)
+                let bytes = Array.zeroCreate numBytes
+                let sw = Stopwatch.StartNew()
+                Buffer.BlockCopy(bigMatrix, 0, bytes, 0, bytes.Length)
+                printfn "%s" <| sprintf "Copy only: %A" sw.Elapsed
+                let mutable count = 0
+                swt.Start()
+                while count < numBytes do            
+                    count <- count + client.Send(bytes, count, numBytes - count, SocketFlags.None)
+                client.Shutdown(SocketShutdown.Both)))
+        clientThread.Start()
+
+        let mutable result = 0.0f
+        let serverThread = 
+            new Thread(new ThreadStart(fun _ -> 
+                let socket = server.AcceptSocket()
+                let bytes = Array.zeroCreate<byte> numBytes
+                let mutable count = 0
+                while count < numBytes do
+                    count <- count + socket.Receive(bytes, count, numBytes - count, SocketFlags.None)
+                printfn "%s" <| sprintf "Data transfer only: %A" swt.Elapsed
+                let bigMatrixCopy = Array.zeroCreate<float32> numFloats
+                Buffer.BlockCopy(bytes, 0, bigMatrixCopy, 0, bytes.Length)
+                result <- bigMatrixCopy.[bigMatrixCopy.Length - 1]))
+        serverThread.Start()
+        clientThread.Join()
+        serverThread.Join()
+        printfn "%s" <| sprintf "Full connect and transfer: %A" swa.Elapsed
+        server.Stop()
+        Assert.AreEqual(bigMatrix.[bigMatrix.Length-1], result)
+
 
     [<Test>]
     let NanoRunRemote() = 

@@ -715,13 +715,13 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
         let depositWaitHandle = x.DepositWaitHandle
         let executionWaitHandle = x.ExecutionWaitHandle
         if Utils.IsNotNull depositWaitHandle then 
-            x.DepositWaitHandle <- null
+//            x.DepositWaitHandle <- null
             for tuple in depositWaitHandle do
                 let handles = tuple.Value
                 for handle in handles do 
                     handle.Set() |> ignore
         if Utils.IsNotNull executionWaitHandle then 
-            x.ExecutionWaitHandle <- null
+//            x.ExecutionWaitHandle <- null
             for tuple in executionWaitHandle do
                 let handle = tuple.Value
                 handle.Set() |> ignore
@@ -983,9 +983,9 @@ type internal MixFunctionWrapper<'V>(num, bTerminateWhenAnyParentReachEnd ) as x
                             // This avoids the deadlock
                             let handle = executionWaitHandle.GetOrAdd( parti, fun _ -> new ManualResetEvent(false) )
                             // block on execution
-                            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i" parti)
+                            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i entered" parti)
                             ThreadPoolWaitHandles.safeWaitOne( handle, shouldReset = true ) |> ignore
-                            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i returned" parti)
+                            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "WrapperExecuteFunc: safeWaitOne on handle for partition %i exited" parti)
                     Seq.empty
                 else
                     Seq.empty

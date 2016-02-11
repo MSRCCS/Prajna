@@ -422,6 +422,7 @@ let runTests (target:string) =
             timer.Start()
         try
             let pattern = String.Format(testAssemblies, target)
+            traceImportant (sprintf "Running NUnit with parameter %s" pattern)
             !! pattern
             |> NUnit (fun p ->
                 { p with
@@ -430,7 +431,8 @@ let runTests (target:string) =
                     ProcessModel = SeparateProcessModel
                     Domain = SingleDomainModel
                     // Though from the doc, this looks like per test-case timeout, but it works as whole test suite timeout
-                    TimeOut = TimeSpan.FromMinutes 20. 
+                    // We will need to increase the timeout, as otherwise, the test timeout in Linux container
+                    TimeOut = TimeSpan.FromMinutes 60. 
                     OutputFile = sprintf "TestResults_%s.xml" target})    
         with
         | ex -> traceImportant(sprintf "Test run fails: %A" ex)

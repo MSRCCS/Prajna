@@ -354,7 +354,9 @@ type DeploymentSettings() =
     /// Trace Level for Blob Rcvd
     static member val internal TraceLevelBlobRcvd = LogLevel.MildVerbose with get, set
     /// Trace Level for Blob Rcvd
-    static member val internal TraceLevelEveryJobBlob = LogLevel.MildVerbose with get, set
+    static member val internal TraceLevelEveryJobBlob = LogLevel.WildVerbose with get, set
+    /// Trace level for network IO
+    static member val internal TraceLevelEveryNetworkIO = LogLevel.WildVerbose with get, set
 
 
 

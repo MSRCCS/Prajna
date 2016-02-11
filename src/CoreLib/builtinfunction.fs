@@ -57,6 +57,8 @@ module DistributedFunctionBuiltInInitializationModule =
             )
 /// A set of built in distributed functions. 
 type DistributedFunctionBuiltIn() = 
+    static let pool = SystemThreadPool()
+
     static let initialized = lazy ( DistributedFunctionBuiltIn.InitOnce() )
     static let builtInStore = DistributedFunctionStore.Current
             
@@ -78,6 +80,7 @@ type DistributedFunctionBuiltIn() =
         let builtInProvider = DistributedFunctionBuiltInProvider()
         builtInStore.RegisterProvider( builtInProvider )
         let env = RemoteExecutionEnvironment.GetExecutionEnvironment() 
+        ThreadTracking.ContainerName <- RemoteExecutionEnvironment.ContainerName
         match env with 
         | ContainerEnvironment -> 
             Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Register Built-In function API for container %s" RemoteExecutionEnvironment.ContainerName )

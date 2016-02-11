@@ -1,16 +1,16 @@
 source https://nuget.org/api/v2
 
-nuget FSharp.Data 2.2.5
+nuget FSharp.Data
 nuget FSharp.Formatting
 nuget NUnit ~> 2
 nuget NUnit.Runners ~> 2
 nuget FAKE
 nuget SourceLink.Fake
-nuget FSharp.Charting 0.90.9
-nuget Extended.Wpf.Toolkit 2.4
+nuget FSharp.Charting
+nuget Extended.Wpf.Toolkit
 nuget LibGit2Sharp
 
-github fsharp/FAKE modules/Octokit/Octokit.fsx
+github fsharp/FAKE modules/Octokit/Octokit.fsx 
 
 http https://live.sysinternals.com/files/handle.zip
 

@@ -1198,7 +1198,7 @@ and [<AllowNullLiteral; Serializable>]
                         x.JobReady.Reset() |> ignore
                         x.ResolveDSetParent( dset ) 
                         x.RegisterInJobCallback( dset, true )
-                        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Contruct Job Execution Graph for task %s of DSet %s ............." taskName dset.Name ))
+                        Logger.LogF( x.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "Construct Job Execution Graph for task %s of DSet %s ............." taskName dset.Name ))
                         Logger.Do( LogLevel.MildVerbose, ( fun _ -> x.ShowAllDObjectsInfo() ))
                         x.BeginAllSync jbInfo dset
                     if not (!bExistPriorTasks) then 
@@ -2008,7 +2008,7 @@ and [<AllowNullLiteral; Serializable>]
                                                 )
                                     else
                                         // Do nothing, we will wait for all jobs to complete in Async.RunSynchronously
-                                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "Reaching end of part %d with %d mistakes" meta.Partition meta.NumElems ))
+                                        Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "LightJob: Reaching end of part %d with %d mistakes" meta.Partition meta.NumElems ))
                                         if Utils.IsNotNull hostQueue && not hostQueue.Shutdown then 
                                             use msWire = new MemStream( 1024 )
                                             msWire.WriteString( curDSet.Name ) 

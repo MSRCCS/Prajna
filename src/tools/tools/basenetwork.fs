@@ -1071,9 +1071,9 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         if (ret) then
             value.AllowClose <- true
             if (value.Items.Count = 0) then
-               threadPool.HandleDoneExecution.Set() |> ignore
+               threadPool.Cancel() 
         else
-            threadPool.HandleDoneExecution.Set() |> ignore
+            threadPool.Cancel()
 
     static member internal ThreadPoolWait (tp : ThreadPoolWithWaitHandles<'TP>) =
         tp.WaitForAll( -1 ) // use with EnqueueRepeatableFunction in AddWorkItem
@@ -1090,16 +1090,16 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                       (infoFunc : 'TP -> string) =
         let compBase = ComponentBase()
         compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        let finishCb : Option<unit->unit> =
-            if (Utils.IsNull threadPool) then
-                None
-            else
-                threadPool.HandleDoneExecution.Reset() |> ignore
-                let fnFinish() =
-                    let bDone = SharedComponentState.Remove(compBase.ComponentId, compBase.SharedStateObj)
-                    if (bDone) then
-                        threadPool.HandleDoneExecution.Set() |> ignore
-                Some(fnFinish)
+//        let finishCb : Option<unit->unit> =
+//            if (Utils.IsNull threadPool) then
+//                None
+//            else
+//                threadPool.HandleDoneExecution.Reset() |> ignore
+//                let fnFinish() =
+//                    let bDone = SharedComponentState.Remove(compBase.ComponentId, compBase.SharedStateObj)
+//                    if (bDone) then
+//                        threadPool.HandleDoneExecution.Set() |> ignore
+//                Some(fnFinish)
         //Component<'T>.StartOnSystemThreadPool func finishCb
         threadPool.EnqueueRepeatableFunction func cts tpKey infoFunc
         //Component<'T>.StartProcessOnOwnThread func tpKey finishCb infoFunc

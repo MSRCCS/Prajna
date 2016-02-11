@@ -7,6 +7,7 @@ open System.Threading
 
 open Prajna.Core
 open Prajna.Tools
+open Prajna.Service
 
 open Prajna.Tools.FSharp
 open Prajna.Service.FSharp
@@ -20,6 +21,8 @@ type TestEnvironment private () =
     static let useRemoteCluster = false
     static let RemoteClusterListFile = @"path-to-a-cluster-list-file"
     static let envStartTime = DateTime.UtcNow
+    static let travisLogLevel = 4
+    static let generalLogLevel = 4
 
     // Is the testing running in a Travis CI env (https://travis-ci.org)
     static let isRunningOnTravisEnv =
@@ -29,28 +32,18 @@ type TestEnvironment private () =
         let isTravis = Utils.IsNotNull travisEnvVal && travisEnvVal = "true"
         isTravis
 
-    static let env = lazy(let _, minIOThs = ThreadPool.GetMinThreads()
-                          // In UT, daemons/containers/app use the same process thus share the same thread pool
-                          // make the min thread a bit higher 
-                          if not Runtime.RunningOnMono then
-                              ThreadPool.SetMinThreads(Environment.ProcessorCount * 4, minIOThs) |> ignore
-                          else
-                              // Mono uses thread pool threads to wait for WaitHandles given to ThreadPool.RegisterWaitForSingleObject (CLR does not)
-                              // Also it seems under the pattern of repeatedly RegisterWait->wakeup->RegisterWait, Mono uses more thread pool threads and these threads do not 
-                              // quickly become available for new work items. 
-                              // As a result, a higher MinThreads threshold is needed (especially for tests)
-                              ThreadPool.SetMinThreads(Environment.ProcessorCount * 16, minIOThs) |> ignore
-                          let e = new TestEnvironment()
+    static let env = lazy(let e = new TestEnvironment()
                           AppDomain.CurrentDomain.DomainUnload.Add(fun _ -> (e :> IDisposable).Dispose())
                           e)
 
     do
+        // Threadpool initialization.
         Environment.Init()
         let logdir = Path.Combine ([| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
         let fileLog = Path.Combine( logdir, "UnitTestApp_" + StringTools.UtcNowToString() + ".log" )
         // Note: Currently there're bugs that causes the travis build to sometimes fail when use "5". With "6", the chance is better
         //       This "workaround" is not a fix but just for unblocking the setup of travis build. The underlying issue must be investigated
-        let logLevel = if isRunningOnTravisEnv then "6" else "5"
+        let logLevel = if isRunningOnTravisEnv then travisLogLevel.ToString() else generalLogLevel.ToString()
         let args = [| "-verbose"; logLevel; 
                        "-log"; fileLog |]
         let dirInfo= FileTools.DirectoryInfoCreateIfNotExists logdir

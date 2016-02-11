@@ -1532,7 +1532,10 @@ and [<AllowNullLiteral>]
                 Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s waiting for ThreadPool Jobs" x.ParamType x.Name x.VersionString ))
                 let event = threadPool.WaitForAllNonBlocking()
                 Logger.LogF( jbInfo.JobID, LogLevel.WildVerbose, (fun _ -> sprintf "Starting wait for handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName))
-                ThreadPoolWait.WaitForHandle (fun _ -> sprintf "Wait For handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName) event closeDownstream null
+                if event.IsSet then 
+                    Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s done waiting (no need to queue in thread pool)" x.ParamType x.Name x.VersionString ))                        
+                else
+                    ThreadPoolWait.WaitForHandle (fun _ -> sprintf "Wait For handle done execution for ThreadPoolWithWaitHandles:%s" threadPoolName) (event.WaitHandle) closeDownstream null
 
             Logger.LogF( jbInfo.JobID, LogLevel.MildVerbose, ( fun _ -> sprintf "WaitForCloseAllStreamsViaHandle %A %s:%s wait for upstream close events & threadpool jobs" x.ParamType x.Name x.VersionString ))
             x.BaseWaitForUpstreamEvents waithandles contWaitAllJobDone
@@ -1574,8 +1577,8 @@ and [<AllowNullLiteral>]
                 )
                 for pi = 0 to func.Length - 1 do
                     let funci = func.[pi]
-                        // Only one set of threads will be launched. 
-                    //x.ThreadPool.EnqueueRepeatableFunction funci (jobAction.CTS) ( parti * func.Length + pi ) ( fun _ -> nameFunc(pi))
+                    // Use Threadpool to execute 
+                    // x.ThreadPool.EnqueueRepeatableFunction funci (jobAction.CTS) ( parti * func.Length + pi ) ( fun _ -> nameFunc(pi))
                     Component<_>.AddWorkItem funci (x.ThreadPool) (jobAction.CTS) ( parti * func.Length + pi ) ( fun _ -> nameFunc(pi)) |> ignore
                 Component<_>.ExecTP x.ThreadPool
                 x.ThreadPool.TryExecute()

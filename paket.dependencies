@@ -10,7 +10,7 @@ nuget FSharp.Charting
 nuget Extended.Wpf.Toolkit
 nuget LibGit2Sharp
 
-github fsharp/FAKE modules/Octokit/Octokit.fsx
+github fsharp/FAKE modules/Octokit/Octokit.fsx 
 
 http https://live.sysinternals.com/files/handle.zip
 

@@ -673,6 +673,7 @@ type internal ThreadTracking private () as this =
     /// Timer to Wait for all threads to termiante
     static member val internal ThreadJoinTimeOut = 10000 with get, set
     static member val TrackingThreads = ConcurrentQueue<_>() with get
+    static member val ContainerName = "<Unknown>" with get, set
     /// <summary> 
     /// This is the preferred way to start a thread. 
     /// apartmentState: ApartmentState
@@ -687,7 +688,7 @@ type internal ThreadTracking private () as this =
             let thread = Threading.Thread( threadStart )
             thread.SetApartmentState( apartmentState )
             thread.IsBackground <- true
-            thread.Name <- "PrajnaTrackedThread"
+            thread.Name <- "PrajnaTrackedThread@" + ThreadTracking.ContainerName
             // Storing name, instead of function as some parameter of the nameFunc() may not be available at the end of the thread. 
             let param = ThreadStartParam( thread, nameFunc(), action, cancelFunc, threadAffinity  )
             Logger.LogF(LogLevel.WildVerbose, (fun _ -> sprintf "Start a tracked thread: %s" (nameFunc())))
@@ -949,7 +950,7 @@ type private ThreadPoolWaitDeprecated internal (id:int) as this =
     /// <param name="unblockHandle"> handle to set if continuation function fired. </param>
     static member WaitForHandle (infoFunc:unit->string) (handle:WaitHandle) continuation (unblockHandle:ManualResetEvent) = 
         if (!ThreadPoolWaitDeprecated.nTerminate)<>0 then 
-            let msg = sprintf "ThreadPoolWaitDeprecated.WaitForHandle should not be called when the corresponding Threadpool has been unregistered!" 
+            let msg = sprintf "ThreadPoolWaitDeprecated.WaitForHandle is called by %s when the corresponding Threadpool has been terminated!" (infoFunc())
             Logger.Log( LogLevel.Error, msg )
             failwith msg 
         else
@@ -1225,11 +1226,13 @@ type internal ThreadPoolWait() =
             ThreadPoolWait.WaitForHandle infoFunc handle continuation unblockHandle
     static member WaitForHandle (infoFunc: unit-> string) (handle:WaitHandle) (continuation:unit->unit) (unblockHandle:EventWaitHandle) =
         if handle.WaitOne(0) then 
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "WaitHandle %s has already fired before wait, execute continuation on the current thread" (infoFunc()) )
             continuation() 
             if Utils.IsNotNull unblockHandle then 
                 // If there is an unblock handle, set it. 
                 unblockHandle.Set() |> ignore
         else
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Wait for WaitHandle %s via RegisterWaitForSingleObject ..." (infoFunc()) )
             /// Uniquely identify this async job and its resource removal. 
             let jobObject = Object()
             let rwh = ThreadPool.RegisterWaitForSingleObject( handle, new WaitOrTimerCallback(ThreadPoolWait.CallBack), (infoFunc,handle,continuation,unblockHandle,jobObject) , -1, true )
@@ -1240,6 +1243,7 @@ type internal ThreadPoolWait() =
             if not timeout then
                 try
                     let infoFunc,handle,continuation,unblockHandle,jobObject = state :?> ((unit->string)*WaitHandle*(unit->unit)*EventWaitHandle*Object)
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "WaitHandle %s fired, execute continuation..." (infoFunc()) )
                     continuation() 
                     if Utils.IsNotNull unblockHandle  then 
                         // If there is an unblock handle, set it. 
@@ -1446,7 +1450,7 @@ type internal WaitHandleCollection(collectionName:string, initialCapacity:int)  
         
 type internal ThreadPoolStart<'K> = 
     struct
-        val UsePool: ThreadPoolWithWaitHandlesSystem<'K>
+        val UsePool: ThreadPoolWithWaitHandles<'K>
         val ThreadID: int
         new( pool, id ) = { UsePool=pool; ThreadID=id; }
     end
@@ -1472,22 +1476,30 @@ and /// System Threadpool is use to govern the minimum thread used in the system
     static do 
         let bSuccess = ThreadPool.SetMinThreads(minSystemThs, minIOThs) 
         let nThreads = minSystemThs
-        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "SetMinThreads to %d, %d" nThreads minIOThs  )
+        if bSuccess then 
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "SetMinThreads to %d, %d succeeded" nThreads minIOThs  )
+        else
+            Logger.LogF( LogLevel.Warning, fun _ -> sprintf "SetMinThreads to %d, %d fails, current: %d" nThreads minIOThs minSystemThs )
     /// Enter a blocking area
     static member Enter() = 
+        Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> "thread enter blocks..." )
         let cnt = Interlocked.Increment(&numBlockedThs)
         if cnt + minThs > minSystemThs then 
             let oldValue = minSystemThs
             let newValue = oldValue + minThs
             if Interlocked.CompareExchange( &minSystemThs, newValue, oldValue )=oldValue then 
-                ThreadPool.SetMinThreads(newValue, minIOThs) |> ignore
-                Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "%d thread blocks, Increase MinThreads to %d, %d" cnt newValue minIOThs  )
+                let bSuccess = ThreadPool.SetMinThreads(newValue, minIOThs) 
+                if bSuccess then 
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "%d thread blocks, Increase MinThreads to %d, %d" cnt newValue minIOThs  )
+                else
+                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "%d thread blocks, Increase MinThreads to %d, %d fails, current: %d" cnt newValue minIOThs minSystemThs )
     /// Exit a blocking area            
     static member Exit() = 
         let cnt = Interlocked.Decrement(&numBlockedThs) 
         if cnt < 0 then 
             /// The number of blocked thread should never be smaller than 0 
             Interlocked.Increment(&numBlockedThs) |> ignore 
+        Logger.LogF( LogLevel.ExtremeVerbose, fun _ -> "thread exit blocks..." )
 
 #if USE_CUSTOMIZED_THREADPOOL
 
@@ -2075,7 +2087,7 @@ and /// Allow wait and control thread pool behavior
                 ev.Reset() |> ignore
             ret
         static member safeWaitOne ( ev:ManualResetEvent, shouldReset ) = 
-            ThreadPoolWaitHandles.safeWaitOne( ev, shouldReset )    
+            ThreadPoolWaitHandles.safeWaitOne( ev, Timeout.Infinite, shouldReset )    
         static member safeWaitAny ( handles: WaitHandle[] ) = 
             SystemThreadPool.Enter( )
             try 
@@ -2136,7 +2148,7 @@ and [<AllowNullLiteral>]
     /// Track the execution status of the function in the operation. 
     member val TaskStatus = ConcurrentDictionary<_,_>() with get
     /// Whether all operation has done execution
-    member val HandleDoneExecution = new ManualResetEventSlim(false) with get
+    member val private HandleDoneExecution = new ManualResetEventSlim(false) with get
     member private x.WakeupWorkItem (func: unit -> ManualResetEvent * bool) (cts:CancellationToken) (key:'K) (infoFunc:'K->string) () = 
         let bExist, tuple = x.TaskStatus.TryGetValue( key ) 
         if bExist then 
@@ -2211,10 +2223,16 @@ and [<AllowNullLiteral>]
                             Logger.LogF( LogLevel.MediumVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s is finished, done exeucting task %s " x.ThreadPoolName (infoFunc(key)) ))
                     else
                         Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s, done executing task of key %A, but can't find entry in TaskStatus" x.ThreadPoolName key ))
-                    Interlocked.Decrement( &numTasks ) |> ignore 
-                    if Volatile.Read( &inWait ) = 1 then 
-                        // Only set HandleDoneExecution when we are waiting in WaitAll. 
+                    let cnt = Interlocked.Decrement( &numTasks )
+                    if cnt <=0 then 
+                        // Always set HandleDoneExecution when we are waiting in WaitAll. 
                         x.HandleDoneExecution.Set() |> ignore    
+                        if Volatile.Read( &inWait ) = 1 then 
+                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s, done executing all tasks, set HandleDoneExecution and unblock WaitAll" x.ThreadPoolName ))
+                        else
+                            Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s, done executing all tasks, set HandleDoneExecution" x.ThreadPoolName ))
+                            
+
     /// <summary>
     /// Enqueue an action for repeated execution, until the action returns (*, true). 
     /// The first of tuple is a ManualResetEvent that signals whether the repeatable action needs to wait, 
@@ -2271,7 +2289,7 @@ and [<AllowNullLiteral>]
         let mutable bDoneWaiting = false 
         let startTicks = DateTime.UtcNow.Ticks 
         while not bDoneWaiting do 
-            if Volatile.Read( &numTasks ) = 0 then 
+            if Volatile.Read( &numTasks ) <= 0 then 
                 bDoneWaiting <- true
             if not bDoneWaiting then 
                 bDoneWaiting <- ctsAllTasks.IsCancellationRequested
@@ -2281,8 +2299,12 @@ and [<AllowNullLiteral>]
                     /// Timeout 
                     bDoneWaiting <- true      
             if not bDoneWaiting then 
-                /// Only Wait when we have some operation in execution and the task is not cancelled
-                x.HandleDoneExecution.WaitHandle.WaitOne( timeOut ) |> ignore 
+                if not x.HandleDoneExecution.IsSet then 
+                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s, block and wait all tasks to finish execution" x.ThreadPoolName ))
+                    /// Only Wait when we have some operation in execution and the task is not cancelled
+                    x.HandleDoneExecution.Wait( timeOut ) |> ignore 
+                    Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem %s, wakeup on HandleDoneExecution" x.ThreadPoolName ))
+
     member x.CloseAllThreadPool() = 
         CleanUp.Current.CleanUpOneObject( x )
     member x.CloseAllThreadPoolByCleanup() = 
@@ -2298,6 +2320,8 @@ and [<AllowNullLiteral>]
     /// job to be scheduled and cancel it 
     member x.Cancel() = 
         if not ctsAllTasks.IsCancellationRequested then 
+            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem, to cancel all works in pool %s"
+                                                                    x.ThreadPoolName )
             ctsAllTasks.Cancel() |> ignore 
             for pair in x.TaskStatus do 
                 let key = pair.Key
@@ -2310,7 +2334,7 @@ and [<AllowNullLiteral>]
                 else
                     Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ThreadPoolWithWaitHandlesSystem, attempt to cancel operation %A of %s queued in Threadpool ..... "
                                                                         key (infoFunc(key)) )
-            
+            x.HandleDoneExecution.Set() |> ignore 
     member val WaitInMillisecondAtDispose = 2000 with get, set
     /// Check if all tasks have been executed. 
     /// Print a message if there is still task left. 
@@ -2334,10 +2358,11 @@ and internal ThreadPoolWithWaitHandles<'K> = ThreadPoolWithWaitHandlesSystem<'K>
 
 #endif
 
+#if CUSTOMIZED_TIMER
 /// <summary> 
 /// A collection of thread pool timer. 
 /// </summary>
-and internal ThreadPoolTimerCollections() as this = 
+and private ThreadPoolTimerCollections() as this = 
     do 
         CleanUp.Current.Register( 300, this, this.CancelAll, fun _ -> "ThreadPoolTimerCollections" ) |> ignore 
     static member val Current = new ThreadPoolTimerCollections() with get
@@ -2457,7 +2482,6 @@ and internal ThreadPoolTimerCollections() as this =
 /// <summary> 
 /// Thread pool timer. The advantage of this class over the System.Threading.Timer is:
 /// 1. The timer will be checked by any wakeup thread pool. So the firing will be more accurate. 
-/// 2. We will queue only one timer per entire pool of timer, so it is lightweight on the system. 
 /// </summary>
 and [<AllowNullLiteral>]
     internal ThreadPoolTimer internal (infoFunc: unit-> string, callback: unit -> unit, dueTimeInMilliSeconds:int, periodInMilliSeconds: int) as timer = 
@@ -2570,6 +2594,56 @@ and [<AllowNullLiteral>]
             infiring := 0
         if bCueAgain then 
             ThreadPoolTimerCollections.Current.CueForFiring()
+#else
+/// <summary> 
+/// Thread pool timer, with capability to identify to track firing, etc.. 
+/// </summary>
+and [<AllowNullLiteral>]
+    internal ThreadPoolTimer private (infoFunc: unit-> string, callback: unit -> unit, dueTimeInMilliSeconds:int, periodInMilliSeconds: int)  =
+    let mutable dueTimeInternal = dueTimeInMilliSeconds
+    let mutable periodInternal = periodInMilliSeconds
+    let callFunc (o:Object) = 
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ThreadPoolTimer %s is fired .... " (infoFunc()) )
+        callback() 
+    let timerCallback = TimerCallback( callFunc ) 
+    let timer = new System.Threading.Timer(timerCallback, null, dueTimeInternal, periodInternal)
+    /// <summary> 
+    /// Initializes a new instance of the ThreadPoolTimer class.  
+    /// </summary> 
+    /// <param name="infoFunc"> A functional delegate that shows information of the timer if the timer later ill behaved (e.g., take a long time to execute in the callback function) </param>
+    /// <param name="callback"> A callback function to be invoked when timer fires. The callback function should not block, otherwise, it may impact other 
+    /// timers to fire. If the callback takes a long time to execute, warning may be issued. </param>
+    /// <param name="dueTime"> Next firing interval in milliseconds. If dueTime is zero (0), callback is invoked immediately. If dueTime is Timeout.Infinite, callback is not invoked; 
+    /// the timer is disabled, but can be re-enabled by calling the Change method. </param>
+    /// <param name="period"> Periodic firing interval in milliseconds. If period is zero (0) or Timeout.Infinite, and dueTime is not Timeout.Infinite, the callback method is invoked once; 
+    /// the periodic behavior of the timer is disabled, but can be re-enabled by calling Change and specifying a positive value for period. </param>
+    static member TimerWait (infoFunc) (callback) dueTimeInMilliSeconds periodInMilliSeconds = 
+        let timer = ThreadPoolTimer( infoFunc, callback, dueTimeInMilliSeconds, periodInMilliSeconds ) 
+        timer
+    /// <summary>
+    /// get, or set due time. Please note that set due time will reset the lastFired information
+    /// From System.Threading.Timer
+    /// If dueTime is zero (0), callback is invoked immediately. If dueTime is Timeout.Infinite, callback is not invoked; the timer is disabled, but can be re-enabled by calling the Change method.
+    /// If period is zero (0) or Timeout.Infinite, and dueTime is not Timeout.Infinite, the callback method is invoked once; the periodic behavior of the timer is disabled, but can be re-enabled by calling Change and specifying a positive value for period.
+    /// </summary>
+    member x.DueTime with get() = dueTimeInternal
+                      and set( t ) = dueTimeInternal <- t 
+                                     timer.Change( dueTimeInternal, periodInternal ) |> ignore 
+    /// <summary>
+    /// get, or set firing period. Please note that setting firing period will reset the lastFired information
+    /// From System.Threading.Timer
+    /// If dueTime is zero (0), callback is invoked immediately. If dueTime is Timeout.Infinite, callback is not invoked; the timer is disabled, but can be re-enabled by calling the Change method.
+    /// If period is zero (0) or Timeout.Infinite, and dueTime is not Timeout.Infinite, the callback method is invoked once; the periodic behavior of the timer is disabled, but can be re-enabled by calling Change and specifying a positive value for period.
+    /// </summary>                                   
+    member x.Period with get() = periodInternal
+                     and set( t ) = periodInternal <- t
+                                    timer.Change( dueTimeInternal, periodInternal ) |> ignore 
+    member x.Cancel() = 
+        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ThreadPoolTimer %s is destroyed .... " (infoFunc()) )
+        timer.Dispose()
+#endif
+
+
 
 /// <summary>
 /// delegate StreamMonitorAction provides call back for StreamMonitor

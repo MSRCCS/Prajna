@@ -53,7 +53,7 @@ type [<AllowNullLiteral>] GenericNetwork(bStartSendPool, numNetThreads) =
 
     /// Start with numNetThreads being default
     new (bStartSendPool) =
-        new GenericNetwork(bStartSendPool, ThreadPoolWithWaitHandlesSystem<string>.DefaultNumParallelExecution)
+        new GenericNetwork(bStartSendPool, ThreadPoolWithWaitHandles<string>.DefaultNumParallelExecution)
 
     /// Allow specification of stackSize, buffer size, bStartSendPool upon construction
     new (stackSize, bufSize, bStartSendPool, recvCbO, sendCbO) as x =
@@ -69,7 +69,7 @@ type [<AllowNullLiteral>] GenericNetwork(bStartSendPool, numNetThreads) =
 
     member internal x.CTS with get() = cts.Token
 
-    member val internal netPool = new ThreadPoolWithWaitHandlesSystem<string>("network process", numNetThreads) with get
+    member val internal netPool = new ThreadPoolWithWaitHandles<string>("network process", numNetThreads) with get
     member internal x.bufProcPool with get() = x.netPool
     member internal x.sendPool with get() = x.netPool
 

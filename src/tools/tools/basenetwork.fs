@@ -835,7 +835,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
 
     // changing enqueue/dequeue times based on number of items being processed by thread poool
     static member internal ChangeQTime<'TP,'TN when 'TN:null and 'TN:equality>
-        (tpool : ThreadPoolWithWaitHandlesSystem<'TP>)
+        (tpool : ThreadPoolWithWaitHandles<'TP>)
         (comp : Component<'T>)
         (compN : Component<'TN>)
         (adjustOwnEnqueue : bool)
@@ -852,7 +852,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
 
         if Utils.IsNotNull tpool then
             let count = s.Items.Count
-            if (count <= ThreadPoolWithWaitHandlesSystem<'TP>.DefaultNumParallelExecution) then
+            if (count <= ThreadPoolWithWaitHandles<'TP>.DefaultNumParallelExecution) then
                 setTime(0)
             else
                 setTime(0)
@@ -936,7 +936,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                 | Some(nextTerminate) -> nextTerminate()
 
     // default connect to next component
-    // should not be internal, but can only be non-internalized if ThreadPoolWithWaitHandlesSystem is non-internalized
+    // should not be internal, but can only be non-internalized if ThreadPoolWithWaitHandles is non-internalized
     /// Connect current component to next component using:
     /// - "DequeueWait" for dequeue action
     /// - "DefaultClose" for close action
@@ -947,7 +947,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// <param name="nextClose">An option for code to execute after close done</param>
     /// <param name="nextTerminate">An option for code to execute after terminate done</param>
     member internal x.ConnectTo<'TP,'TN when 'TN:null and 'TN:equality> 
-        (threadPool : ThreadPoolWithWaitHandlesSystem<'TP>) (adjustOwnEnqueue : bool) 
+        (threadPool : ThreadPoolWithWaitHandles<'TP>) (adjustOwnEnqueue : bool) 
         (nextComponent : Component<'TN>) (nextClose : Option<unit->unit>) (nextTerminate : Option<unit->unit>) =
         x.Dequeue <- q.DequeueWait
         x.Close <- Component<'T>.DefaultClose x nextComponent nextClose
@@ -1018,7 +1018,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
 //        thread.Start(proc)
 
     // thread pool to process on
-    static member internal StartOnThreadPool(threadPool : ThreadPoolWithWaitHandlesSystem<'TP>)
+    static member internal StartOnThreadPool(threadPool : ThreadPoolWithWaitHandles<'TP>)
                                             (processFunc : unit -> ManualResetEvent*bool)
                                             (cts : CancellationToken)
                                             (tpKey : 'TP)
@@ -1065,17 +1065,17 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         let wc = new WaitCallback(wrappedFunc)
         System.Threading.ThreadPool.QueueUserWorkItem(wc, wc) |> ignore
 
-    static member internal ExecTP(threadPool : ThreadPoolWithWaitHandlesSystem<'TP>) =
+    static member internal ExecTP(threadPool : ThreadPoolWithWaitHandles<'TP>) =
         // now allow closing of threadpool
         let (ret, value) = SharedComponentState.SharedState.TryGetValue(threadPool)
         if (ret) then
             value.AllowClose <- true
             if (value.Items.Count = 0) then
-               threadPool.HandleDoneExecution.Set() |> ignore
+               threadPool.Cancel() 
         else
-            threadPool.HandleDoneExecution.Set() |> ignore
+            threadPool.Cancel()
 
-    static member internal ThreadPoolWait (tp : ThreadPoolWithWaitHandlesSystem<'TP>) =
+    static member internal ThreadPoolWait (tp : ThreadPoolWithWaitHandles<'TP>) =
         tp.WaitForAll( -1 ) // use with EnqueueRepeatableFunction in AddWorkItem
         //tp.HandleDoneExecution.WaitOne( -1 ) // for other cases
 
@@ -1084,33 +1084,33 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// <param name="tpKey">A key to identify the processing component</param>
     /// <param name="infoFunc">A function which returns information about the processing component</param>
     static member internal AddWorkItem(func : unit->ManualResetEvent*bool)
-                                        (threadPool : ThreadPoolWithWaitHandlesSystem<'TP>)
+                                        (threadPool : ThreadPoolWithWaitHandles<'TP>)
                                         (cts : CancellationToken)
                                         (tpKey : 'TP)
                                       (infoFunc : 'TP -> string) =
         let compBase = ComponentBase()
         compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
-        let finishCb : Option<unit->unit> =
-            if (Utils.IsNull threadPool) then
-                None
-            else
-                threadPool.HandleDoneExecution.Reset() |> ignore
-                let fnFinish() =
-                    let bDone = SharedComponentState.Remove(compBase.ComponentId, compBase.SharedStateObj)
-                    if (bDone) then
-                        threadPool.HandleDoneExecution.Set() |> ignore
-                Some(fnFinish)
+//        let finishCb : Option<unit->unit> =
+//            if (Utils.IsNull threadPool) then
+//                None
+//            else
+//                threadPool.HandleDoneExecution.Reset() |> ignore
+//                let fnFinish() =
+//                    let bDone = SharedComponentState.Remove(compBase.ComponentId, compBase.SharedStateObj)
+//                    if (bDone) then
+//                        threadPool.HandleDoneExecution.Set() |> ignore
+//                Some(fnFinish)
         //Component<'T>.StartOnSystemThreadPool func finishCb
         threadPool.EnqueueRepeatableFunction func cts tpKey infoFunc
         //Component<'T>.StartProcessOnOwnThread func tpKey finishCb infoFunc
         //Prajna.Tools.ThreadPool.Current.AddWorkItem(func, finishCb, infoFunc(tpKey))
 
-    /// Start component processing on threadpool - internal as ThreadPoolWithWaitHandlesSystem is not internal
+    /// Start component processing on threadpool - internal as ThreadPoolWithWaitHandles is not internal
     /// <param name="threadPool>The thread pool to execute upon</param>
     /// <param name="cts">A cancellation token to cancel the processing</param>
     /// <param name="tpKey">A key to identify the processing component</param>
     /// <param name="infoFunc">A function which returns information about the processing component</param>
-    member internal x.StartProcess(threadPool : ThreadPoolWithWaitHandlesSystem<'TP>)
+    member internal x.StartProcess(threadPool : ThreadPoolWithWaitHandles<'TP>)
                                   (cts : CancellationToken)
                                   (tpKey : 'TP)
                                   (infoFunc : 'TP -> string) : unit =
@@ -1129,7 +1129,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     /// <param name="tpKey">A key to identify the processing component</param>
     /// <param name="infoFunc">A function which returns information about the processing component</param>
     static member internal StartWorkItem(func : unit->ManualResetEvent*bool)
-                                        (threadPool : ThreadPoolWithWaitHandlesSystem<'TP>)
+                                        (threadPool : ThreadPoolWithWaitHandles<'TP>)
                                         (cts : CancellationToken)
                                         (tpKey : 'TP)
                                         (infoFunc : 'TP -> string) =
@@ -1330,7 +1330,7 @@ type internal ComponentThr<'T when 'T:null and 'T:equality>(desiredMaxSize : int
         q.MinSize <- 0L
         base.SelfClose()
 
-    member x.StartUsingDQ(threadPool : ThreadPoolWithWaitHandlesSystem<'TP>)
+    member x.StartUsingDQ(threadPool : ThreadPoolWithWaitHandles<'TP>)
                          (cts : CancellationToken)
                          (tpKey : 'TP)
                          (infoFunc : 'TP -> string) 
@@ -1339,8 +1339,8 @@ type internal ComponentThr<'T when 'T:null and 'T:equality>(desiredMaxSize : int
         let proc = Component.Process x.Item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
         Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
 
-    abstract Start : ThreadPoolWithWaitHandlesSystem<'TP>->CancellationToken->'TP->('TP->string)->(unit->string)->unit
-    default x.Start(threadPool : ThreadPoolWithWaitHandlesSystem<'TP>)
+    abstract Start : ThreadPoolWithWaitHandles<'TP>->CancellationToken->'TP->('TP->string)->(unit->string)->unit
+    default x.Start(threadPool : ThreadPoolWithWaitHandles<'TP>)
                    (cts : CancellationToken)
                    (tpKey : 'TP)
                    (infoFunc : 'TP -> string) 

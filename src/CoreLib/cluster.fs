@@ -257,6 +257,7 @@ type internal NodeWithInJobInfo() =
 [<AllowNullLiteral>]
 type internal NodeConnectionInfo(machineName:string,port:int) = 
     inherit CacheFactory<string*int64,NodeWithInJobInfo>( StringTComparer<int64>(StringComparer.Ordinal) )
+    let mutable bDisposed = false
     member val FirstConnectTicksRef = ref (DateTime.MinValue.Ticks) with get
     member val LastConnectTicksRef = ref (DateTime.MinValue.Ticks) with get
     member val ConnectionToDaemon: NetworkCommandQueue = null with get, set
@@ -274,7 +275,7 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
         if DeploymentSettings.IntervalToReconnectDaemonInMs<0 then 
             // Do not reconnect 
             ()
-        else 
+        elif not bDisposed then 
             Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "schedule to reconnect to %s:%d in %d ms" 
                                                                        machineName port
                                                                        DeploymentSettings.IntervalToReconnectDaemonInMs ))
@@ -295,6 +296,7 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
         // otherwise no processing
         Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Attempt to connect to %s:%d .... " machineName port ))
     member x.DaemonReconnect() = 
+      if not bDisposed then 
         /// Second time to connect 
         let newAttemptQueue = NetworkConnections.Current.AddConnect( machineName, port )
         newAttemptQueue.GetOrAddRecvProc ( "DaemonConnect", x.RecvProc x.ConnectionToDaemon ) |> ignore
@@ -311,6 +313,8 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
 
     interface IDisposable with
         member x.Dispose() = 
+            bDisposed <- true
+            x.TimerToReonnect.Cancel()
             if Utils.IsNotNull x.ConnectionToDaemon then
                 (x.ConnectionToDaemon :> IDisposable).Dispose()
             x.EvConnectionToDaemon.Dispose()

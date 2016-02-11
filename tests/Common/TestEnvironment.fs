@@ -7,6 +7,7 @@ open System.Threading
 
 open Prajna.Core
 open Prajna.Tools
+open Prajna.Service
 
 open Prajna.Tools.FSharp
 open Prajna.Service.FSharp
@@ -36,6 +37,7 @@ type TestEnvironment private () =
                           e)
 
     do
+        // Threadpool initialization.
         Environment.Init()
         let logdir = Path.Combine ([| DeploymentSettings.LocalFolder; "Log"; "UnitTest" |])
         let fileLog = Path.Combine( logdir, "UnitTestApp_" + StringTools.UtcNowToString() + ".log" )

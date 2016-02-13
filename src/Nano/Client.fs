@@ -72,7 +72,7 @@ type ClientNode(address: IPAddress, port: int) =
 
     member this.NewRemote(func: Func<'T>) : Async<Remote<'T>> =
         async {
-            let handler = defaultArg (ServerNode.TryGetServer((address,port))) (this :> IRequestHandler)
+            let handler = (* defaultArg (ServerNode.TryGetServer((address,port))) *) (this :> IRequestHandler)
             let! response = handler.HandleRequest(RunDelegate(-1, func))
             match response with
             | RunDelegateResponse(pos) -> return new Remote<'T>(pos, this)
@@ -80,7 +80,6 @@ type ClientNode(address: IPAddress, port: int) =
         }
 
     interface IDisposable with
-
         member __.Dispose() = 
             writeQueue.CompleteAdding()
 
@@ -92,24 +91,14 @@ and Remote<'T> =
     val mutable serverInfo : ServerInfo
 
     internal new(pos: int, handler: IRequestHandler) = 
-        {handler = (*handler*) Unchecked.defaultof<IRequestHandler>; pos = pos; serverInfo = {Address = handler.Address; Port = handler.Port }}
-
-//    [<System.Runtime.Serialization.OnSerializing>]
-//    member internal this.OnSerializing() = 
-//        this.serverInfo <- Some {ServerId = this.handler.ServerId; Address = this.handler.Address; Port = this.handler.Port }
-
-//    [<System.Runtime.Serialization.OnDeserialized>]
-//    member internal this.OnDeserialized() = 
-//        match ServerNode.TryGetServer(this.serverInfo.Value.ServerId) with
-//        | Some(server) -> this.handler <- server
-//        | None -> this.handler <- ClientNode(this.serverInfo.Value.Address, this.serverInfo.Value.Port) :> IRequestHandler
+        {handler = handler (*Unchecked.defaultof<IRequestHandler>*); pos = pos; serverInfo = {Address = handler.Address; Port = handler.Port }}
 
     member private this.ReinitHandler() = 
-        match ServerNode.TryGetServer((this.serverInfo.Address, this.serverInfo.Port)) with
+        if Object.ReferenceEquals(this.handler, null) then
+            match ServerNode.TryGetServer((this.serverInfo.Address, this.serverInfo.Port)) with
             | Some(server) -> this.handler <- server
             | None -> 
-                if Object.ReferenceEquals(this.handler, null) then
-                    this.handler <- ClientNode(this.serverInfo.Address, this.serverInfo.Port) :> IRequestHandler
+                this.handler <- ClientNode(this.serverInfo.Address, this.serverInfo.Port) :> IRequestHandler
             
     member this.Run(func: Func<'T, 'U>) =
         this.ReinitHandler()

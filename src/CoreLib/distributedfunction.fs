@@ -568,7 +568,7 @@ type internal DistributedFunctionHolder = DistributedFunctionHolderBySemaphore
 /// Service endpoint performance tracking, if the programer intend to track more statistics, additional
 /// information may be included. 
 /// </summary>
-type ServiceEndpointPerformance internal (slot) = 
+type ServiceEndpointPerformance (slot) = 
     inherit NetworkPerformance() 
     let mutable totalRequest = 0L
     let mutable completedReq = 0L

@@ -60,6 +60,7 @@ type BufferStreamConnection() =
                     do matchOrThrow unitOrExc
                     let getPosition (x,y,z) = y
                     Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "%d bytes written." (int bufferToSend.Position - getPosition mark))
+                    bufferToSend.Dispose()
                     // TODO: Do we need to reset the stream?
                     //bufferToSend.Position
                     semaphore.Release() |> ignore

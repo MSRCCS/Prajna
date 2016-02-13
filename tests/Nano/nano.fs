@@ -37,13 +37,13 @@ module NanoTests =
     [<Test>]
     let NanoConnectClient() = 
         use sn = new ServerNode(1500)
-        use cn = new ClientNode("127.0.0.1", 1500) 
+        use cn = new ClientNode(IPAddress.Loopback, 1500) 
         ()
 
     [<Test>]
     let NanoNewRemote() = 
         use __ = new ServerNode(1500) 
-        use cn = new ClientNode("127.0.0.1", 1500)
+        use cn = new ClientNode(IPAddress.Loopback, 1500)
         async {
             let! r = cn.NewRemote(fun _ -> 5)
             return ()
@@ -53,7 +53,7 @@ module NanoTests =
     [<Test>]
     let NanoGetValue() = 
         use sn = new ServerNode(1500)
-        use cn = new ClientNode("127.0.0.1", 1500)
+        use cn = new ClientNode(IPAddress.Loopback, 1500)
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> "Test")
@@ -63,13 +63,53 @@ module NanoTests =
             |> Async.RunSynchronously
         Assert.AreEqual(value, "Test")
 
+    [<Test>]
+    let NanoGetValueSequential() = 
+        use sn = new ServerNode(1500)
+        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        let numIters = 100
+        let sw = Stopwatch.StartNew()
+        for i = 1 to numIters do
+            async {
+                let! r = cn.NewRemote(fun _ -> i)
+                let! r2 = r.Run(fun x -> x * x)
+                let! ret =  r.GetValue()
+                return ret
+            }
+            |> Async.RunSynchronously
+            |> ignore
+        sw.Stop()
+        printfn "%s" <| sprintf "%d round trips took: %A" (numIters * 3) sw.Elapsed
+
+    [<Test>]
+    let NanoGetValueSequentialNoSerialization() = 
+        use sn = new ServerNode(1500)
+        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        let numIters = 100
+        let sw = new Stopwatch()
+        async {
+            let! r = cn.NewRemote(fun _ -> 2)
+            let! r2 = r.Run(fun x -> x * x)
+            let mutable s = 0
+            sw.Start()
+            for i = 1 to numIters do
+                let! x =  r.GetValue()
+                s <- s + x
+            sw.Stop()
+            return s
+        }
+        |> Async.RunSynchronously
+        |> ignore
+        printfn "%s" <| sprintf "%d round trips took: %A" (numIters) sw.Elapsed
+//        Assert.AreEqual(value, "Test")
+
     let baseNumFloatsForPerf = 75000000 // 0.3GB
 
     [<Test>]
     let NanoBigArrayRoundTrip() =
         use sn = new ServerNode(1500)
         let sw = Stopwatch.StartNew()
-        use cn = new ClientNode("127.0.0.1", 1500)
+        use cn = new ClientNode(IPAddress.Loopback, 1500)
         let r = Random()
         let bigMatrix = Array.init<float32> baseNumFloatsForPerf (fun _ -> r.NextDouble() |> float32) 
         let value = 
@@ -86,14 +126,10 @@ module NanoTests =
         let numFloats = baseNumFloatsForPerf * 2
         let numBytes = numFloats * sizeof<float32>
         let r = Random()
-
         let bigMatrix = Array.init<float32> numFloats (fun _ -> r.NextDouble() |> float32) 
-
         let server = new TcpListener(IPAddress.Loopback, 1500)
         server.Start()
-
         let swa = Stopwatch.StartNew()
-
         let swt = new Stopwatch()
 
         let clientThread = 
@@ -124,17 +160,30 @@ module NanoTests =
                 Buffer.BlockCopy(bytes, 0, bigMatrixCopy, 0, bytes.Length)
                 result <- bigMatrixCopy.[bigMatrixCopy.Length - 1]))
         serverThread.Start()
+
         clientThread.Join()
         serverThread.Join()
         printfn "%s" <| sprintf "Full connect and transfer: %A" swa.Elapsed
         server.Stop()
         Assert.AreEqual(bigMatrix.[bigMatrix.Length-1], result)
 
+    [<Test>]
+    let NanoRemoteRef() = 
+        use __ = new ServerNode(1500)
+        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        let value = 
+            async {
+                let! r = cn.NewRemote(fun _ -> "Test")
+                let! r2 = cn.NewRemote(fun _ -> r.GetValue() |> Async.RunSynchronously |> fun str -> str.Length)
+                return! r2.GetValue()
+            }
+            |> Async.RunSynchronously
+        Assert.AreEqual(value, 4)
 
     [<Test>]
     let NanoRunRemote() = 
         use __ = new ServerNode(1500)
-        use cn = new ClientNode("127.0.0.1", 1500)
+        use cn = new ClientNode(IPAddress.Loopback, 1500)
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> "Test")
@@ -186,7 +235,7 @@ module NanoTests =
         let baseServerPort = 1500
         let servers = Array.init numServers (fun i -> new ServerNode(baseServerPort + i))
         let rnd = new Random()
-        let clients = Array.init numClients (fun _ -> new ClientNode("127.0.0.1", baseServerPort + rnd.Next(numServers)))
+        let clients = Array.init numClients (fun _ -> new ClientNode(IPAddress.Loopback, baseServerPort + rnd.Next(numServers)))
         try
             let sw = Stopwatch.StartNew()
             let sqr x = x * x
@@ -197,7 +246,7 @@ module NanoTests =
                 |> inAnyOrder
                 |> Async.RunSynchronously
             for x in rets do
-                printf "%s" <| sprintf "%d, " x 
+                //printf "%s" <| sprintf "%d, " x 
                 Assert.IsTrue(let sqrt = Math.Sqrt(float x) in sqrt = Math.Round(sqrt))
             printfn "%s" <| sprintf "Took: %A." sw.Elapsed
         finally
@@ -210,7 +259,7 @@ module NanoTests =
 
     [<Test>]
     let NanoParallelNoWait() = 
-        do Logger.ParseArgs([|"-verbose"; "info"|])
+        do Logger.ParseArgs([|"-verbose"; "error"|])
         nanoParallelWild 333 0 1 1
 
     [<Test>]
@@ -226,7 +275,7 @@ module NanoTests =
     [<Test>]
     let NanoParallelForkJoin() =
         use __ = new ServerNode(1500)
-        let cns = Array.init 1 (fun _ -> new ClientNode("127.0.0.1", 1500))
+        let cns = Array.init 1 (fun _ -> new ClientNode(IPAddress.Loopback, 1500))
         try
             let sw = Stopwatch.StartNew()
             let sqr x = x * x
@@ -243,8 +292,8 @@ module NanoTests =
     [<Test>]
     let NanoTwoClients() =
         use __ = new ServerNode(1500)
-        use cn1 = new ClientNode("127.0.0.1", 1500)
-        use cn2 = new ClientNode("127.0.0.1", 1500)
+        use cn1 = new ClientNode(IPAddress.Loopback, 1500)
+        use cn2 = new ClientNode(IPAddress.Loopback, 1500)
         let sw = Stopwatch.StartNew()
         async {
             let! r1 = cn1.NewRemote(fun _ -> 2)

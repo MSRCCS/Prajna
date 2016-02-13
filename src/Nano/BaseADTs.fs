@@ -18,8 +18,10 @@ module BaseADTs =
     type Request = 
         | RunDelegate of int * Delegate
         | GetValue of int
+        | GetServerId
 
     type Response =
         | RunDelegateResponse of int
         | GetValueResponse of obj
+        | GetServerIdResponse of Guid
 

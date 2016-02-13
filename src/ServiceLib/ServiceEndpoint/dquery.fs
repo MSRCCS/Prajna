@@ -95,9 +95,9 @@ type QueryPerformance(info: unit -> string) =
             sum / float num
 
 /// <summary>
-/// SingleQueryPerformance gives out the performance of a single query. 
+/// SingleRequestPerformance gives out the performance of a single query. 
 /// </summary>
-type SingleQueryPerformance = Prajna.Service.SingleRequestPerformance
+type SingleRequestPerformance = Prajna.Service.SingleRequestPerformance
 
 
 

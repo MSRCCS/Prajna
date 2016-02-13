@@ -14,9 +14,9 @@ open Prajna.Tools.Network
 
 open BaseADTs
 
-type ServerInfo = {ServerId: Guid; Address: IPAddress; Port: int}
+type ServerInfo = {Address: IPAddress; Port: int}
 
-type ClientNode(address: IPAddress, port: int) as self =
+type ClientNode(address: IPAddress, port: int) =
 
     static let network = new ConcreteNetwork()
 
@@ -26,35 +26,6 @@ type ClientNode(address: IPAddress, port: int) as self =
     let serializer = 
         let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
         GenericSerialization.GetDefaultFormatter(CustomizedSerializationSurrogateSelector(memStreamBConstructors))
-
-    let serverId =
-        let mutable ret : Guid = Guid.Empty
-        let retSem = new SemaphoreSlim(1)
-        async {
-            if ret = Guid.Empty then
-                do! retSem.WaitAsync() |> Async.AwaitIAsyncResult |> Async.Ignore
-                try
-                    if ret = Guid.Empty then
-                        match ServerNode.TryGetAny() with
-                        | Some handler ->
-                            let! guid = handler.ServerId
-                            ret <- guid
-                            return ret
-                        | None ->
-                            let! response = (self :> IRequestHandler).HandleRequest GetServerId
-                            return 
-                                match response with
-                                | GetServerIdResponse(guid) -> 
-                                    ret <- guid
-                                    ret
-                                | _ -> failwith "Unexpected response to GetServerId"
-                    else
-                        return ret
-                finally
-                    retSem.Release() |> ignore
-            else
-                return ret
-        }
 
     let onNewBuffer (responseBytes: MemoryStreamB) =
         async { 
@@ -95,18 +66,16 @@ type ClientNode(address: IPAddress, port: int) as self =
                     return responseHolder.Value.Value
                 }
             )
-        member this.ServerId = serverId
         member this.Address = address
         member this.Port = port
 
 
     member this.NewRemote(func: Func<'T>) : Async<Remote<'T>> =
         async {
-            let! localServerId = serverId
-            let handler = defaultArg (ServerNode.TryGetServer(localServerId)) (this :> IRequestHandler)
+            let handler = defaultArg (ServerNode.TryGetServer((address,port))) (this :> IRequestHandler)
             let! response = handler.HandleRequest(RunDelegate(-1, func))
             match response with
-            | RunDelegateResponse(pos) -> return new Remote<'T>(pos, localServerId, this)
+            | RunDelegateResponse(pos) -> return new Remote<'T>(pos, this)
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
 
@@ -122,8 +91,8 @@ and Remote<'T> =
     val pos: int
     val mutable serverInfo : ServerInfo
 
-    internal new(pos: int, serverId: Guid, handler: IRequestHandler) = 
-        {handler = (*handler*) Unchecked.defaultof<IRequestHandler>; pos = pos; serverInfo = {ServerId = serverId; Address = handler.Address; Port = handler.Port }}
+    internal new(pos: int, handler: IRequestHandler) = 
+        {handler = (*handler*) Unchecked.defaultof<IRequestHandler>; pos = pos; serverInfo = {Address = handler.Address; Port = handler.Port }}
 
 //    [<System.Runtime.Serialization.OnSerializing>]
 //    member internal this.OnSerializing() = 
@@ -136,7 +105,7 @@ and Remote<'T> =
 //        | None -> this.handler <- ClientNode(this.serverInfo.Value.Address, this.serverInfo.Value.Port) :> IRequestHandler
 
     member private this.ReinitHandler() = 
-        match ServerNode.TryGetServer(this.serverInfo.ServerId) with
+        match ServerNode.TryGetServer((this.serverInfo.Address, this.serverInfo.Port)) with
             | Some(server) -> this.handler <- server
             | None -> 
                 if Object.ReferenceEquals(this.handler, null) then
@@ -147,7 +116,7 @@ and Remote<'T> =
         async {
             let! response = this.handler.HandleRequest( RunDelegate(this.pos, func) )
             match response with
-            | RunDelegateResponse(pos) -> return new Remote<'U>(pos, this.serverInfo.ServerId, this.handler)
+            | RunDelegateResponse(pos) -> return new Remote<'U>(pos, this.handler)
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
 

@@ -14,7 +14,7 @@ open BaseADTs
 
 type IRequestHandler =
     abstract member HandleRequest : Request -> Async<Response>
-    abstract member ServerId : Async<Guid>
+//    abstract member ServerId : Async<Guid>
     abstract member Address : IPAddress
     abstract member Port : int
 
@@ -56,14 +56,8 @@ type ServerNode(port: int) as self =
     let network = new ConcreteNetwork()
     let objects = new List<obj>()
     let handlers = new List<ServerBufferHandler>()
-    let serverId = Guid.NewGuid()
-    let address = 
-        let firstIP =
-            Dns.GetHostAddresses("")
-            |> Seq.tryFind (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
-        match firstIP with
-        | Some ip -> ip
-        | None -> failwith "Could not find Internet IP"
+
+    let address = ServerNode.GetDefaultIP()
 
     let handleRequest(request: Request) : Response =
         match request with
@@ -79,9 +73,7 @@ type ServerNode(port: int) as self =
         | GetValue(pos) -> 
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Returning GetValue response")
             GetValueResponse(objects.[pos])
-        | GetServerId -> 
-            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Returning Server id")
-            GetServerIdResponse(serverId)
+
 
     let onConnect readQueue writeQueue =
         let handler = ServerBufferHandler(readQueue, writeQueue, self)
@@ -90,28 +82,31 @@ type ServerNode(port: int) as self =
             handler.Start()
         )
 
-    static let instances = new Dictionary<Guid, ServerNode>()
+    static let instances = new Dictionary<IPAddress * int, ServerNode>()
 
     do
-        lock instances (fun _ -> instances.Add(serverId, self))
+        lock instances (fun _ -> instances.Add( (address,port)  , self))
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting server node")
+        //BUGBUG: the server key is "address,port", with address being the first IP address returned by Dns.GetHostAddresses("")
+        // But there's no guarantee that this is what we'll be listening at.
         network.Listen<BufferStreamConnection>(port, (*address.ToString(),*) onConnect)
 
-    static member TryGetServer(guid: Guid) = 
-        match instances.TryGetValue guid with
+    static member GetDefaultIP() =
+        let firstIP =
+            Dns.GetHostAddresses("")
+            |> Seq.tryFind (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
+        match firstIP with
+        | Some ip -> ip
+        | None -> failwith "Could not find Internet IP"
+
+    static member TryGetServer(ip: IPAddress, port: int) = 
+        match instances.TryGetValue ((ip,port)) with
         | true, server -> Some (server :> IRequestHandler)
         | _ -> None
-
-    static member TryGetAny() = 
-        if instances.Count > 0 then
-            (instances.Values |> Seq.nth 0) :> IRequestHandler |> Option.Some
-        else
-            None
 
     interface IRequestHandler with
         member __.Address = address
         member x.Port = port
-        member val ServerId = async.Return serverId with get 
         
         member __.HandleRequest(req: Request) = 
             async { return handleRequest req  }
@@ -119,6 +114,7 @@ type ServerNode(port: int) as self =
     interface IDisposable with
         
         member __.Dispose() = 
+            instances.Remove((address,port)) |> ignore
             network.StopListen()
             for handler in handlers do
                 handler.Shutdown()

@@ -37,13 +37,13 @@ module NanoTests =
     [<Test>]
     let NanoConnectClient() = 
         use sn = new ServerNode(1500)
-        use cn = new ClientNode(IPAddress.Loopback, 1500) 
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500) 
         ()
 
     [<Test>]
     let NanoNewRemote() = 
         use __ = new ServerNode(1500) 
-        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
         async {
             let! r = cn.NewRemote(fun _ -> 5)
             return ()
@@ -53,7 +53,7 @@ module NanoTests =
     [<Test>]
     let NanoGetValue() = 
         use sn = new ServerNode(1500)
-        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> "Test")
@@ -66,7 +66,7 @@ module NanoTests =
     [<Test>]
     let NanoGetValueSequential() = 
         use sn = new ServerNode(1500)
-        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
         let numIters = 100
         let sw = Stopwatch.StartNew()
         for i = 1 to numIters do
@@ -84,7 +84,7 @@ module NanoTests =
     [<Test>]
     let NanoGetValueSequentialNoSerialization() = 
         use sn = new ServerNode(1500)
-        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
         let numIters = 100
         let sw = new Stopwatch()
         async {
@@ -109,7 +109,7 @@ module NanoTests =
     let NanoBigArrayRoundTrip() =
         use sn = new ServerNode(1500)
         let sw = Stopwatch.StartNew()
-        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
         let r = Random()
         let bigMatrix = Array.init<float32> baseNumFloatsForPerf (fun _ -> r.NextDouble() |> float32) 
         let value = 
@@ -127,7 +127,7 @@ module NanoTests =
         let numBytes = numFloats * sizeof<float32>
         let r = Random()
         let bigMatrix = Array.init<float32> numFloats (fun _ -> r.NextDouble() |> float32) 
-        let server = new TcpListener(IPAddress.Loopback, 1500)
+        let server = new TcpListener(ServerNode.GetDefaultIP(), 1500)
         server.Start()
         let swa = Stopwatch.StartNew()
         let swt = new Stopwatch()
@@ -135,7 +135,7 @@ module NanoTests =
         let clientThread = 
             new Thread(new ThreadStart(fun _ ->
                 let client = new Socket(SocketType.Stream, ProtocolType.IP)
-                client.Connect(IPAddress.Loopback, 1500)
+                client.Connect(ServerNode.GetDefaultIP(), 1500)
                 let bytes = Array.zeroCreate numBytes
                 let sw = Stopwatch.StartNew()
                 Buffer.BlockCopy(bigMatrix, 0, bytes, 0, bytes.Length)
@@ -170,7 +170,7 @@ module NanoTests =
     [<Test>]
     let NanoRemoteRef() = 
         use __ = new ServerNode(1500)
-        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> "Test")
@@ -183,7 +183,7 @@ module NanoTests =
     [<Test>]
     let NanoRunRemote() = 
         use __ = new ServerNode(1500)
-        use cn = new ClientNode(IPAddress.Loopback, 1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> "Test")
@@ -235,7 +235,7 @@ module NanoTests =
         let baseServerPort = 1500
         let servers = Array.init numServers (fun i -> new ServerNode(baseServerPort + i))
         let rnd = new Random()
-        let clients = Array.init numClients (fun _ -> new ClientNode(IPAddress.Loopback, baseServerPort + rnd.Next(numServers)))
+        let clients = Array.init numClients (fun _ -> new ClientNode(ServerNode.GetDefaultIP(), baseServerPort + rnd.Next(numServers)))
         try
             let sw = Stopwatch.StartNew()
             let sqr x = x * x
@@ -275,7 +275,7 @@ module NanoTests =
     [<Test>]
     let NanoParallelForkJoin() =
         use __ = new ServerNode(1500)
-        let cns = Array.init 1 (fun _ -> new ClientNode(IPAddress.Loopback, 1500))
+        let cns = Array.init 1 (fun _ -> new ClientNode(ServerNode.GetDefaultIP(), 1500))
         try
             let sw = Stopwatch.StartNew()
             let sqr x = x * x
@@ -292,8 +292,8 @@ module NanoTests =
     [<Test>]
     let NanoTwoClients() =
         use __ = new ServerNode(1500)
-        use cn1 = new ClientNode(IPAddress.Loopback, 1500)
-        use cn2 = new ClientNode(IPAddress.Loopback, 1500)
+        use cn1 = new ClientNode(ServerNode.GetDefaultIP(), 1500)
+        use cn2 = new ClientNode(ServerNode.GetDefaultIP(), 1500)
         let sw = Stopwatch.StartNew()
         async {
             let! r1 = cn1.NewRemote(fun _ -> 2)

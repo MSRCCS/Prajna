@@ -1,6 +1,7 @@
 ﻿namespace Prajna.Nano
 
 open System
+open System.Threading.Tasks
 open System.Runtime.Serialization
 open System.Net
 open System.Collections.Generic
@@ -23,15 +24,15 @@ type ClientNode(address: IPAddress, port: int) =
     let mutable writeQueue : BufferQueue = null
     let callbacks = new ConcurrentDictionary<int64, Response -> unit>()
 
-    let serializer = 
-        let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
-        GenericSerialization.GetDefaultFormatter(CustomizedSerializationSurrogateSelector(memStreamBConstructors))
-
     let onNewBuffer (responseBytes: MemoryStreamB) =
         async { 
-            let (Numbered(number,response)) = serializer.Deserialize(responseBytes) :?> Numbered<Response>
+            let (Numbered(number,response)) = Serializer.Deserialize(responseBytes) :?> Numbered<Response>
             responseBytes.Dispose()
             callbacks.[number] response
+            match callbacks.TryRemove(number) with
+            | true, _ -> ()
+            | false, _ -> raise <| Exception("Cound not remove callback.")
+            responseBytes.Dispose()
         }
         |>  Async.Start 
     
@@ -46,9 +47,9 @@ type ClientNode(address: IPAddress, port: int) =
     interface IRequestHandler with
         member this.HandleRequest(request: Request) : Async<Response> =
             let memStream = new MemoryStreamB()
-            let numberedRequest = newNumbered request
-            serializer.Serialize(memStream, numberedRequest)
-            memStream.Seek(0L, SeekOrigin.Begin) |> ignore
+            let (Numbered(number,_)) as numberedRequest = newNumbered request
+            let memStream = Serializer.Serialize(numberedRequest).Bytes
+
             let responseHolder : Response option ref = ref None
             let semaphore = new SemaphoreSlim(0) 
             let callback (response: Response) = 
@@ -56,13 +57,13 @@ type ClientNode(address: IPAddress, port: int) =
                 lock responseHolder (fun _ ->
                     semaphore.Release() |> ignore
                 )
-            callbacks.AddOrUpdate(numberedRequest.N, callback, Func<_,_,_>(fun _ _ -> raise <| Exception("Unexpected pre-existing request number."))) |> ignore
+            callbacks.AddOrUpdate(number, callback, Func<_,_,_>(fun _ _ -> raise <| Exception("Unexpected pre-existing request number."))) |> ignore
             lock responseHolder (fun _ ->
                 writeQueue.Add memStream
                 async {
                     do! Async.AwaitIAsyncResult(semaphore.WaitAsync(), 10) |> Async.Ignore
                     while !responseHolder = None do
-                        do! Async.Sleep 100
+                        do! Async.Sleep 10
                     return responseHolder.Value.Value
                 }
             )
@@ -78,6 +79,19 @@ type ClientNode(address: IPAddress, port: int) =
             | RunDelegateResponse(pos) -> return new Remote<'T>(pos, this)
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
+
+    member this.NewRemoteAsync(func: Func<'T>) = this.NewRemote(func) |> Async.StartAsTask
+
+    member this.NewRemote(func: Serialized<Func<'T>>) : Async<Remote<'T>> =
+        async {
+            let handler = (* defaultArg (ServerNode.TryGetServer((address,port))) *) (this :> IRequestHandler)
+            let! response = handler.HandleRequest(RunDelegateSerialized(-1, func.Bytes))
+            match response with
+            | RunDelegateResponse(pos) -> return new Remote<'T>(pos, this)
+            | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
+        }
+
+    member this.NewRemoteAsync(func: Serialized<Func<'T>>) = this.NewRemote(func) |> Async.StartAsTask
 
     interface IDisposable with
         member __.Dispose() = 
@@ -100,7 +114,7 @@ and Remote<'T> =
             | None -> 
                 this.handler <- ClientNode(this.serverInfo.Address, this.serverInfo.Port) :> IRequestHandler
             
-    member this.Run(func: Func<'T, 'U>) =
+    member this.Apply(func: Func<'T, 'U>) =
         this.ReinitHandler()
         async {
             let! response = this.handler.HandleRequest( RunDelegate(this.pos, func) )
@@ -108,6 +122,19 @@ and Remote<'T> =
             | RunDelegateResponse(pos) -> return new Remote<'U>(pos, this.handler)
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
+
+    member this.ApplyAsync(func: Func<'T, 'U>) = this.Apply(func) |> Async.StartAsTask
+
+    member this.Apply(func: Serialized<Func<'T, 'U>>) =
+        this.ReinitHandler()
+        async {
+            let! response = this.handler.HandleRequest( RunDelegateSerialized(this.pos, func.Bytes) )
+            match response with
+            | RunDelegateResponse(pos) -> return new Remote<'U>(pos, this.handler)
+            | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
+        }
+
+    member this.ApplyAsync(func: Serialized<Func<'T, 'U>>) = this.Apply(func) |> Async.StartAsTask
 
     member this.GetValue() =
         this.ReinitHandler()

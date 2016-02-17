@@ -56,6 +56,7 @@
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="QueueMultiplexer.fs" />
     <Compile Include="BufferStreamConnection.fs" />
+    <Compile Include="Serialized.fs" />
     <Compile Include="BaseADTs.fs" />
     <Compile Include="Server.fs" />
     <Compile Include="Client.fs" />

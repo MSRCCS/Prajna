@@ -1,7 +1,8 @@
 ﻿namespace Prajna.Nano
 
 open System
-open System.Threading
+
+open Prajna.Tools
 
 module BaseADTs =
 
@@ -17,9 +18,12 @@ module BaseADTs =
 
     type Request = 
         | RunDelegate of int * Delegate
+        | RunDelegateSerialized of int * MemoryStreamB
         | GetValue of int
 
     type Response =
         | RunDelegateResponse of int
         | GetValueResponse of obj
+
+
 

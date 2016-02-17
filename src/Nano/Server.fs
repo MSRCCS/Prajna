@@ -14,26 +14,19 @@ open BaseADTs
 
 type IRequestHandler =
     abstract member HandleRequest : Request -> Async<Response>
-//    abstract member ServerId : Async<Guid>
     abstract member Address : IPAddress
     abstract member Port : int
 
 type ServerBufferHandler(readQueue: BufferQueue, writeQueue: BufferQueue, handler: IRequestHandler) =
     
-    let serializer = 
-        let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)
-        GenericSerialization.GetDefaultFormatter(CustomizedSerializationSurrogateSelector(memStreamBConstructors))
-
     let onNewBuffer (requestBytes: MemoryStreamB) =
         async {
-            let (Numbered(number,request)) : Numbered<Request> = downcast serializer.Deserialize(requestBytes) 
+            let (Numbered(number,request)) : Numbered<Request> = downcast Serializer.Deserialize(requestBytes) 
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Deserialized request: %d bytes." requestBytes.Length)
             requestBytes.Dispose()
             let! response = handler.HandleRequest request
             let numberedResponse = Numbered(number, response)
-            let responseStream = new MemoryStreamB()
-            serializer.Serialize(responseStream, numberedResponse)
-            responseStream.Seek(0L, SeekOrigin.Begin) |> ignore
+            let responseStream = Serializer.Serialize(numberedResponse).Bytes
             writeQueue.Add responseStream
         }
         |> Async.Start
@@ -59,17 +52,24 @@ type ServerNode(port: int) as self =
 
     let address = ServerNode.GetDefaultIP()
 
+    let handleFunc (pos: int) (func: Delegate) : Response =
+        let argument : obj[] = if pos = -1 then null else (Array.init 1 (fun _ -> objects.[pos]))
+        let ret = func.DynamicInvoke(argument)
+        Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Ran method")
+        if func.Method.ReturnType <> typeof<Void> then
+            let retPos = lock objects (fun _ -> objects.Add ret; objects.Count - 1)
+            RunDelegateResponse(retPos)
+        else
+            RunDelegateResponse(-1)
+
     let handleRequest(request: Request) : Response =
         match request with
         | RunDelegate(pos,func) ->
-            let argument : obj[] = if pos = -1 then null else (Array.init 1 (fun _ -> objects.[pos]))
-            let ret = func.DynamicInvoke(argument)
-            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Ran method")
-            if func.Method.ReturnType <> typeof<Void> then
-                let retPos = lock objects (fun _ -> objects.Add ret; objects.Count - 1)
-                RunDelegateResponse(retPos)
-            else
-                RunDelegateResponse(-1)
+            handleFunc pos func
+        | RunDelegateSerialized(pos, bytes) ->
+            let func = Serializer.Deserialize(bytes) :?> Delegate
+            bytes.Dispose()
+            handleFunc pos func
         | GetValue(pos) -> 
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Returning GetValue response")
             GetValueResponse(objects.[pos])

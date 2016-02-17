@@ -4,6 +4,7 @@
 #load "../AssemblyInfo.fs"
       "../QueueMultiplexer.fs"
       "../BufferStreamConnection.fs"
+      "../Serialized.fs"
       "../BaseADTs.fs"
       "../Server.fs"
       "../Client.fs"

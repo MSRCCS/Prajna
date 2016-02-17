@@ -19,6 +19,8 @@ module NanoTests =
 
     do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "wild"|])
 
+    let disposeAll xs = xs |> Seq.iter(fun x -> (x :> IDisposable).Dispose())
+
 
     [<TearDown>]
     let TearDown() =
@@ -26,7 +28,7 @@ module NanoTests =
 
     [<SetUp>]
     let SetUp() = 
-        do BufferListStream<byte>.BufferSizeDefault <- 1 <<< 24
+        do BufferListStream<byte>.BufferSizeDefault <- 1 <<< 20
         do MemoryStreamB.InitSharedPool()
 
     [<Test>]
@@ -67,12 +69,12 @@ module NanoTests =
     let NanoGetValueSequential() = 
         use sn = new ServerNode(1500)
         use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
-        let numIters = 100
+        let numIters = 20
         let sw = Stopwatch.StartNew()
         for i = 1 to numIters do
             async {
                 let! r = cn.NewRemote(fun _ -> i)
-                let! r2 = r.Run(fun x -> x * x)
+                let! r2 = r.Apply(fun x -> x * x)
                 let! ret =  r.GetValue()
                 return ret
             }
@@ -85,14 +87,14 @@ module NanoTests =
     let NanoGetValueSequentialNoSerialization() = 
         use sn = new ServerNode(1500)
         use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
-        let numIters = 100
+        let numIters = 20
         let sw = new Stopwatch()
         async {
-            let! r = cn.NewRemote(fun _ -> 2)
-            let! r2 = r.Run(fun x -> x * x)
             let mutable s = 0
             sw.Start()
             for i = 1 to numIters do
+                let! r = cn.NewRemote(fun _ -> 2)
+                let! r2 = r.Apply(fun x -> x * x)
                 let! x =  r.GetValue()
                 s <- s + x
             sw.Stop()
@@ -100,10 +102,10 @@ module NanoTests =
         }
         |> Async.RunSynchronously
         |> ignore
-        printfn "%s" <| sprintf "%d round trips took: %A" (numIters) sw.Elapsed
+        printfn "%s" <| sprintf "%d round trips took: %A" (numIters * 3) sw.Elapsed
 //        Assert.AreEqual(value, "Test")
 
-    let baseNumFloatsForPerf = 75000000 // 0.3GB
+    let baseNumFloatsForPerf = 7500000 // 0.03GB
 
     [<Test>]
     let NanoBigArrayRoundTrip() =
@@ -187,11 +189,12 @@ module NanoTests =
         let value = 
             async {
                 let! r = cn.NewRemote(fun _ -> "Test")
-                let! r2 = r.Run(fun str -> str.Length)
+                let! r2 = r.Apply(fun str -> str.Length)
                 return! r2.GetValue()
             }
             |> Async.RunSynchronously
         Assert.AreEqual(value, 4)
+
 
     let inAnyOrder (asyncs: Async<'T>[]) : Async<'T seq> =
         async {
@@ -208,6 +211,31 @@ module NanoTests =
             return col.GetConsumingEnumerable()
         }
 
+    [<Test>]
+    let NanoPreSerialized() = 
+        use __ = new ServerNode(1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
+        let ints = [|1..1000000|]
+        let sw = Stopwatch.StartNew()
+        use createInts = Serializer.Serialize <|  Func<int[]>(fun _ -> ints) 
+        use addOne = Serializer.Serialize <|  Func<int[], int[]>(Array.map (fun x -> x + 1) )
+        printfn "%s" <| sprintf "Serialization took: %A" sw.Elapsed
+        sw.Restart()
+        let remotes = 
+            Array.init 30 (
+                fun _ -> async { 
+                    let! r = cn.NewRemote( createInts )
+                    return! r.Apply(addOne)
+                    } ) 
+            |> Async.Parallel |> Async.RunSynchronously 
+        printfn "%s" <| sprintf "Remote creation took: %A" sw.Elapsed
+        sw.Restart()
+        let arrays =
+            remotes |> Array.map (fun r -> r.GetValue()) 
+            |> Async.Parallel |> Async.RunSynchronously 
+        printfn "%s" <| sprintf "Bringing back took: %A" sw.Elapsed
+        printfn "%s" "Done"
+
     let makeSquares (cns: ClientNode[]) (rndClient: Random) (numAsyncs: int) (maxWait: int) =
         let sqr x = x * x
         [|for i in 1..numAsyncs ->
@@ -216,7 +244,7 @@ module NanoTests =
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Chose client %d for number %d" clientNum i)
             async {
                 let! r1 = cn.NewRemote(fun _ -> i)
-                let! r2 = r1.Run(fun x ->
+                let! r2 = r1.Apply(fun x ->
                     if maxWait > 0 then
                         let rnd = new Random(i)
                         let wait = rnd.Next(maxWait) |> int64
@@ -228,8 +256,6 @@ module NanoTests =
                     sqr x)
                 return! r2.GetValue()
             }|]
-
-    let disposeAll xs = xs |> Seq.iter(fun x -> (x :> IDisposable).Dispose())
 
     let nanoParallelWild (numAsyncs: int) (maxWait: int) (numClients: int) (numServers: int) = 
         let baseServerPort = 1500
@@ -260,17 +286,17 @@ module NanoTests =
     [<Test>]
     let NanoParallelNoWait() = 
         do Logger.ParseArgs([|"-verbose"; "error"|])
-        nanoParallelWild 333 0 1 1
+        nanoParallelWild 33 0 1 1
 
     [<Test>]
     let NanoParallelManyToMany() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
-        nanoParallelWild 100 300 100 10
+        nanoParallelWild 20 300 20 10
 
     [<Test>]
     let NanoParallelNoWaitManyToMany() = 
         do Logger.ParseArgs([|"-verbose"; "info"|])
-        nanoParallelWild 100 0 100 10
+        nanoParallelWild 20 0 20 10
 
     [<Test>]
     let NanoParallelForkJoin() =
@@ -298,8 +324,8 @@ module NanoTests =
         async {
             let! r1 = cn1.NewRemote(fun _ -> 2)
             let! r2 = cn2.NewRemote(fun _ -> 3)
-            let! r1Squared = r1.Run(fun x -> x * x)
-            let! r2Squared = r2.Run(fun x -> x * x)
+            let! r1Squared = r1.Apply(fun x -> x * x)
+            let! r2Squared = r2.Apply(fun x -> x * x)
             return ()
         }
         |> Async.RunSynchronously

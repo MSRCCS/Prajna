@@ -101,7 +101,7 @@ and CustomizedDeserializerFunction = Func<Stream, Object>
 /// In Prajna, except closure serialization, user may install a customized encoder/decoder to serialize data, to make serialization/deserialization more efficient
 /// Jin Li: This class is internal, with a corresponding external interface to be accessed at JobDependencies. 
 /// </summary> 
-and internal CustomizedSerialization() = 
+and public CustomizedSerialization() = 
     /// For null boject
     static member val internal NullObjectGuid = Guid( "45BD7C41-0595-4854-A375-0A1895B10AAD" ) with get
     /// Byte[] serializer

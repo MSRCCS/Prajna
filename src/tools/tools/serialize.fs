@@ -673,9 +673,9 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                 | _ -> failwith "Expecting field name to be a string" )
         deserInfo
 
-    member this.ReadSurrogateSerializedObject(surrogate: ISerializationSurrogate, objType: Type, obj: obj) : unit =
+    member this.ReadSurrogateSerializedObject(surrogate: ISerializationSurrogate, objType: Type, obj: obj) : obj =
         let serInfo = this.ReadSerializationInfo objType
-        surrogate.SetObjectData(obj, serInfo, Serialize.theContext, null) |> ignore
+        surrogate.SetObjectData(obj, serInfo, Serialize.theContext, null)
 
     member private this.ReadCustomSerializedObject(k : obj -> unit) : unit =
         this.ReadObject(reader, marked, fun ty ->
@@ -737,8 +737,14 @@ type internal Deserializer(reader: BinaryReader, marked: List<obj>, typeSerializ
                 if newObj = null then
                     failwith <| sprintf "Failed to create unintialized instance of %A." serType.Type
                 marked.Add newObj
-                this.ReadSurrogateSerializedObject(surrogate, serType.Type, newObj)
-                k newObj
+                let surrogateObj = this.ReadSurrogateSerializedObject(surrogate, serType.Type, newObj)
+                if Object.ReferenceEquals(newObj, surrogateObj) then
+                    k newObj
+                else
+                    // no need todo this as the set will just be discarded // marked.Remove newObj
+                    GC.SuppressFinalize newObj
+                    marked.Add surrogateObj
+                    k surrogateObj
             else
                 match serType.Type with
                 | strType when strType = typeof<string> -> 

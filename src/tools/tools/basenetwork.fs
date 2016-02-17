@@ -683,7 +683,7 @@ type Network() =
         let toCopy = Math.Min(srcLen, dstLen)
         if (toCopy > 0) then
             //dst.Write(src, srcOffset, toCopy)
-            dst.AppendNoCopy(src, int64 srcOffset, int64 toCopy)
+            dst.AppendNoCopy(src, int64 src.Offset + int64 srcOffset, int64 toCopy)
             srcOffset <- srcOffset + toCopy
             srcLen <- srcLen - toCopy
             dstLen <- dstLen - toCopy
@@ -915,7 +915,10 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                 nextComponent.Closed <- true
                 // force a dequeue
                 if (Utils.IsNotNull nextComponent.Q) then
-                    nextComponent.Q.Full.Set() |> ignore
+                    try
+                        nextComponent.Q.Full.Set() |> ignore
+                    with
+                        | :? System.ObjectDisposedException -> ()
             match triggerNext with
                 | None -> ()
                 | Some(nextClose) -> nextClose()
@@ -961,12 +964,16 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         x.Closed <- true
         // force a dequeue
         if (Utils.IsNotNull x.Q) then
-            x.Q.Full.Set() |> ignore
+            try
+                x.Q.Full.Set() |> ignore
+            with
+                | :? System.ObjectDisposedException -> ()
 
     /// Self terminate the component and start terminating the pipeline
     abstract SelfTerminate : unit->unit
     default x.SelfTerminate() =
         // clear the queue
+        x.ReleaseAllItems()
         if (Utils.IsNotNull x.Q) then
             x.Q.Clear()
         isTerminated <- true
@@ -985,7 +992,36 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         // take handle snapshot as it may change in other thread and become null
         let handle = x.ProcWaitHandle
         if (Utils.IsNotNull handle) then
-            handle.Set() |> ignore
+            try
+                handle.Set() |> ignore
+            with
+                | :? ObjectDisposedException as ex -> ()
+
+    static member internal WaitAndExecOnSystemTP(event : WaitHandle, timeOut : int) (fn : obj->bool->unit, state : obj) =
+        if (Utils.IsNotNull event) then
+            let waitAndExecOnSystemTPWrap(o : obj) (bTimeOut : bool) =
+                let (rwh, registrationCompleted, state) = o :?> RegisteredWaitHandle ref*ManualResetEventSlim*obj
+                fn (state) (bTimeOut)
+                registrationCompleted.Wait()
+                (!rwh).Unregister(null) |> ignore
+                registrationCompleted.Dispose()
+            let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
+            let registrationCompleted = new ManualResetEventSlim(false)
+            rwh := ThreadPool.RegisterWaitForSingleObject(event, new WaitOrTimerCallback(waitAndExecOnSystemTPWrap), (rwh, registrationCompleted, state), timeOut, true)
+            registrationCompleted.Set()
+        else
+            Component<_>.WaitAndQueueOnSystemTP(null, timeOut) (fn, state)
+
+    static member internal WaitAndQueueOnSystemTP(event : WaitHandle, timeOut : int) (fn : obj->bool->unit, state : obj) =
+        if (Utils.IsNotNull event) then
+            let wrappedFunc (o : obj) =
+                let (state, bTimeOut) = o :?> (obj*bool)
+                fn (state) (bTimeOut)
+            let addToQ (o : obj) (bTimeOut : bool) =
+                ThreadPool.QueueUserWorkItem(new WaitCallback(wrappedFunc), (o, bTimeOut)) |> ignore
+            Component<_>.WaitAndExecOnSystemTP(event, timeOut) (addToQ, state)
+        else
+            ThreadPool.QueueUserWorkItem(new WaitCallback(fun o -> fn (o) (false)), state) |> ignore
 
     // process on own thread
     static member private ProcessOnOwnThread (o : obj) (fn : Option<unit->unit>) =
@@ -1077,7 +1113,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
 
     static member internal ThreadPoolWait (tp : ThreadPoolWithWaitHandles<'TP>) =
         tp.WaitForAll( -1 ) // use with EnqueueRepeatableFunction in AddWorkItem
-        //tp.HandleDoneExecution.WaitOne( -1 ) // for other cases
+        //tp.HandleDoneExecution.Wait() // for other cases
 
     /// Add work item on pool, but don't necessarily start it until ExecTP is called
     /// <param name="threadPool">The thread pool to execute upon</param>

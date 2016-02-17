@@ -45,6 +45,7 @@
     <Compile Include="LoggerCSharp.fs" />
     <Compile Include="file.fs" />
     <Compile Include="process.fs" />
+    <Compile Include="monitor.fs" />
     <Compile Include="blockingqueue.fs" />
     <Compile Include="resizequeue.fs" />
     <Compile Include="bufferliststream.fs" />
@@ -59,6 +60,13 @@
     <Compile Include="crypt.fs" />
     <Compile Include="configuration.fs" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\native\native.vcxproj">
+      <Name>native</Name>
+      <Project>{815dc1fb-2327-4f69-84ff-cfdc59617de7}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
   </PropertyGroup>
@@ -72,6 +80,8 @@
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Debugx64\Prajna.Tools.XML</DocumentationFile>
     <PlatformTarget>x64</PlatformTarget>
+    <OtherFlags>
+    </OtherFlags>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
     <DebugType>pdbonly</DebugType>

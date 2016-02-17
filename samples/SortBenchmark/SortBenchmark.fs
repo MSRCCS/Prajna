@@ -153,7 +153,10 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
     let minPart0 = Array.init partNumS2 (fun i -> int((65536L * (int64 i) + (int64 partNumS2 - 1L))/(int64 partNumS2)))
     let binBoundary3 = Array.init maxStage2 (fun i -> (int)(((int64 i)*(int64 partNumF))/(int64 maxStage2)))
 
+    static member val Current : Option<RemoteFunc> = None with get, set
+
     member x.TotalSizeInByte with get() = perFileLen * (int64 filePartNum)
+    member val PartitionsPerNode = partNumS2 / partNumS1 with get
 
     member val dim = _dim with get 
     member val diskHelper = new DiskHelper(records) with get
@@ -520,7 +523,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                             remainLen := len
                     else
                         bHasBuf := false
-                sr.Release()
+                //sr.Release()
 
                 (buffer :> IDisposable).Dispose()
                 let t2 = DateTime.UtcNow
@@ -560,7 +563,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                 let partstream = Array.init<StreamBase<byte>> nump (fun i -> null)
                 let t1 = DateTime.UtcNow
                 let bHasBuf = ref true
-                use sr = new StreamReader<byte>(buffer,0L)
+                let sr = new StreamReader<byte>(buffer,0L)
 
                 while !bHasBuf do
                     let (buf, pos, len) = sr.GetMoreBuffer()
@@ -580,7 +583,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                         bHasBuf := false
 
                 (buffer :> IDisposable).Dispose()
-                sr.Release()
+                //sr.Release()
                 let t2 = DateTime.UtcNow
 
                 for i = 0 to nump - 1 do
@@ -963,7 +966,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                                     filesize <- snd (!elem1)
                             if len = 0 then
                                 bHasBuf := false
-                        sr.Release()
+                        //sr.Release()
                         ((!ms) :> IDisposable).Dispose()
                 RemoteFunc.repartitionBuf.Push(fp,filesize)
 
@@ -1209,7 +1212,6 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
     member val PartitionIndex = ConcurrentDictionary<int, uint32>() with get
     member val NumParts = ref 0 with get
     member x.MaxPartitionLen = x.TotalSizeInByte * 3L / ((int64 partNumS2) * 2L) // 150% of avg size per partition
-    static member val Current : Option<RemoteFunc> = None with get, set
 
     member x.CacheInRAMAndDispose(ms : StreamBase<byte>) =
         ms.Seek(0L, SeekOrigin.Begin) |> ignore
@@ -1230,7 +1232,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
             let amtRead = ms.Read(part, int start, int len)
             if (amtRead <> int len) then
                 failwith (sprintf "Not enough data want: %d actual: %d" len amtRead)
-        RemoteFunc.Current <- Some(x)
+        //RemoteFunc.Current <- Some(x)
         (ms :> IDisposable).Dispose()
 
     // essentially only one element per partition
@@ -1249,6 +1251,37 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
         match RemoteFunc.Current with
             | None -> Seq.empty
             | Some(x) -> x.GetCacheMem(parti)
+
+    static member Transfer (rmt) () =
+        RemoteFunc.Current <- Some(rmt)
+
+    member x.InitInstance() =
+        let allocLen = (int x.MaxSubPartitionLen + sizeof<uint64> - 1) / sizeof<uint64>
+        let rnd = Random()
+        let buf = Array.zeroCreate<byte>(allocLen*sizeof<uint64>)
+        rnd.NextBytes(buf)
+        for i = 0 to x.PartitionsPerNode*partNumF-1 do
+            let arr = Array.zeroCreate<uint64>(allocLen)
+            let handle = GCHandle.Alloc(arr, GCHandleType.Pinned)
+            // write something to array
+            Buffer.BlockCopy(buf, 0, arr, 0, buf.Length)
+            // enqueue
+            x.AllocCache.Enqueue(handle)
+
+    member x.StopInstance() =
+        (x :> IDisposable).Dispose()
+
+    static member StartRemoteInstance(dataFileNum, records, nDim, num, num2,furtherPartition) () =    
+        let numStage2 = num*num2
+            
+        let binBoundary = Array.init 65536 (fun i -> Math.Min(num-1,(int)((int64 i)*(int64 num)/65536L)))
+        let binBoundary2 = Array.init 65536 (fun i -> Math.Min(numStage2-1,(int)(((int64 i)*(int64 numStage2))/65536L)))
+
+        RemoteFunc.Current <- Some(new RemoteFunc(dataFileNum, records, nDim,num, num*num2,furtherPartition, binBoundary,binBoundary2))
+        RemoteFunc.Current.Value.InitInstance()
+
+    static member StopRemoteInstance() =
+        RemoteFunc.Current.Value.StopInstance()
 
     member x.MaxSubPartitionLen = x.TotalSizeInByte * 3L / ((int64 partNumS2 * int64 partNumF) * 2L) // 150% of avg size per partition
     member val SubPartition = ConcurrentDictionary<uint32, (int64 ref*byte[])[]>() with get
@@ -1273,7 +1306,7 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                 Logger.LogF(LogLevel.Error, fun _ -> "Error: Max Length exceeded")
             else
                 Buffer.BlockCopy(vec, 0, arr, int start, alignLen)
-        RemoteFunc.Current <- Some(x)
+        //RemoteFunc.Current <- Some(x)
         (ms :> IDisposable).Dispose()
 
     member x.GetCacheMemSubPart(parti : int) : seq<int64 ref*byte[]> =
@@ -1314,18 +1347,46 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
             | None -> ()
             | Some(x) -> x.ClearCacheMemSubPart(parti)
 
-    member val SubPartitionN = ConcurrentDictionary<uint32, (int64 ref*IntPtr)[]>() with get
+    member val SubPartitionN = ConcurrentDictionary<uint32, (int64 ref*GCHandle)[]>() with get
+    member val AllocCache : ConcurrentQueue<_> = ConcurrentQueue<GCHandle>() with get
+
+    member val IsDisposed = ref 0 with get
+    member x.Dispose(bDisposing : bool) =
+        if (Interlocked.CompareExchange(x.IsDisposed, 1, 0) = 0) then
+            // unmanaged stuff always release
+            if bDisposing then
+                // managed stuff only release if disposing
+                let mutable elem = Unchecked.defaultof<GCHandle>
+                while (x.AllocCache.Count > 0) do
+                    let ret = x.AllocCache.TryDequeue(&elem)
+                    if (ret) then
+                        elem.Free()
+                for s in x.SubPartitionN do
+                    for e in s.Value do
+                        (snd e).Free()
+    // no need for finalize as GCHandle is managed resource with finalize
+    //override x.Finalize() =
+    //    x.Dispose(false)
+    interface IDisposable with
+        override x.Dispose() =
+            x.Dispose(true)
+            GC.SuppressFinalize(x)
 
     member x.FurtherPartitionCacheInRAMAndDisposeN(ms : StreamBase<byte>) =
         ms.Seek(0L, SeekOrigin.Begin) |> ignore
         let parti = ms.ReadUInt32()
         let addFn (parti : uint32) =
             let createArrFn (i : int) =
-                let allocLen = (int x.MaxSubPartitionLen + sizeof<uint64> - 1)/ sizeof<uint64>
-                let arr = Array.zeroCreate<uint64>(allocLen)
-                let handle = GCHandle.Alloc(arr, GCHandleType.Pinned)
-                (ref 0L, handle.AddrOfPinnedObject())
-            Array.init<int64 ref*IntPtr> partNumF createArrFn
+                let (ret, arrHandle) = x.AllocCache.TryDequeue()
+                if (ret) then
+                    (ref 0L, arrHandle)
+                else
+                    Logger.LogF(LogLevel.Error, fun _ -> "Preallocted cache is finished, creating new one")
+                    let allocLen = (int x.MaxSubPartitionLen + sizeof<uint64> - 1)/ sizeof<uint64>
+                    let arr = Array.zeroCreate<uint64>(allocLen)
+                    let handle = GCHandle.Alloc(arr, GCHandleType.Pinned)
+                    (ref 0L, handle)
+            Array.init<int64 ref*GCHandle> partNumF createArrFn
         let partArr = x.SubPartitionN.GetOrAdd(parti, addFn)
         let alignLen = (x.dim + 7)/8*8
         let vec = Array.zeroCreate<byte>(alignLen)
@@ -1333,7 +1394,8 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
             let index0 = ((int vec.[0]) <<< 8) ||| (int vec.[1])
             //assert(int parti = stageTwoPartitionBoundary.[index0])
             let index1 = ((index0 - minPart0.[int parti]) <<< 8) ||| (int vec.[2])
-            let (cnt, arr) = partArr.[binBoundary3.[index1]]
+            let (cnt, arrHandle) = partArr.[binBoundary3.[index1]]
+            let arr = arrHandle.AddrOfPinnedObject()
             let start = Interlocked.Add(cnt, int64 alignLen) - (int64 alignLen)
             if (start + (int64 alignLen) > x.MaxSubPartitionLen) then
                 Interlocked.Add(cnt, int64 -alignLen) |> ignore
@@ -1341,10 +1403,9 @@ type RemoteFunc( filePartNum:int, records:int64, _dim:int , partNumS1:int, partN
                 Logger.LogF(LogLevel.Error, fun _ -> "Error: Max Length exceeded")
             else
                 Marshal.Copy(vec, 0, IntPtr.Add(arr, int start), alignLen)
-        RemoteFunc.Current <- Some(x)
         (ms :> IDisposable).Dispose()
 
-    member x.GetCacheMemSubPartN(parti : int) : seq<int64 ref*IntPtr> =
+    member x.GetCacheMemSubPartN(parti : int) : seq<int64 ref*GCHandle> =
         //if (x.PartitionIndex.ContainsKey(parti)) then
         //    yield (snd x.Partition.[x.PartitionIndex.[parti]])
         if (x.SubPartitionN.ContainsKey(uint32 parti)) then 
@@ -1430,12 +1491,12 @@ let main orgargs =
     let sampleRate = parse.ParseInt( "-samplerate", 100 ) // number of partitions
     let dirSortGen = parse.ParseString( "-dir", "." )
     //let num = parse.ParseInt( "-nump", 200 ) // number of partitions
-    let num2 = parse.ParseInt( "-nump", 8 ) // number of partitions
+    let num2 = parse.ParseInt( "-nump", 8 ) // number of partitions (output)
     //let furtherPartition = parse.ParseInt("-fnump", 200)
     let furtherPartition = parse.ParseInt("-fnump", 2500)
     let nSort = parse.ParseInt( "-sort", 1 )
     let nRand = parse.ParseInt( "-nrand", 16 )
-    let nFilePN = parse.ParseInt( "-nfile", 8 )
+    let nFilePN = parse.ParseInt( "-nfile", 8 ) // number of partitions (input)
     
     let mutable bExecute = false
 
@@ -1486,7 +1547,7 @@ let main orgargs =
 
             let startDKV = DSet<_>( Name = "SortGen", SerializationLimit = 1 ) 
             let dkv1 = startDKV.SourceN (dataFileNumPerNode, ( fun i -> Seq.singleton 1 ))
-            let rmt = RemoteFunc( dataFileNum, records, nDim,num, num2,1, null,null)
+            let rmt = new RemoteFunc( dataFileNum, records, nDim,num, num2,1, null,null)
             dkv1.NumParallelExecution <- 10
             let dkv2= dkv1 |> DSet.mapi rmt.GenerateDataFiles 
 
@@ -1509,7 +1570,7 @@ let main orgargs =
             // Map local directory of sort Gen to a remote directory 
             curJob.AddDataDirectory( dirSortGen ) |> ignore 
 
-            let rmt = RemoteFunc(  dataFileNum, records, nDim,num, num2,1, null,null)
+            let rmt = new RemoteFunc(  dataFileNum, records, nDim,num, num2,1, null,null)
             
             let sortDSet = DSet<_>( Name = "SortSet", NumPartitions = num) 
 
@@ -1619,7 +1680,7 @@ let main orgargs =
             let binBoundary = Array.init 65536 (fun i -> Math.Min(num-1,(int)((int64 i)*(int64 num)/65536L)))
             let binBoundary2 = Array.init 65536 (fun i -> Math.Min(numStage2-1,(int)(((int64 i)*(int64 numStage2))/65536L)))
 
-            let rmtPart = RemoteFunc( dataFileNum, records, nDim,num, num*num2,furtherPartition, binBoundary,binBoundary2)
+            let rmtPart = new RemoteFunc( dataFileNum, records, nDim,num, num*num2,furtherPartition, binBoundary,binBoundary2)
 
             let conf5() =
                 let startDSet = DSet<_>( Name = "SortGen", SerializationLimit = 1) 
@@ -1703,10 +1764,10 @@ let main orgargs =
                 Interop.AlignSort(buf, alignLen, num)
                 (cnt, buf)
 
-            let doSortN (alignLen : int) (cnt : int64 ref, buf : IntPtr) : int64 ref*IntPtr =
+            let doSortN (alignLen : int) (cnt : int64 ref, buf : GCHandle) : int64 ref*IntPtr =
                 let num = int(!cnt/(int64 alignLen))
-                Interop.alignsort64(buf, alignLen>>>3, num)
-                (cnt, buf)
+                Interop.alignsort64(buf.AddrOfPinnedObject(), alignLen>>>3, num)
+                (cnt, buf.AddrOfPinnedObject())
 
             let cntLenByteArrFn (dim : int) (alignLen : int) (cnt : int64) (cntPlusArr : int64 ref*byte[]) =
                 let (cntArrR, arr) = cntPlusArr
@@ -1718,7 +1779,7 @@ let main orgargs =
 
             //test memstream
             // currently 62.5GB per node, only create streams to send and validate count
-            let MemStream_Fake_conf(bFirst : bool) =
+            let MemStream_Fake_conf(remote : DSet<_>) =
                 let startDSet = DSet<_>( Name = "SortGen", SerializationLimit = 1) 
                 startDSet.NumParallelExecution <- 16 
 
@@ -1748,12 +1809,8 @@ let main orgargs =
                 // cache in RAM: - gives approx 3Gbps (mostly limited by allocation)
                 // gives 3.6Gbps on 2nd try
                 //dset5 |> DSet.iter rmtPart.CacheInRAMAndDispose
-                if (bFirst) then
-                    //dset5 |> DSet.iter rmtPart.FurtherPartitionCacheInRAMAndDispose
-                    dset5 |> DSet.iter rmtPart.FurtherPartitionCacheInRAMAndDisposeN
-                else
-                    //dset5 |> DSet.iter RemoteFunc.FurtherPartitionCacheInRAMAndDispose
-                    dset5 |> DSet.iter RemoteFunc.FurtherPartitionCacheInRAMAndDisposeN
+                //dset5 |> DSet.iter RemoteFunc.FurtherPartitionCacheInRAMAndDispose
+                dset5 |> DSet.iter RemoteFunc.FurtherPartitionCacheInRAMAndDisposeN
                 let cnt = rmtPart.TotalSizeInByte / (int64 rmtPart.dim)
                 Logger.LogF(LogLevel.Info, fun _ -> sprintf "Creating remap + repartition + cacheInRam stream takes: %f seconds num: %d rate per node: %f Gbps" watch.Elapsed.TotalSeconds cnt ((double cnt)*(double rmtPart.dim)*8.0/1.0e9/(double cluster.NumNodes)/watch.Elapsed.TotalSeconds))
 
@@ -1842,29 +1899,39 @@ let main orgargs =
 
                 ()
 
-
+#if OLD
             let t1 = (DateTime.UtcNow)
-            //NativeRepartitionConf()
-            MemStream_Fake_conf(true)
-            MemStream_Fake_conf(false)
+            NativeRepartitionConf()            
             let t2= (DateTime.UtcNow)
-            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Data is distributed, takes %f ms"  ((DateTime.UtcNow - t1).TotalMilliseconds) ))
+            Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Data is distributed, takes %f ms"  ((DateTime.UtcNow - t1).TotalMilliseconds) ))   
 
-//            let sortDSet = DSet<_>( Name = "SortSet", NumPartitions = num2*num) 
-//            
-//
-//            let resSet = sortDSet |> DSet.initS (fun (p,s) -> p) 1
-//            resSet.NumPartitions <- num2*num
-//            
-//            resSet.NumParallelExecution <- 60
-//            
-//            resSet  |> DSet.mapi (rmtPart.PipelineSort 20)
-//                    |> DSet.toSeq 
-//                    |> Seq.iter (fun (i,t) ->  Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Sorted partition %d takes %f s" i t)))
+            let sortDSet = DSet<_>( Name = "SortSet", NumPartitions = num2*num) 
+
+            let resSet = sortDSet |> DSet.initS (fun (p,s) -> p) 1
+            resSet.NumPartitions <- num2*num
             
+            resSet.NumParallelExecution <- 60
+            
+            resSet  |> DSet.mapi (rmtPart.PipelineSort 20)
+                    |> DSet.toSeq 
+                    |> Seq.iter (fun (i,t) ->  Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Sorted partition %d takes %f s" i t)))         
             
             Logger.LogF( LogLevel.Info, ( fun _ -> sprintf "Done, takes %f ms: stage 1 takes: %f ms, stage 2 takes: %f ms"  ((DateTime.UtcNow - t1).TotalMilliseconds) ((t2-t1).TotalMilliseconds)  ((DateTime.UtcNow - t2).TotalMilliseconds) ))
 //
+#else
+            let remote = DSet<_>(Name = "Remote")
+            let watch = Stopwatch.StartNew()
+
+            remote.Execute(fun () -> ())
+            Logger.LogF(LogLevel.Info, fun _ -> sprintf "Init takes %f seconds" watch.Elapsed.TotalSeconds)
+
+            //remote.Execute(RemoteFunc.Transfer(rmtPart))
+            remote.Execute(RemoteFunc.StartRemoteInstance(dataFileNum, records, nDim, num, num2,furtherPartition))
+            Logger.LogF(LogLevel.Info, fun _ -> sprintf "Init plus alloc takes %f seconds" watch.Elapsed.TotalSeconds)
+
+            MemStream_Fake_conf(remote)
+            MemStream_Fake_conf(remote)
+#endif
 
             bExecute <- true  
             () 

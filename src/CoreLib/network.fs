@@ -124,7 +124,7 @@ type [<AllowNullLiteral>] NetworkCommand() =
     /// release the underlying memstream
     member x.Release() =
         if (Interlocked.CompareExchange(bReleased, 1, 0)=0) then
-            x.ms.Dispose()
+            (x.ms :> IDisposable).Dispose()
 
     interface IDisposable with
         override x.Dispose() =
@@ -893,7 +893,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
 
     member private x.AsyncSendBufWSizeTryCatch(buf : byte[], bufferOffset : int, bufferSize : int) =
         try
-            xgBuf.AsyncSendBufWithSize(buf, bufferOffset, bufferSize)
+            xgBuf.AsyncSendBufWithSize(None, null, buf, bufferOffset, bufferSize)
         with e ->
             x.MarkFail()
 
@@ -1157,9 +1157,9 @@ UnprocessedCmD:%d bytes Status:%A"
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
             Logger.LogF(LogLevel.MildVerbose, x.StatusInfo)
             MemoryStreamB.DumpStreamsInUse()
-            MemoryStreamB.MemStack.DumpInUse(LogLevel.MildVerbose)
-            x.ONet.BufStackRecv.DumpInUse(LogLevel.MildVerbose)
-            x.ONet.BufStackSend.DumpInUse(LogLevel.MildVerbose)
+            MemoryStreamB.MemStack.DumpInUse()
+            x.ONet.BufStackRecv.DumpInUse()
+            x.ONet.BufStackSend.DumpInUse()
             xCSend.SelfClose()
             // manually terminate everything - this will do following
             // 1) clear the queues, 2) set the IsTerminated flag, 3) set event being waited upon
@@ -1168,7 +1168,10 @@ UnprocessedCmD:%d bytes Status:%A"
             xgc.CompSend.SelfTerminate()
             xgc.CompRecv.SelfTerminate()
             // in case in middle of sending, callback does not execute
-            xgc.SendFinished.Set() |> ignore
+            try
+                xgc.SendFinished.Set() |> ignore
+            with
+                | :? System.ObjectDisposedException -> ()
 
     member private x.OnSocketClose (conn : IConn) (o : obj) =
         if (Utils.IsNotNull x.ONet) then
@@ -1345,7 +1348,6 @@ UnprocessedCmD:%d bytes Status:%A"
         if (Utils.IsNull buf) then
             if (sendLenRem <> 0L) then
                 failwith "Send Len not correct"
-            streamReader.Release()
             (true, 0=xCSend.Q.Count)
         else
             (false, false)
@@ -2005,9 +2007,11 @@ and [<AllowNullLiteral>] NetworkConnections() as x =
                     channelsCollection.TryRemove( pair.Key ) |> ignore
                     Logger.LogF( LogLevel.Warning, (fun _ -> sprintf "remove channel to machine %A, but remote signature of the channel cannot be found" channel.EPInfo ))
                     pair.Value.OnDisconnect.Trigger()
+                    pair.Value.DisposeResource()
         else
             Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "remove channel of RemoteEndPoint %s." (LocalDNS.GetShowInfo( channel.RemoteEndPoint ) ) ))
             channel.OnDisconnect.Trigger() 
+            channel.DisposeResource()
 
     // Some optimization to avoid repeated memory allocation
     member val private CurChannelList = Array.zeroCreate<_> 0 with get, set
@@ -2059,9 +2063,9 @@ UnprocessedCmD:%d bytes Status:%A"
         Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.BufStackSend.StackSize x.BufStackSend.GetStack.Size)
         Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
         MemoryStreamB.DumpStreamsInUse()
-        MemoryStreamB.MemStack.DumpInUse(LogLevel.MildVerbose)
-        x.BufStackRecv.DumpInUse(LogLevel.MildVerbose)
-        x.BufStackSend.DumpInUse(LogLevel.MildVerbose)
+        MemoryStreamB.MemStack.DumpInUse()
+        x.BufStackRecv.DumpInUse()
+        x.BufStackSend.DumpInUse()
 
     member val private nCloseCalled = ref 0 with get, set
     member val private EvCloseExecuted = new ManualResetEvent(false) with get

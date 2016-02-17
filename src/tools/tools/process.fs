@@ -496,6 +496,24 @@ type internal ConcurrentArray<'T>() =
 type internal SingleThreadExec() =
     let counter = ref 0
     let q = ConcurrentQueue<unit->unit>()
+    let mutable wc : WaitCallback = null
+
+    member private x.WC with get() = wc and set(v) = wc <- v
+
+    static member ThreadPoolExec() =
+        let x = new SingleThreadExec()
+        x.WC <- new WaitCallback(x.ExecDo)
+        x
+
+    static member ThreadPoolExecOnce() =
+        let x = new SingleThreadExec()
+        x.WC <- new WaitCallback(x.ExecOnceDo)
+        x
+
+    static member ThreadPoolExecQ() =
+        let x = new SingleThreadExec()
+        x.WC <- new WaitCallback(x.ExecQDo)
+        x
 
     // execute function only on one thread - "counter" number of times
     member x.Exec(f : unit->unit) =
@@ -504,6 +522,15 @@ type internal SingleThreadExec() =
             while (not bDone) do
                 f()
                 bDone <- (Interlocked.Decrement(counter) = 0)
+    member private x.ExecDo(o : obj) =
+        let f = o :?> unit->unit
+        let mutable bDone = false
+        while (not bDone) do
+            f()
+            bDone <- (Interlocked.Decrement(counter) = 0)
+    member x.ExecTP(f : unit->unit) =
+        if (Interlocked.Increment(counter) = 1) then
+            ThreadPool.QueueUserWorkItem(wc, f) |> ignore
 
     // execute function only on one thread - but at least one time after call
     member x.ExecOnce(f : unit->unit) =
@@ -514,6 +541,17 @@ type internal SingleThreadExec() =
                 let curCount = !counter
                 f()
                 bDone <- (Interlocked.Add(counter, -curCount) = 0)
+    member private x.ExecOnceDo(o : obj) =
+        let f = o :?> unit->unit
+        let mutable bDone = false
+        while (not bDone) do
+            // get count prior to executing
+            let curCount = !counter
+            f()
+            bDone <- (Interlocked.Add(counter, -curCount) = 0)
+    member x.ExecOnceTP(f : unit->unit) =
+        if (Interlocked.Increment(counter) = 1) then
+            ThreadPool.QueueUserWorkItem(wc, f) |> ignore
 
     member x.ExecQ(f : unit->unit) =
         q.Enqueue(f)
@@ -525,6 +563,19 @@ type internal SingleThreadExec() =
                 if (ret) then
                     (!fn)()
                     bDone <- (Interlocked.Decrement(counter) = 0)
+    member x.ExecQDo(o : obj) =
+        if (Interlocked.Increment(counter) = 1) then
+            let mutable bDone = false
+            let fn = ref (fun () -> ())
+            while (not bDone) do
+                let ret = q.TryDequeue(fn)
+                if (ret) then
+                    (!fn)()
+                    bDone <- (Interlocked.Decrement(counter) = 0)
+    member x.ExecQTP(f : unit->unit) =
+        q.Enqueue(f)
+        if (Interlocked.Increment(counter) = 1) then
+            ThreadPool.QueueUserWorkItem(wc) |> ignore       
 
 // ===========================================================
 
@@ -1226,13 +1277,13 @@ type internal ThreadPoolWait() =
             ThreadPoolWait.WaitForHandle infoFunc handle continuation unblockHandle
     static member WaitForHandle (infoFunc: unit-> string) (handle:WaitHandle) (continuation:unit->unit) (unblockHandle:EventWaitHandle) =
         if handle.WaitOne(0) then 
-            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "WaitHandle %s has already fired before wait, execute continuation on the current thread" (infoFunc()) )
+            Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "WaitHandle %s has already fired before wait, execute continuation on the current thread" (infoFunc()) )
             continuation() 
             if Utils.IsNotNull unblockHandle then 
                 // If there is an unblock handle, set it. 
                 unblockHandle.Set() |> ignore
         else
-            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Wait for WaitHandle %s via RegisterWaitForSingleObject ..." (infoFunc()) )
+            Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "Wait for WaitHandle %s via RegisterWaitForSingleObject ..." (infoFunc()) )
             /// Uniquely identify this async job and its resource removal. 
             let jobObject = Object()
             let rwh = ThreadPool.RegisterWaitForSingleObject( handle, new WaitOrTimerCallback(ThreadPoolWait.CallBack), (infoFunc,handle,continuation,unblockHandle,jobObject) , -1, true )
@@ -1243,7 +1294,7 @@ type internal ThreadPoolWait() =
             if not timeout then
                 try
                     let infoFunc,handle,continuation,unblockHandle,jobObject = state :?> ((unit->string)*WaitHandle*(unit->unit)*EventWaitHandle*Object)
-                    Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "WaitHandle %s fired, execute continuation..." (infoFunc()) )
+                    Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "WaitHandle %s fired, execute continuation..." (infoFunc()) )
                     continuation() 
                     if Utils.IsNotNull unblockHandle  then 
                         // If there is an unblock handle, set it. 
@@ -2148,7 +2199,7 @@ and [<AllowNullLiteral>]
     /// Track the execution status of the function in the operation. 
     member val TaskStatus = ConcurrentDictionary<_,_>() with get
     /// Whether all operation has done execution
-    member val private HandleDoneExecution = new ManualResetEventSlim(false) with get
+    member val internal HandleDoneExecution = new ManualResetEventSlim(false) with get
     member private x.WakeupWorkItem (func: unit -> ManualResetEvent * bool) (cts:CancellationToken) (key:'K) (infoFunc:'K->string) () = 
         let bExist, tuple = x.TaskStatus.TryGetValue( key ) 
         if bExist then 

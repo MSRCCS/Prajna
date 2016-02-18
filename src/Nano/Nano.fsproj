@@ -60,6 +60,7 @@
     <Compile Include="BaseADTs.fs" />
     <Compile Include="Server.fs" />
     <Compile Include="Client.fs" />
+    <Compile Include="Broadcast.fs" />
     <None Include="Scripts\load-references-debug.fsx" />
     <None Include="Scripts\load-project-debug.fsx" />
     <None Include="Scripts\Experiment.fsx" />

@@ -182,9 +182,14 @@ module internal Serialize =
             match cache.TryGetValue(x) with
                 | true, y -> y
                 | _ ->
-                    let y = f x
-                    cache.[x] <- y
-                    y
+                    lock cache (fun _ -> 
+                        match cache.TryGetValue(x) with
+                        | true, y -> y
+                        | _ ->
+                            let y = f x
+                            cache.[x] <- y
+                            y
+                    )
 
     let AllInstance = BindingFlags.Instance ||| BindingFlags.FlattenHierarchy ||| BindingFlags.Public ||| BindingFlags.NonPublic
 

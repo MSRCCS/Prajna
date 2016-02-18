@@ -52,7 +52,7 @@ type Serializer private () =
         let bytes = new MemoryStreamB()
         Serializer.instance.serializer.Serialize(bytes, obj)
         bytes.Seek(0L, SeekOrigin.Begin) |> ignore
-        Serialized<'T>(bytes)
+        new Serialized<'T>(bytes)
 
     static member Serialize<'T>(obj: 'T, stream: MemoryStreamB) =
         Serializer.instance.serializer.Serialize(stream, obj)

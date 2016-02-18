@@ -170,19 +170,6 @@ module NanoTests =
         Assert.AreEqual(bigMatrix.[bigMatrix.Length-1], result)
 
     [<Test>]
-    let NanoRemoteRef() = 
-        use __ = new ServerNode(1500)
-        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
-        let value = 
-            async {
-                let! r = cn.NewRemote(fun _ -> "Test")
-                let! r2 = cn.NewRemote(fun _ -> r.GetValue() |> Async.RunSynchronously |> fun str -> str.Length)
-                return! r2.GetValue()
-            }
-            |> Async.RunSynchronously
-        Assert.AreEqual(value, 4)
-
-    [<Test>]
     let NanoRunRemote() = 
         use __ = new ServerNode(1500)
         use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
@@ -210,31 +197,6 @@ module NanoTests =
                 |> Async.Start
             return col.GetConsumingEnumerable()
         }
-
-    [<Test>]
-    let NanoPreSerialized() = 
-        use __ = new ServerNode(1500)
-        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
-        let ints = [|1..1000000|]
-        let sw = Stopwatch.StartNew()
-        use createInts = Serializer.Serialize <|  Func<int[]>(fun _ -> ints) 
-        use addOne = Serializer.Serialize <|  Func<int[], int[]>(Array.map (fun x -> x + 1) )
-        printfn "%s" <| sprintf "Serialization took: %A" sw.Elapsed
-        sw.Restart()
-        let remotes = 
-            Array.init 30 (
-                fun _ -> async { 
-                    let! r = cn.NewRemote( createInts )
-                    return! r.Apply(addOne)
-                    } ) 
-            |> Async.Parallel |> Async.RunSynchronously 
-        printfn "%s" <| sprintf "Remote creation took: %A" sw.Elapsed
-        sw.Restart()
-        let arrays =
-            remotes |> Array.map (fun r -> r.GetValue()) 
-            |> Async.Parallel |> Async.RunSynchronously 
-        printfn "%s" <| sprintf "Bringing back took: %A" sw.Elapsed
-        printfn "%s" "Done"
 
     let makeSquares (cns: ClientNode[]) (rndClient: Random) (numAsyncs: int) (maxWait: int) =
         let sqr x = x * x
@@ -330,4 +292,89 @@ module NanoTests =
         }
         |> Async.RunSynchronously
 
+
+    [<Test>]
+    let NanoRemoteRef() = 
+        use __ = new ServerNode(1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
+        let value = 
+            async {
+                let! r = cn.NewRemote(fun _ -> "Test")
+                let! r2 = cn.NewRemote(fun _ -> r.GetValue() |> Async.RunSynchronously |> fun str -> str.Length)
+                return! r2.GetValue()
+            }
+            |> Async.RunSynchronously
+        Assert.AreEqual(value, 4)
+
+    [<Test>]
+    let NanoPreSerialized() = 
+        use __ = new ServerNode(1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
+        let ints = [|1..1000000|]
+        let sw = Stopwatch.StartNew()
+        use createInts = Serializer.Serialize <|  Func<int[]>(fun _ -> ints) 
+        use addOne = Serializer.Serialize <|  Func<int[], int[]>(Array.map (fun x -> x + 1) )
+        printfn "%s" <| sprintf "Serialization took: %A" sw.Elapsed
+        sw.Restart()
+        let remotes = 
+            Array.init 30 (
+                fun _ -> async { 
+                    let! r = cn.NewRemote( createInts )
+                    return! r.Apply(addOne)
+                    } ) 
+            |> Async.Parallel |> Async.RunSynchronously 
+        printfn "%s" <| sprintf "Remote creation took: %A" sw.Elapsed
+        sw.Restart()
+        let arrays =
+            remotes |> Array.map (fun r -> r.GetValue()) 
+            |> Async.Parallel |> Async.RunSynchronously 
+        printfn "%s" <| sprintf "Bringing back took: %A" sw.Elapsed
+        printfn "%s" "Done"
+
+    let broadcast (obj: 'T) : ServerNode * ClientNode[] * Distributed<'T> =
+        let server = new ServerNode(1500)
+        let clients = Array.init 10 (fun _ -> new ClientNode(ServerNode.GetDefaultIP(), 1500))
+        let broadcaster = new Broadcaster(clients)
+        server, clients, (broadcaster.BroadcastChained(fun _ -> obj) |> Async.RunSynchronously)
+    
+    let printTime (message: string) (sw: Stopwatch) =
+        let elapsed = sw.Elapsed
+        printfn "%s" <| sprintf "%s: %A" message sw.Elapsed
+        sw.Restart()
+
+    let nanoBroadcastArray (numInts: int) =
+        let sw = Stopwatch.StartNew()
+        let server, clients, dist = broadcast [|1..numInts|]
+        printTime "Broadcasting took:" sw
+        try
+            let vals =
+                async {
+                    sw.Restart()
+                    let! multiples = dist.Apply(fun arr -> arr |> Array.map (fun x -> x * 10))
+                    printTime "Applying map took:" sw
+                    let! vals = multiples.GetValues()
+                    printTime "Fetching results took:" sw
+                    return vals
+                }
+                |> Async.RunSynchronously
+            Assert.IsTrue( (vals = Array.init 10 (fun _ -> [|10..10..(numInts * 10)|])) )
+        finally
+            (server :> IDisposable).Dispose()
+            disposeAll clients
+    
+    [<Test>]
+    let NanoBroadcastTiny() =
+        nanoBroadcastArray 10
+
+    [<Test>]
+    let NanoBroadcastSmall() =
+        nanoBroadcastArray 10000
+
+    [<Test>]
+    let NanoBroadcastMedium() =
+        nanoBroadcastArray 1000000
+
+    [<Test>]
+    let NanoBroadcastLarge() =
+        nanoBroadcastArray 10000000
 

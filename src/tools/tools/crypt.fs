@@ -288,7 +288,7 @@ type internal Crypt() =
         ms.WriteByte(nPadding)
         ms.WriteBytesWLen(rjnd.IV)
         use cs = new CryptoStream(ms, rjnd.CreateEncryptor(), CryptoStreamMode.Write)
-        use sr = new Prajna.Tools.StreamReader<byte>(msOrig, 0L)
+        let sr = new Prajna.Tools.StreamReader<byte>(msOrig, 0L)
         sr.ApplyFnToBuffers(fun (buf, offset, cnt) -> cs.Write(buf, offset, cnt))
         if (nPadding <> 0uy) then
             cs.Write(zeroBlk, 0, int nPadding)

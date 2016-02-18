@@ -127,6 +127,10 @@ type [<AllowNullLiteral>] GenericNetwork(bStartSendPool, numNetThreads) =
         cts.Dispose()
         (x.netPool :> IDisposable).Dispose()
         (x.BufStackRecvComp :> IDisposable).Dispose()
+        if (Utils.IsNotNull bufStackRecv) then
+            (bufStackRecv :> IDisposable).Dispose()
+        if (Utils.IsNotNull bufStackSend) then
+            (bufStackSend :> IDisposable).Dispose()
         base.CloseConns()
 
     interface IDisposable with
@@ -136,7 +140,7 @@ type [<AllowNullLiteral>] GenericNetwork(bStartSendPool, numNetThreads) =
             GC.SuppressFinalize(x)
 
     static member internal AllocBuf (cb : SocketAsyncEventArgs->unit) (rcbe : RefCntBufSA) =
-        rcbe.SA.Completed.Add(cb)
+        rcbe.SA.Completed.Add(cb) 
 
 /// A generic connection which processes SocketAsyncEventArgs
 and [<AllowNullLiteral>] GenericConn() as x =
@@ -330,7 +334,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
                 x
             else
                 let (x, xERecvSA) = e.UserToken :?> GenericConn*RBufPart<byte>
-                xERecvSA.Release()
+                (xERecvSA :> IDisposable).Dispose()
                 let (event, sa) = RBufPart<byte>.GetFromPool("RecvSA", x.Net.BufStackRecv, fun _ -> new RBufPart<byte>() :> SafeRefCnt<RefCntBuf<byte>>)
                 let xERecvSA = sa :?> RBufPart<byte>
                 let saE = sa.Elem :?> RefCntBufSA
@@ -482,7 +486,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
     member val RecvQEnqueue = xRecvC.Q.EnqueueWaitTime with get, set
 
     member private x.ContinueReceive(o : obj, bTimeOut : bool) =
-        eRecvSA.Count <- (eRecvSA.Elem :?> RefCntBufSA).SA.BytesTransferred
+        eRecvSA.Count <- int64 (eRecvSA.Elem :?> RefCntBufSA).SA.BytesTransferred
         let (success, event) = x.RecvQEnqueue(eRecvSA)
         if (success) then
             //Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Enqueue %d bytes from %s" eRecvNetwork.BytesTransferred (xConn.Socket.RemoteEndPoint.ToString()) )
@@ -503,7 +507,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
             x.FinishSendCounter <- x.FinishSendCounter + 1L
             //Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Finish send %d bytes to %s" e.Count x.ConnKey )
             x.AfterSendCallback(e) // callback prior to release
-            x.ESendSA.Release()
+            (x.ESendSA :> IDisposable).Dispose()
             x.SendFinished.Set() |> ignore
 
     // for connecting with GenericConn ======================
@@ -544,7 +548,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
     /// Release SA being processed on receiver side
     /// <param name="rb"> The element to be released
     member x.RecvRelease(rb : RBufPart<byte> ref) =
-        (!rb).Release()
+        ((!rb) :> IDisposable).Dispose()
 
     /// Generic function for recv dequeue to be used by users of GenericConn class
     /// <param name="dequeueAction">The action used to dequeue a SocketAsyncEventArgs to process</param>
@@ -681,7 +685,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
                         bDone <- fst output
                         bForceEnqueue <- snd output
                 if (0 = eSendRem || bForceEnqueue) then
-                    eSendProcess.Count <- eSendOffset
+                    eSendProcess.Count <- int64 eSendOffset
                     eSendNetwork.SA.SetBuffer(0, eSendOffset)
                     let output = enqueueAction(eSendProcess)
                     let bSuccess = fst output
@@ -698,6 +702,10 @@ and [<AllowNullLiteral>] GenericConn() as x =
     interface IDisposable with
         /// Releases all resources used by the current instance.
         member x.Dispose() = 
+            if (Utils.IsNotNull eSendSA) then
+                (eSendSA :> IDisposable).Dispose()
+            if (Utils.IsNotNull eRecvSA) then
+                (eRecvSA :> IDisposable).Dispose()
             (xSendC :> IDisposable).Dispose()
             (xRecvC :> IDisposable).Dispose()
             cts.Dispose()

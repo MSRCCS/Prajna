@@ -46,7 +46,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- A reference to the entire .NET Framework is automatically included -->
-    <ProjectReference Include="..\..\..\..\Prajna\src\ServiceLib\BasicServiceData\BasicServiceData.csproj">
+    <ProjectReference Include="..\BasicServiceData\BasicServiceData.csproj">
       <Project>{66005bbd-1d3a-4c64-bde6-13132edcfb28}</Project>
       <Name>BasicServiceData</Name>
     </ProjectReference>

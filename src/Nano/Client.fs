@@ -17,7 +17,7 @@ open BaseADTs
 
 type ServerInfo = {Address: IPAddress; Port: int}
 
-type ClientNode(address: IPAddress, port: int) =
+type ClientNode(address: IPAddress, port: int) as self =
 
     static let network = new ConcreteNetwork()
 
@@ -40,12 +40,17 @@ type ClientNode(address: IPAddress, port: int) =
         writeQueue <- wq
         QueueMultiplexer<MemoryStreamB>.AddQueue(readQueue, onNewBuffer)
 
+    let getRemote (response: Response) =
+        match response with
+        | RunDelegateResponse(pos) -> Remote<'T>(pos, self)
+        | _ -> raise <| Exception("Unexpected response to RunDelegate request.")
+
     do
         Logger.LogF(LogLevel.Info, fun _ -> sprintf "Starting client node")
         network.Connect<BufferStreamConnection>(address, port, onConnect) |> ignore
 
     interface IRequestHandler with
-        member this.HandleRequest(request: Request) : Async<Response> =
+        member this.AsyncHandleRequest(request: Request) : Async<Response> =
             let memStream = new MemoryStreamB()
             let (Numbered(number,_)) as numberedRequest = newNumbered request
             let memStream = Serializer.Serialize(numberedRequest).Bytes
@@ -67,31 +72,38 @@ type ClientNode(address: IPAddress, port: int) =
                     return responseHolder.Value.Value
                 }
             )
+        member this.HandleRequest(request: Request) = 
+            (this :> IRequestHandler).AsyncHandleRequest(request)
+            |> Async.RunSynchronously
+
         member this.Address = address
         member this.Port = port
 
 
-    member this.NewRemote(func: Func<'T>) : Async<Remote<'T>> =
+    member this.AsyncNewRemote(func: Func<'T>) : Async<Remote<'T>> =
         async {
             let handler = (* defaultArg (ServerNode.TryGetServer((address,port))) *) (this :> IRequestHandler)
-            let! response = handler.HandleRequest(RunDelegate(-1, func))
+            let! response = handler.AsyncHandleRequest(RunDelegate(-1, func))
             match response with
             | RunDelegateResponse(pos) -> return new Remote<'T>(pos, this)
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
 
-    member this.NewRemoteAsync(func: Func<'T>) = this.NewRemote(func) |> Async.StartAsTask
+    member this.NewRemote(func: Func<'T>) : Remote<'T> =
+        let handler = (* defaultArg (ServerNode.TryGetServer((address,port))) *) (this :> IRequestHandler)
+        let response = handler.HandleRequest(RunDelegate(-1, func))
+        getRemote response
 
-    member this.NewRemote(func: Serialized<Func<'T>>) : Async<Remote<'T>> =
+    member this.NewRemoteAsync(func: Func<'T>) = this.AsyncNewRemote(func) |> Async.StartAsTask
+
+    member this.AsyncNewRemote(func: Serialized<Func<'T>>) : Async<Remote<'T>> =
         async {
             let handler = (* defaultArg (ServerNode.TryGetServer((address,port))) *) (this :> IRequestHandler)
-            let! response = handler.HandleRequest(RunDelegateSerialized(-1, func.Bytes))
-            match response with
-            | RunDelegateResponse(pos) -> return new Remote<'T>(pos, this)
-            | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
+            let! response = handler.AsyncHandleRequest(RunDelegateSerialized(-1, func.Bytes))
+            return getRemote response
         }
 
-    member this.NewRemoteAsync(func: Serialized<Func<'T>>) = this.NewRemote(func) |> Async.StartAsTask
+    member this.NewRemoteAsync(func: Serialized<Func<'T>>) = this.AsyncNewRemote(func) |> Async.StartAsTask
 
     interface IDisposable with
         member __.Dispose() = 
@@ -114,33 +126,67 @@ and Remote<'T> =
             | None -> 
                 this.handler <- ClientNode(this.serverInfo.Address, this.serverInfo.Port) :> IRequestHandler
             
+    /// Apply<Func>
+    member this.AsyncApply(func: Func<'T, 'U>) =
+        this.ReinitHandler()
+        async {
+            let! response = this.handler.AsyncHandleRequest( RunDelegate(this.pos, func) )
+            match response with
+            | RunDelegateResponse(pos) -> return new Remote<'U>(pos, this.handler)
+            | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
+        }
+    member this.ApplyAsync(func: Func<'T, 'U>) = this.AsyncApply(func) |> Async.StartAsTask
     member this.Apply(func: Func<'T, 'U>) =
         this.ReinitHandler()
+        let response = this.handler.HandleRequest( RunDelegate(this.pos, func) )
+        match response with
+        | RunDelegateResponse(pos) -> new Remote<'U>(pos, this.handler)
+        | _ -> raise <| Exception("Unexpected response to RunDelegate request.")
+
+    /// Apply<Func>
+    member this.AsyncApplyAndGetValue(func: Func<'T, 'U>) : Async<'U> =
+        this.ReinitHandler()
         async {
-            let! response = this.handler.HandleRequest( RunDelegate(this.pos, func) )
+            let! response = this.handler.AsyncHandleRequest( RunDelegateAndGetValue(this.pos, func) )
+            match response with
+            | GetValueResponse(obj) -> return obj :?> 'U
+            | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
+        }
+
+
+    /// Apply<SerializedFunc>
+    member this.ApplyAsync(func: Serialized<Func<'T, 'U>>) = this.AsyncApply(func) |> Async.StartAsTask
+    member this.AsyncApply(func: Serialized<Func<'T, 'U>>) =
+        this.ReinitHandler()
+        async {
+            let! response = this.handler.AsyncHandleRequest( RunDelegateSerialized(this.pos, func.Bytes) )
             match response with
             | RunDelegateResponse(pos) -> return new Remote<'U>(pos, this.handler)
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
-
-    member this.ApplyAsync(func: Func<'T, 'U>) = this.Apply(func) |> Async.StartAsTask
-
     member this.Apply(func: Serialized<Func<'T, 'U>>) =
         this.ReinitHandler()
-        async {
-            let! response = this.handler.HandleRequest( RunDelegateSerialized(this.pos, func.Bytes) )
-            match response with
-            | RunDelegateResponse(pos) -> return new Remote<'U>(pos, this.handler)
-            | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
-        }
+        let response = this.handler.HandleRequest( RunDelegateSerialized(this.pos, func.Bytes) )
+        match response with
+        | RunDelegateResponse(pos) -> new Remote<'U>(pos, this.handler)
+        | _ -> raise <| Exception("Unexpected response to RunDelegate request.")
 
-    member this.ApplyAsync(func: Serialized<Func<'T, 'U>>) = this.Apply(func) |> Async.StartAsTask
-
-    member this.GetValue() =
+    // GetValue
+    member this.AsyncGetValue() =
         this.ReinitHandler()
         async {
-            let! response = this.handler.HandleRequest( GetValue(this.pos) )
+            let! response = this.handler.AsyncHandleRequest( GetValue(this.pos) )
             match response with
             | GetValueResponse(obj) -> return obj :?> 'T
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
+    member this.GetValueAsync() = this.AsyncGetValue() |> Async.StartAsTask
+    member this.GetValue() =
+        this.ReinitHandler()
+        let response = this.handler.HandleRequest( GetValue(this.pos) )
+        match response with
+        | GetValueResponse(obj) -> obj :?> 'T
+        | _ -> raise <| Exception("Unexpected response to RunDelegate request.")
+
+//    static member Flip(asyncRemote: Async<Remote<'T>>) : Remote<Async<'T>> =
+        

@@ -18,6 +18,7 @@ module BaseADTs =
 
     type Request = 
         | RunDelegate of int * Delegate
+        | RunDelegateAndGetValue of int * Delegate
         | RunDelegateSerialized of int * MemoryStreamB
         | GetValue of int
 

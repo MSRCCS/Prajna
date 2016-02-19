@@ -13,7 +13,8 @@ open Prajna.Tools.FSharp
 open BaseADTs
 
 type IRequestHandler =
-    abstract member HandleRequest : Request -> Async<Response>
+    abstract member AsyncHandleRequest : Request -> Async<Response>
+    abstract member HandleRequest : Request -> Response
     abstract member Address : IPAddress
     abstract member Port : int
 
@@ -24,7 +25,7 @@ type ServerBufferHandler(readQueue: BufferQueue, writeQueue: BufferQueue, handle
             let (Numbered(number,request)) : Numbered<Request> = downcast Serializer.Deserialize(requestBytes) 
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Deserialized request: %d bytes." requestBytes.Length)
             requestBytes.Dispose()
-            let! response = handler.HandleRequest request
+            let! response = handler.AsyncHandleRequest request
             let numberedResponse = Numbered(number, response)
             let responseStream = Serializer.Serialize(numberedResponse).Bytes
             writeQueue.Add responseStream
@@ -52,10 +53,14 @@ type ServerNode(port: int) as self =
 
     let address = ServerNode.GetDefaultIP()
 
-    let handleFunc (pos: int) (func: Delegate) : Response =
+    let applyDelegate (pos: int) (func: Delegate) : obj =
         let argument : obj[] = if pos = -1 then null else (Array.init 1 (fun _ -> objects.[pos]))
         let ret = func.DynamicInvoke(argument)
         Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Ran method")
+        ret
+
+    let handleDelegateFunc (pos: int) (func: Delegate) : Response =
+        let ret = applyDelegate pos func
         if func.Method.ReturnType <> typeof<Void> then
             let retPos = lock objects (fun _ -> objects.Add ret; objects.Count - 1)
             RunDelegateResponse(retPos)
@@ -65,11 +70,14 @@ type ServerNode(port: int) as self =
     let handleRequest(request: Request) : Response =
         match request with
         | RunDelegate(pos,func) ->
-            handleFunc pos func
+            handleDelegateFunc pos func
+        | RunDelegateAndGetValue(pos,func) ->
+            let ret = applyDelegate pos func
+            GetValueResponse(ret)
         | RunDelegateSerialized(pos, bytes) ->
             let func = Serializer.Deserialize(bytes) :?> Delegate
             bytes.Dispose()
-            handleFunc pos func
+            handleDelegateFunc pos func
         | GetValue(pos) -> 
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Returning GetValue response")
             GetValueResponse(objects.[pos])
@@ -108,8 +116,9 @@ type ServerNode(port: int) as self =
         member __.Address = address
         member x.Port = port
         
-        member __.HandleRequest(req: Request) = 
-            async { return handleRequest req  }
+        member __.AsyncHandleRequest(req: Request) = async { return handleRequest req  }
+
+        member __.HandleRequest(req: Request) = handleRequest req  
 
     interface IDisposable with
         

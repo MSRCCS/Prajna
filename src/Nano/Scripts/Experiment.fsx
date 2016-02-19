@@ -6,6 +6,18 @@
 
 open Prajna.Nano
 
+let remoteNextClients : Remote<ClientNode>[] = null
+
+//let broadcastChainedRaw3 (value: 'T)  =
+//    let first = remoteNextClients.[0].Apply(fun c -> c.NewRemote(fun _ -> value))
+//    remoteNextClients
+//    |> Array.scan(fun (prev: Remote<'T>) (cur: Remote<ClientNode>) -> 
+//        cur.Apply(fun c -> 
+//            let r = c.NewRemote<'T>(Func<'T>(fun _ -> prev.GetValue()))
+//            r)
+//            ) first
+                
+
 
 do Prajna.Tools.Logger.ParseArgs([|"-con"|])
 

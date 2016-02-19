@@ -348,7 +348,7 @@ module NanoTests =
         let server = new ServerNode(1500)
         let clients = Array.init numClients (fun _ -> new ClientNode(ServerNode.GetDefaultIP(), 1500))
         let broadcaster = new Broadcaster(clients)
-        server, clients, (broadcaster.BroadcastChainedNew(fun _ -> obj) |> Async.RunSynchronously)
+        server, clients, (broadcaster.BroadcastChained(fun _ -> obj) |> Async.RunSynchronously)
     
     let printTime (message: string) (sw: Stopwatch) =
         let elapsed = sw.Elapsed
@@ -390,6 +390,6 @@ module NanoTests =
 
     [<Test>]
     let NanoBroadcastLarge() =
-        do BufferListStream<byte>.BufferSizeDefault <- 1 <<< 21
+        do BufferListStream<byte>.BufferSizeDefault <- 1 <<< 23
         nanoBroadcastArray 10000000
 

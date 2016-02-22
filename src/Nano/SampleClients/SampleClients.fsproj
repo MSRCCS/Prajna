@@ -5,14 +5,14 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>a5530418-917b-4a90-b095-fa837d385aae</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <RootNamespace>Nano</RootNamespace>
-    <AssemblyName>Nano</AssemblyName>
+    <ProjectGuid>4d6deb3b-fc02-4a38-b68b-0270d13bc52c</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SampleClients</RootNamespace>
+    <AssemblyName>SampleClients</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
-    <TargetFSharpCoreVersion>4.3.1.0</TargetFSharpCoreVersion>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <Name>Nano</Name>
+    <TargetFSharpCoreVersion>4.3.1.0</TargetFSharpCoreVersion>
+    <Name>SampleClients</Name>
     <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup>
@@ -26,7 +26,8 @@
     <OutputPath>bin\Debugx64\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debugx64\Nano.XML</DocumentationFile>
+    <DocumentationFile>bin\Debugx64\SampleClients.XML</DocumentationFile>
+    <Prefer32Bit>true</Prefer32Bit>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
@@ -36,7 +37,8 @@
     <OutputPath>bin\Releasex64\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Releasex64\Nano.XML</DocumentationFile>
+    <DocumentationFile>bin\Releasex64\SampleClients.XML</DocumentationFile>
+    <Prefer32Bit>true</Prefer32Bit>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <Choose>
@@ -52,21 +54,32 @@
     </Otherwise>
   </Choose>
   <Import Project="$(FSharpTargetsPath)" />
+  <PropertyGroup>
+    <PostBuildEvent>
+    </PostBuildEvent>
+  </PropertyGroup>
+  <PropertyGroup>
+    <PostBuildEvent>xcopy /y $(TargetDir)SampleClients.* \\OneNet20\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet21\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet22\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet23\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet24\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet25\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet26\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet27\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet28\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet29\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet30\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet31\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet32\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet33\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet34\c$\Nano
+xcopy /y $(TargetDir)SampleClients.* \\OneNet35\c$\Nano</PostBuildEvent>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
-    <Compile Include="QueueMultiplexer.fs" />
-    <Compile Include="BufferStreamConnection.fs" />
-    <Compile Include="Serialized.fs" />
-    <Compile Include="BaseADTs.fs" />
-    <Compile Include="Server.fs" />
-    <Compile Include="Client.fs" />
-    <Compile Include="Broadcast.fs" />
-    <None Include="Scripts\load-references-debug.fsx" />
-    <None Include="Scripts\load-project-debug.fsx" />
-    <None Include="Scripts\load-references-release.fsx" />
-    <None Include="Scripts\load-project-release.fsx" />
-    <None Include="Scripts\Experiment.fsx" />
-    <None Include="Scripts\Deploy.fsx" />
+    <Compile Include="Program.fs" />
+    <Content Include="App.config" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
@@ -76,11 +89,14 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\tools\tools\Tools.fsproj">
+    <ProjectReference Include="..\..\tools\tools\Tools.fsproj">
       <Name>Tools (src\Tools\Tools)</Name>
       <Project>{159bb552-8346-4313-8e10-43b88beca63b}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\Nano.fsproj">
+      <Name>Nano (src\Nano\Nano)</Name>
+      <Project>{a5530418-917b-4a90-b095-fa837d385aae}</Project>
       <Private>True</Private>
     </ProjectReference>
   </ItemGroup>

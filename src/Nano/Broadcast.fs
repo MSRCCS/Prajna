@@ -111,7 +111,7 @@ type Broadcaster(clients: ClientNode[]) =
                     |> Array.map (fun chunk ->  this.ForwardChained(fun _ -> chunk)) 
                     |> Async.Parallel
                 let chunkColumns = transpose distChunks
-                let! assembledChunkRemotes = 
+                let! assembledChunkRemotes = // Remote<'T>[]
                     chunkColumns |> Array.map (fun chunkColumn -> 
                         async {
                             let firstChunk = chunkColumn.[0]
@@ -121,7 +121,7 @@ type Broadcaster(clients: ClientNode[]) =
                                         use newStream = new MemoryStreamB()
                                         for localRemoteChunk in chunkColumn do
                                             let! chunkBytes = localRemoteChunk.AsyncGetValue()
-                                            newStream.AppendNoCopy( chunkBytes, 0L, chunkBytes.Length)
+                                            newStream.Append( chunkBytes, 0L, chunkBytes.Length)
                                             //chunkBytes.Dispose()
                                         newStream.Seek(0L, SeekOrigin.Begin) |> ignore
                                         let f = Serializer.Deserialize(newStream) :?> Func<'T>

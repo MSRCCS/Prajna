@@ -5,14 +5,14 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>a5530418-917b-4a90-b095-fa837d385aae</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <RootNamespace>Nano</RootNamespace>
-    <AssemblyName>Nano</AssemblyName>
+    <ProjectGuid>d5cab179-54a9-44e5-acc9-d1c954a87f5b</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>NanoServer</RootNamespace>
+    <AssemblyName>NanoServer</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
-    <TargetFSharpCoreVersion>4.3.1.0</TargetFSharpCoreVersion>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <Name>Nano</Name>
+    <TargetFSharpCoreVersion>4.3.1.0</TargetFSharpCoreVersion>
+    <Name>NanoServer</Name>
     <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup>
@@ -26,8 +26,10 @@
     <OutputPath>bin\Debugx64\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debugx64\Nano.XML</DocumentationFile>
+    <DocumentationFile>bin\Debugx64\NanoServer.XML</DocumentationFile>
+    <Prefer32Bit>true</Prefer32Bit>
     <PlatformTarget>x64</PlatformTarget>
+    <StartArguments>1500</StartArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
     <DebugType>pdbonly</DebugType>
@@ -36,7 +38,8 @@
     <OutputPath>bin\Releasex64\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Releasex64\Nano.XML</DocumentationFile>
+    <DocumentationFile>bin\Releasex64\NanoServer.XML</DocumentationFile>
+    <Prefer32Bit>true</Prefer32Bit>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <Choose>
@@ -54,19 +57,8 @@
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
-    <Compile Include="QueueMultiplexer.fs" />
-    <Compile Include="BufferStreamConnection.fs" />
-    <Compile Include="Serialized.fs" />
-    <Compile Include="BaseADTs.fs" />
-    <Compile Include="Server.fs" />
-    <Compile Include="Client.fs" />
-    <Compile Include="Broadcast.fs" />
-    <None Include="Scripts\load-references-debug.fsx" />
-    <None Include="Scripts\load-project-debug.fsx" />
-    <None Include="Scripts\load-references-release.fsx" />
-    <None Include="Scripts\load-project-release.fsx" />
-    <None Include="Scripts\Experiment.fsx" />
-    <None Include="Scripts\Deploy.fsx" />
+    <Compile Include="Program.fs" />
+    <Content Include="App.config" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
@@ -76,14 +68,35 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\tools\tools\Tools.fsproj">
+    <ProjectReference Include="..\..\tools\tools\Tools.fsproj">
       <Name>Tools (src\Tools\Tools)</Name>
       <Project>{159bb552-8346-4313-8e10-43b88beca63b}</Project>
       <Private>True</Private>
     </ProjectReference>
+    <ProjectReference Include="..\Nano.fsproj">
+      <Name>Nano (src\Nano\Nano)</Name>
+      <Project>{a5530418-917b-4a90-b095-fa837d385aae}</Project>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
+  <PropertyGroup>
+    <PostBuildEvent>xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet20\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet21\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet22\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet23\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet24\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet25\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet26\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet27\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet28\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet29\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet30\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet31\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet32\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet33\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet34\c$\Nano
+xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet35\c$\Nano</PostBuildEvent>
+  </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

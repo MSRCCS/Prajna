@@ -1242,7 +1242,7 @@ type BufferListStream<'T> internal (bufSize : int, doNotUseDefault : bool) =
             )
 
     static member InitSharedPool() =
-        BufferListStream<'T>.InitMemStack(128, BufferListStream<'T>.BufferSizeDefault)
+        BufferListStream<'T>.InitMemStack(1024, BufferListStream<'T>.BufferSizeDefault)
 
     member internal x.GetStackElem() =
         let (event, buf) = RBufPart<'T>.GetFromPool(x.GetInfoId()+":RBufPart", BufferListStream<'T>.MemStack,

@@ -1,6 +1,6 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
-VisualStudioVersion = 14.0.24720.0
+VisualStudioVersion = 14.0.23107.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".paket", ".paket", "{63297B98-5CED-492C-A5B7-A5B4F73CF142}"
 	ProjectSection(SolutionItems) = preProject
@@ -158,6 +158,12 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "native", "src\tools\native\native.vcxproj", "{815DC1FB-2327-4F69-84FF-CFDC59617DE7}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Visual.Data", "src\ServiceLib\Visual.Data\Visual.Data.csproj", "{30533B3C-1FE4-4161-95B7-26945778BF71}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests_extra", "tests_extra", "{67F0FBAB-7965-424D-B8BF-54DCD9311B18}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CleanUpTests", "CleanUpTests", "{F980A227-4BD2-49D2-8351-F9B62F8E2C01}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PrajnaTest.CS", "tests\ExtraTest\CleanUpTest\PrajnaTest.CS\PrajnaTest.CS.csproj", "{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -631,6 +637,22 @@ Global
 		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|Win32.ActiveCfg = Release|x64
 		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|x64.ActiveCfg = Release|x64
 		{30533B3C-1FE4-4161-95B7-26945778BF71}.Release|x64.Build.0 = Release|x64
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Debug|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Debug|Mixed Platforms.Build.0 = Debug|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Debug|Win32.ActiveCfg = Debug|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Debug|Win32.Build.0 = Debug|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Debug|x64.ActiveCfg = Debug|x64
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Debug|x64.Build.0 = Debug|x64
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Release|Mixed Platforms.Build.0 = Release|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Release|Win32.ActiveCfg = Release|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Release|Win32.Build.0 = Release|Any CPU
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Release|x64.ActiveCfg = Release|x64
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -688,5 +710,7 @@ Global
 		{FD1F8CB8-3C64-4BF2-8F5B-9CE2B2F91035} = {9AC1211D-ED52-415B-ABD1-B28390DB0BCC}
 		{815DC1FB-2327-4F69-84FF-CFDC59617DE7} = {29223FD9-2C2B-4C76-83A9-42A71F0F16D9}
 		{30533B3C-1FE4-4161-95B7-26945778BF71} = {B6B1E5E2-9BE5-4542-92C5-E85DE984C7D6}
+		{F980A227-4BD2-49D2-8351-F9B62F8E2C01} = {67F0FBAB-7965-424D-B8BF-54DCD9311B18}
+		{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6} = {F980A227-4BD2-49D2-8351-F9B62F8E2C01}
 	EndGlobalSection
 EndGlobal

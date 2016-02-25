@@ -106,8 +106,9 @@ type internal RemoteConfig() =
             drInfo 
         with 
         | e -> 
+            /// We will use different features to retrieve remote storage space, stay tuned. 
             let msg = sprintf "GetDriveSpace, fail to retrieve remote storage information for machine %s, with exception %A" machineName e
-            Logger.Log( LogLevel.Info, msg )
+            Logger.Log( LogLevel.WildVerbose, msg )
             Array.empty
 
     static member ParseDriveSpace( oReturnCollection ) = 

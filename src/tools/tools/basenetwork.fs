@@ -888,6 +888,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
             isTerminated <- true
             let spinWait = new SpinWait()
             let oldCnt = x.ProcCount
+            // wait to prevent double release call for ReleaseItem on current item
             while (x.InProcessing && oldCnt=x.ProcCount) do
                 // if x.ProcCount has increased, then even if InProcessing, then Process has seen "isTerminated=true" condition
                 spinWait.SpinOnce()
@@ -981,7 +982,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         x.Terminate()
         x.SelfClose()
         // if waiting for event, set it
-        // make sure we exit Process at least once after setting "IsTerminated" to true
+        // make sure we exit Process at least once after setting "IsTerminated" to true, otherwise ProcWaitHandle may change
         let oldCount = procCount
         while (x.InProcessing && oldCount = procCount) do
             Thread.Sleep(10)
@@ -1273,11 +1274,11 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         try
             if (x.IsTerminated) then
                 Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ThreadPool Function Work item %A terminates" (infoFunc(tpKey))))
+                x.ProcWaitHandle <- null
+                x.InProcessing <- false
                 closeAction()
                 // no more running on thread pool
                 SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStateObj) |> ignore
-                x.ProcWaitHandle <- null
-                x.InProcessing <- false
                 (null, true)
             else if (Utils.IsNotNull !item) then
                 // continue to process remaining work item
@@ -1301,11 +1302,11 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                     (eventProc, false)
                 else if (isClosed()) then
                     Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ThreadPool Function Work item %A terminates" (infoFunc(tpKey))))
+                    x.ProcWaitHandle <- null
+                    x.InProcessing <- false
                     closeAction()
                     // no more running on thread pool
                     SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStateObj) |> ignore
-                    x.ProcWaitHandle <- null
-                    x.InProcessing <- false
                     (null, true)
                 else
                     x.ProcWaitHandle <- eventDQ

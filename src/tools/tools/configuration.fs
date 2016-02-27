@@ -37,6 +37,7 @@ type internal AssemblyBinding = { DependentAssemblies : DependentAssembly[] }
 // Utils for managing configurations
 module internal ConfigurationUtils =
     open System
+    open System.Collections.Generic
     open System.Configuration
     open System.Xml.Linq
     open System.Linq
@@ -246,9 +247,17 @@ module internal ConfigurationUtils =
                         | :? AppSettingsSection as appSectionDst -> 
                             let settingMerge = appSectionMerge.Settings
                             let settingDst = appSectionDst.Settings
+                            let srcKeys = settingMerge.AllKeys
+                            let dstKeys = settingDst.AllKeys
+                            let dicDst = Dictionary<String,bool>( StringComparer.OrdinalIgnoreCase )
+                            for key in dstKeys do 
+                                if not ( dicDst.ContainsKey(key ) ) then 
+                                    dicDst.Add( key, true )
                             for key in settingMerge.AllKeys do 
-                                let kv = settingMerge.Item(key)
-                                settingDst.Add( kv )
+                                if not ( dicDst.ContainsKey(key ) ) then 
+                                    let kv = settingMerge.Item(key)
+                                    settingDst.Add( kv )
+                                    dicDst.Add( key, true )
 //                                let kvDst = settingDst.Item( key )
 //                                if Utils.IsNull kvDst then 
 //                                    settingDst.Add( kv )
@@ -284,9 +293,16 @@ module internal ConfigurationUtils =
                 // Unable to combine sections
                 Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Section %s already exist, unable to merge" secMerge.SectionInformation.Name)
         let mergeSettings = configMerge.AppSettings.Settings
+        let dstSettings = configDst.AppSettings.Settings
+        let dicDst = Dictionary<String,bool>( StringComparer.OrdinalIgnoreCase )
+        for key in dstSettings.AllKeys do 
+            if not ( dicDst.ContainsKey(key ) ) then 
+                dicDst.Add( key, true )
         for key in mergeSettings.AllKeys do 
-            let kv = mergeSettings.Item( key )
-            configDst.AppSettings.Settings.Add( kv )   
+            if not ( dicDst.ContainsKey(key ) ) then 
+                let kv = mergeSettings.Item( key )
+                dstSettings.Add( kv )
+                dicDst.Add( key, true )
 
     /// OpenConfigurationFileAsXML
     let OpenConfigurationFileAsXML (filename: string) = 

@@ -40,6 +40,7 @@ namespace PrajnaTest.CS
             Console.WriteLine("Init done.");
 
             var cluster = new Cluster("cluster.lst");
+            var nodes = cluster.Nodes;
             //var cluster = new Cluster("local[2]");
             Console.WriteLine($"nodes = {cluster.NumNodes}");
 

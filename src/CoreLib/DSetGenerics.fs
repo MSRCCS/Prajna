@@ -840,9 +840,23 @@ type DSet<'U> () =
     member private x.DistributeBySource num sourceSeq = 
         let sourceArr = sourceSeq |> Seq.toArray
         let numPartitions =  x.Cluster.NumNodes * num
+        let rangeLength = ( sourceArr.Length + numPartitions - 1)/ numPartitions        
+        x.SourceI(numPartitions, ( fun i -> let rangeBegin = rangeLength * i
+                                            let rangeCnt = Math.Min (sourceArr.Length - rangeBegin, rangeLength)
+                                            if rangeCnt <= 0 then 
+                                                Seq.empty
+                                            else
+                                                ( Array.sub sourceArr rangeBegin rangeCnt ) :> seq<_>
+                                 ))
+
+    // Implement distribute by using SourceI, which copies the complete source data to every node, 
+    // The distribution will be uneven
+    member private x.DistributeBySourceUneven num sourceSeq = 
+        let sourceArr = sourceSeq |> Seq.toArray
+        let numPartitions =  x.Cluster.NumNodes * num
         let rangeLength = sourceArr.Length / numPartitions        
         x.SourceI(numPartitions, ( fun i -> let rangeBegin = rangeLength * i
-                                            let rangeCnt = if i < numPartitions - 1 then rangeLength else Math.Max (sourceArr.Length - rangeBegin, rangeLength)
+                                            let rangeCnt = if i < numPartitions - 1 then rangeLength else Math.Max (sourceArr.Length - rangeBegin, rangeLength )
                                             ( Array.sub sourceArr rangeBegin rangeCnt ) :> seq<_>
                                  ))
 
@@ -896,8 +910,32 @@ type DSet<'U> () =
     /// <param name="sourceSeq"> Source dataset. </param>
     /// <remarks> See code example DistributedKMeans. </remarks>
     /// <return> Generated dataset. </return>
+    member x.DistributeUnevenN(num, sourceSeq) = 
+        x.DistributeBySourceUneven num sourceSeq 
+
+    /// <summary> 
+    /// Span a sequence (dataset) to a distributed dataset by splitting the sequence to NUM * N partitions, with NUM being the number of partitions on each node, 
+    /// and N being the number of nodes in the cluster. Each node get NUM partition of the dataset. 
+    /// </summary>
+    /// <param name="num"> Number of partitions in each node. </param>
+    /// <param name="sourceSeq"> Source dataset. </param>
+    /// <remarks> See code example DistributedKMeans. </remarks>
+    /// <return> Generated dataset. </return>
     static member distributeN num sourceSeq (x:DSet<'U>) =
         x.DistributeN(num, sourceSeq)
+
+    /// <summary> 
+    /// Span a sequence (dataset) to a distributed dataset by splitting the sequence to NUM * N partitions, with NUM being the number of partitions on each node, 
+    /// and N being the number of nodes in the cluster. Each node get NUM partition of the dataset. 
+    /// The distribution will be uneven if the number of partition is large (compared to the number of elements)
+    /// </summary>
+    /// <param name="num"> Number of partitions in each node. </param>
+    /// <param name="sourceSeq"> Source dataset. </param>
+    /// <remarks> See code example DistributedKMeans. </remarks>
+    /// <return> Generated dataset. </return>
+    static member distributeUnevenN num sourceSeq (x:DSet<'U>) =
+        x.DistributeUnevenN(num, sourceSeq)
+
 
     // ============================================================================================================
     // Execute a delegate remotely

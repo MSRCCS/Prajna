@@ -249,6 +249,21 @@ type DSetTests () =
                 Assert.IsNotEmpty(r)
                 Assert.AreEqual(totalNum, r.Length)
                 r |> Array.sort |> Array.iteri (fun i v -> Assert.AreEqual(i+1, v))
+        let distributeUnevenN totalNum numP  = 
+            let guid = Guid.NewGuid().ToString("D") 
+            let s = seq { for i in 1..totalNum do yield i }
+
+            let d = DSet<_> ( Name = guid, Cluster = cluster)
+            let newD = d |> DSet.distributeUnevenN numP s
+            Assert.AreEqual(cluster.NumNodes * numP, newD.NumPartitions)
+        
+            let r = newD.ToSeq() |> Array.ofSeq
+            if totalNum = 0 then
+                Assert.IsEmpty(r)
+            else
+                Assert.IsNotEmpty(r)
+                Assert.AreEqual(totalNum, r.Length)
+                r |> Array.sort |> Array.iteri (fun i v -> Assert.AreEqual(i+1, v))
         distributeN 0 1
         distributeN 0 5
         distributeN 1 1
@@ -261,6 +276,18 @@ type DSetTests () =
         distributeN 5 3
         distributeN 99 10
         distributeN 100 7
+        distributeUnevenN 0 1
+        distributeUnevenN 0 5
+        distributeUnevenN 1 1
+        distributeUnevenN 1 2
+        distributeUnevenN 1 3
+        distributeUnevenN 2 2
+        distributeUnevenN 2 3
+        distributeUnevenN 3 2
+        distributeUnevenN 4 3
+        distributeUnevenN 5 3
+        distributeUnevenN 99 10
+        distributeUnevenN 100 7
 
     [<Test(Description = "Test for DSet.execute and DSet.executeN")>]
     member x.DSetExecuteTest() =      
@@ -337,7 +364,7 @@ type DSetTests () =
         let arr = Array.init (repeat*bins) ( fun i -> i%bins )
         let guid = Guid.NewGuid().ToString("D") 
         let d = DSet<_> ( Name = guid, Cluster = cluster)
-                |> DSet.distributeN npartitions arr
+                |> DSet.distributeUnevenN npartitions arr
                 |> DSet.fold addWords addCounts (createCounts())
         Assert.AreEqual( d.Length, bins )
         for i = 0 to d.Length - 1 do

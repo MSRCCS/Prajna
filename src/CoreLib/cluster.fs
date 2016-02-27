@@ -1175,20 +1175,34 @@ and
         ( x :> IComparable ).CompareTo( other ) = 0
     override x.GetHashCode() =
         hash( x.ClusterInfo )
-
-    member val private CommunicationInited = lazy( 
-            if Utils.IsNotNull thisInstance.Nodes then 
-                thisInstance.Queues <- Array.create<NetworkCommandQueue> thisInstance.NumNodes null
-                bFailedMsgShown <- Array.create thisInstance.NumNodes false
-            if Utils.IsNull bFailedMsgShown || bFailedMsgShown.Length <> thisInstance.NumNodes then
-                failwith(sprintf "Failed to begin communication for cluster %s:%s" thisInstance.Name (VersionToString(thisInstance.Version)))
-            thisInstance.ClusterMode <- ClusterMode.Connected
-            Object()
-            ) with get
+    /// This change from using lazy avoid the member variable to be evaluated during Debug examinationof Cluster, causing 
+    /// issue at Debug time. 
+    member val private CommunicationInited = ref 0 with get
+    member val private CommunicationInitStarted = ref 0 with get
+        
+//    member val private CommunicationInited = lazy( 
+//            if Utils.IsNotNull thisInstance.Nodes then 
+//                thisInstance.Queues <- Array.create<NetworkCommandQueue> thisInstance.NumNodes null
+//                bFailedMsgShown <- Array.create thisInstance.NumNodes false
+//            if Utils.IsNull bFailedMsgShown || bFailedMsgShown.Length <> thisInstance.NumNodes then
+//                failwith(sprintf "Failed to begin communication for cluster %s:%s" thisInstance.Name (VersionToString(thisInstance.Version)))
+//            thisInstance.ClusterMode <- ClusterMode.Connected
+//            Object()
+//            ) with get
     /// BeginCommunication: always called to ensure proper initialization of cluster structure
     member internal x.BeginCommunication() = 
-        let a = x.CommunicationInited.Value
-        ()
+        while !x.CommunicationInited = 0 do
+            lock ( x.CommunicationInitStarted ) ( fun _ -> 
+                if Interlocked.CompareExchange( x.CommunicationInitStarted, 1, 0) = 0 then 
+                    if Utils.IsNotNull thisInstance.Nodes then 
+                        thisInstance.Queues <- Array.create<NetworkCommandQueue> thisInstance.NumNodes null
+                        bFailedMsgShown <- Array.create thisInstance.NumNodes false
+                    if Utils.IsNull bFailedMsgShown || bFailedMsgShown.Length <> thisInstance.NumNodes then
+                        failwith(sprintf "Failed to begin communication for cluster %s:%s" thisInstance.Name (VersionToString(thisInstance.Version)))
+                    thisInstance.ClusterMode <- ClusterMode.Connected
+                    Volatile.Write( x.CommunicationInited, 1)
+            )
+
 
     member internal x.QueueForWrite( peeri ) : NetworkCommandQueue =
         x.BeginCommunication()

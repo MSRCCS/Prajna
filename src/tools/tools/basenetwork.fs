@@ -887,7 +887,6 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
             lock (lockProc) (fun _ ->
                 isTerminated <- true
-                let oldCnt = x.ProcCount
                 let itemDQ : 'T ref = ref Unchecked.defaultof<'T>
                 if (Utils.IsNotNull !item) then
                     x.ReleaseItem(item)

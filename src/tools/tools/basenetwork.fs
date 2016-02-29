@@ -801,12 +801,12 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     let processors = ConcurrentDictionary<string, ('T->ManualResetEvent)*bool>(StringComparer.Ordinal)
     let processorCount = ref -1
     let waitTimeMs = 0
-    let lockObj = Object()
+    let lockStart = Object()
+    let lockProc = Object()
     let mutable bStartedProcessing = false
-    let [<VolatileField>] mutable bMultipleInit = false
-    let [<VolatileField>] mutable isTerminated = false
-    let [<VolatileField>] mutable bInProcessing = false
-    let [<VolatileField>] mutable procCount = 0
+    let mutable bMultipleInit = false
+    let mutable isTerminated = false
+    let mutable procCount = 0
 
     override x.Finalize() =
         /// Close All Active Connection, to be called when the program gets shutdown.
@@ -819,6 +819,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
             x.ReleaseAllItems()
             if Utils.IsNotNull q then
                 (q :> IDisposable).Dispose()
+                q <- null
             GC.SuppressFinalize(x)
 
     // accessors
@@ -879,28 +880,25 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     member private x.IsTerminated with get() = isTerminated
     /// the event being waited upon for processing to resume
     member val private ProcWaitHandle : ManualResetEvent = null with get, set
-    member private x.InProcessing with get() = bInProcessing and set(v) = bInProcessing <- v
     member private x.ProcCount with get() = procCount and set(v) = procCount <- v
     member private x.CompBase with get() = compBase
 
     member x.ReleaseAllItems() =
         if (Interlocked.CompareExchange(bRelease, 1, 0)=0) then
-            isTerminated <- true
-            let spinWait = new SpinWait()
-            let oldCnt = x.ProcCount
-            while (x.InProcessing && oldCnt=x.ProcCount) do
-                // if x.ProcCount has increased, then even if InProcessing, then Process has seen "isTerminated=true" condition
-                spinWait.SpinOnce()
-            let itemDQ : 'T ref = ref Unchecked.defaultof<'T>
-            if (Utils.IsNotNull !item) then
-                x.ReleaseItem(item)
-                item := null
-            if (Utils.IsNotNull x.Q) then
-                while (not x.Q.IsEmpty) do
-                    let (success, event) = x.Q.DequeueWait(itemDQ)
-                    if (success) then
-                        x.ReleaseItem(itemDQ)
-                        itemDQ := null
+            lock (lockProc) (fun _ ->
+                isTerminated <- true
+                let oldCnt = x.ProcCount
+                let itemDQ : 'T ref = ref Unchecked.defaultof<'T>
+                if (Utils.IsNotNull !item) then
+                    x.ReleaseItem(item)
+                    item := null
+                if (Utils.IsNotNull x.Q) then
+                    while (not x.Q.IsEmpty) do
+                        let (success, event) = x.Q.DequeueWait(itemDQ)
+                        if (success) then
+                            x.ReleaseItem(itemDQ)
+                            itemDQ := null
+            )
 
     // default CloseAction by setting next component to close in pipeline 
     // this gets called once bIsClosed is true && queue is empty, triggers next component to close
@@ -915,10 +913,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                 nextComponent.Closed <- true
                 // force a dequeue
                 if (Utils.IsNotNull nextComponent.Q) then
-                    try
-                        nextComponent.Q.Full.Set() |> ignore
-                    with
-                        | :? System.ObjectDisposedException -> ()
+                    nextComponent.Q.Full.Set() |> ignore
             match triggerNext with
                 | None -> ()
                 | Some(nextClose) -> nextClose()
@@ -964,38 +959,33 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
         x.Closed <- true
         // force a dequeue
         if (Utils.IsNotNull x.Q) then
-            try
-                x.Q.Full.Set() |> ignore
-            with
-                | :? System.ObjectDisposedException -> ()
+            x.Q.Full.Set() |> ignore
 
     /// Self terminate the component and start terminating the pipeline
     abstract SelfTerminate : unit->unit
     default x.SelfTerminate() =
         // clear the queue
-        x.ReleaseAllItems()
-        if (Utils.IsNotNull x.Q) then
-            x.Q.Clear()
-        isTerminated <- true
-        // clear other queues down the line
-        x.Terminate()
-        x.SelfClose()
-        // if waiting for event, set it
-        // make sure we exit Process at least once after setting "IsTerminated" to true
-        let oldCount = procCount
-        while (x.InProcessing && oldCount = procCount) do
-            Thread.Sleep(10)
-        // other thread may execute Process again and handle may be incorrect, however
-        //    it does not matter as "IsTerminated" has already been set to true
-        //    therefore, if Process has been called again, it already terminates
-        //    if this was issue, can use counter to make sure it has not entered Process again.
-        // take handle snapshot as it may change in other thread and become null
-        let handle = x.ProcWaitHandle
-        if (Utils.IsNotNull handle) then
-            try
-                handle.Set() |> ignore
-            with
-                | :? ObjectDisposedException as ex -> ()
+        lock (lockProc) (fun _ ->
+            x.ReleaseAllItems()
+            if (Utils.IsNotNull x.Q) then
+                x.Q.Clear()
+            isTerminated <- true
+            // clear other queues down the line
+            x.Terminate()
+            x.SelfClose()
+            // if waiting for event, set it
+            // other thread may execute Process again and handle may be incorrect, however
+            //    it does not matter as "IsTerminated" has already been set to true
+            //    therefore, if Process has been called again, it already terminates
+            //    if this was issue, can use counter to make sure it has not entered Process again.
+            // take handle snapshot as it may change in other thread and become null
+            let handle = x.ProcWaitHandle
+            if (Utils.IsNotNull handle) then
+                try
+                    handle.Set() |> ignore
+                with
+                    | :? ObjectDisposedException as ex -> ()
+        )
 
     static member internal WaitAndExecOnSystemTP(event : WaitHandle, timeOut : int) (fn : obj->bool->unit, state : obj) =
         if (Utils.IsNotNull event) then
@@ -1150,8 +1140,8 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
                                   (cts : CancellationToken)
                                   (tpKey : 'TP)
                                   (infoFunc : 'TP -> string) : unit =
-        lock (lockObj) (fun _ ->
-            proc <- Component.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
+        lock (lockStart) (fun _ ->
+            proc <- x.Process item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc
             compBase.SharedStateObj <- SharedComponentState.Add(compBase.ComponentId, compBase, threadPool)
             Component<'T>.StartOnSystemThreadPool tpKey proc None
             //Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
@@ -1209,7 +1199,7 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     member private x.CheckAndInitMultipleProcess() =
         // avoid frequent lock with first check
         if (bMultipleInit = false) then
-            lock (lockObj) (fun() ->
+            lock (lockStart) (fun() ->
                 if (bStartedProcessing && bMultipleInit = false) then
                     x.InitMultipleProcess()
                     bMultipleInit <- true
@@ -1259,79 +1249,72 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     // However, there may be some cases (e.g. SendAsync on network) where this may not be true
     // The only case where processAction should return complete=true and "Utils.IsNotNull eventProc" is the folllowing:
     //     if complete=true happens by the time the event fires.
-    static member internal Process (item : 'T ref) 
-                                   (dequeueAction : 'T ref -> bool*ManualResetEvent) 
-                                   (processAction : 'T -> bool*ManualResetEvent) 
-                                   (isClosed : unit -> bool)
-                                   (closeAction : unit -> unit)
-                                   (tpKey : 'TP)
-                                   (infoFunc : 'TP -> string)
-                                   (x : Component<'T>)  () : 
-                                   ManualResetEvent * bool =
-        x.InProcessing <- true
-        x.ProcCount <- x.ProcCount + 1
-        try
-            if (x.IsTerminated) then
-                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ThreadPool Function Work item %A terminates" (infoFunc(tpKey))))
-                closeAction()
-                // no more running on thread pool
-                SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStateObj) |> ignore
-                x.ProcWaitHandle <- null
-                x.InProcessing <- false
-                (null, true)
-            else if (Utils.IsNotNull !item) then
-                // continue to process remaining work item
-                let (complete, eventProc) = processAction(!item)
-                if (complete) then
-                    x.ReleaseItem(item)
-                    item := null
-                x.ProcWaitHandle <- eventProc
-                x.InProcessing <- false
-                (eventProc, false)
-            else
-                // get new item from queue
-                let (ret, eventDQ) = dequeueAction item
-                if ret then
+    member internal x.Process (item : 'T ref) 
+                              (dequeueAction : 'T ref -> bool*ManualResetEvent) 
+                              (processAction : 'T -> bool*ManualResetEvent) 
+                              (isClosed : unit -> bool)
+                              (closeAction : unit -> unit)
+                              (tpKey : 'TP)
+                              (infoFunc : 'TP -> string) () :
+                              ManualResetEvent * bool =
+        lock (lockProc) (fun _ ->
+            x.ProcCount <- x.ProcCount + 1
+            try
+                if (x.IsTerminated) then
+                    Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ThreadPool Function Work item %A terminates" (infoFunc(tpKey))))
+                    x.ProcWaitHandle <- null
+                    closeAction()
+                    // no more running on thread pool
+                    SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStateObj) |> ignore
+                    (null, true)
+                else if (Utils.IsNotNull !item) then
+                    // continue to process remaining work item
                     let (complete, eventProc) = processAction(!item)
                     if (complete) then
                         x.ReleaseItem(item)
                         item := null
                     x.ProcWaitHandle <- eventProc
-                    x.InProcessing <- false
                     (eventProc, false)
-                else if (isClosed()) then
-                    Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ThreadPool Function Work item %A terminates" (infoFunc(tpKey))))
-                    closeAction()
-                    // no more running on thread pool
-                    SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStateObj) |> ignore
-                    x.ProcWaitHandle <- null
-                    x.InProcessing <- false
-                    (null, true)
                 else
-                    x.ProcWaitHandle <- eventDQ
-                    x.InProcessing <- false
-                    (eventDQ, false)
-        with e ->
-            x.ProcWaitHandle <- null
-            x.InProcessing <- false
-            Logger.LogF( LogLevel.Error, (fun () -> sprintf "Exception in Component.Process:%A" e))
-            (null, true)
+                    // get new item from queue
+                    let (ret, eventDQ) = dequeueAction item
+                    if ret then
+                        let (complete, eventProc) = processAction(!item)
+                        if (complete) then
+                            x.ReleaseItem(item)
+                            item := null
+                        x.ProcWaitHandle <- eventProc
+                        (eventProc, false)
+                    else if (isClosed()) then
+                        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "ThreadPool Function Work item %A terminates" (infoFunc(tpKey))))
+                        x.ProcWaitHandle <- null
+                        closeAction()
+                        // no more running on thread pool
+                        SharedComponentState.Remove(x.CompBase.ComponentId, x.CompBase.SharedStateObj) |> ignore
+                        (null, true)
+                    else
+                        x.ProcWaitHandle <- eventDQ
+                        (eventDQ, false)
+            with e ->
+                x.ProcWaitHandle <- null
+                Logger.LogF( LogLevel.Error, (fun () -> sprintf "Exception in Component.Process:%A" e))
+                (null, true)
+        )
 
     // processing with internal wait if desired
-    static member private ProcessW (item : 'T ref) 
-                                   (dequeueAction : 'T ref -> bool*ManualResetEvent) 
-                                   (processAction : 'T -> bool*ManualResetEvent) 
-                                   (isClosed : unit -> bool)
-                                   (closeAction : unit -> unit)
-                                   (tpKey : 'TP)
-                                   (infoFunc : 'TP -> string)
-                                   (x : Component<'T>)  () : 
-                                   ManualResetEvent * bool =
+    member private x.ProcessW (item : 'T ref) 
+                              (dequeueAction : 'T ref -> bool*ManualResetEvent) 
+                              (processAction : 'T -> bool*ManualResetEvent) 
+                              (isClosed : unit -> bool)
+                              (closeAction : unit -> unit)
+                              (tpKey : 'TP)
+                              (infoFunc : 'TP -> string) :
+                              ManualResetEvent * bool =
         let mutable count = 0
         let mutable ev : ManualResetEvent = null
         let mutable closed : bool = false
         while (count < 2) do
-            let (ev1, closed1) = Component.Process item dequeueAction processAction isClosed closeAction tpKey infoFunc x ()
+            let (ev1, closed1) = x.Process item dequeueAction processAction isClosed closeAction tpKey infoFunc ()
             ev <- ev1
             closed <- closed1
             if Utils.IsNull ev || closed then
@@ -1372,7 +1355,7 @@ type internal ComponentThr<'T when 'T:null and 'T:equality>(desiredMaxSize : int
                          (infoFunc : 'TP -> string) 
                          (infoFuncTimer : unit -> string) : unit =
         q.InitTimer infoFuncTimer maxQWaitTime
-        let proc = Component.Process x.Item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc x
+        let proc = x.Process x.Item x.Dequeue x.Proc x.IsClosed x.Close tpKey infoFunc
         Component<'T>.StartOnThreadPool threadPool proc cts tpKey infoFunc
 
     abstract Start : ThreadPoolWithWaitHandles<'TP>->CancellationToken->'TP->('TP->string)->(unit->string)->unit

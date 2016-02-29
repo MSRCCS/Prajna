@@ -2464,15 +2464,18 @@ and DistributedFunctionStore internal () as thisStore =
                 health.ReadHeader( ms )
                 let jobID = ms.ReadGuid( )
                 try 
+                    Logger.LogF( jobID, LogLevel.WildVerbose, fun _ -> sprintf "Start to parse Request, DistributedFunction")
                     let providerID = ms.ReadGuid()
                     let domainID = ms.ReadGuid( )
                     let schemaIn = ms.ReadGuid( ) 
                     let schemaOut = ms.ReadGuid( ) 
                     let objarrLength = ms.ReadVInt32( )
                     let objarr = Array.zeroCreate<Object> objarrLength
+                    Logger.LogF( jobID, LogLevel.WildVerbose, fun _ -> sprintf "Parse job metadata of Request, DistributedFunction")
                     for i = 0 to objarrLength - 1 do 
                         let obj = ms.DeserializeObjectWithSchema( schemaIn )
                         objarr.[i] <- obj
+                    Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Deserialize job object of Request, DistributedFunction")
                     /// Timebudget 
                     let timeBudgetInMilliseconds = ms.ReadInt32()
                     let bValid = health.ReadEndMark( ms )
@@ -2484,6 +2487,7 @@ and DistributedFunctionStore internal () as thisStore =
                     else
                         /// Do function call 
                         try 
+                            Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Start to construct job holder of Request, DistributedFunction")
                             let constructFunc () = 
                                 x.TryFindInternalLocal( providerID, domainID, schemaIn, schemaOut )
                             // Get job holder, register the job folder in 
@@ -2498,6 +2502,7 @@ and DistributedFunctionStore internal () as thisStore =
                             // Try not to take queue in closure
                             let signature = queue.RemoteEndPointSignature
                             let perf = SingleRequestPerformance( )
+                            Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Start to observer function")
                             let observerToExecuteDistributedFunction = 
                                 {
                                     new IObserver<Object> with 

@@ -172,7 +172,7 @@ and [<AllowNullLiteral>] GenericConn() as x =
     let mutable eSendSA : RBufPart<byte> = null
     // processing of send thread pool ===
     let eSendStackWait = new ManualResetEvent(true)
-    let eSendFinished = new ManualResetEvent(false)
+    let mutable eSendFinished = new ManualResetEvent(false)
 
     let tryAgain = new ManualResetEvent(false)
     let setTryAgain() =
@@ -713,4 +713,5 @@ and [<AllowNullLiteral>] GenericConn() as x =
             tokenWaitHandle.Dispose()
             eSendStackWait.Dispose()
             eSendFinished.Dispose()
+            eSendFinished <- null
             GC.SuppressFinalize(x)

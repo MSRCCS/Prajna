@@ -1168,10 +1168,8 @@ UnprocessedCmD:%d bytes Status:%A"
             xgc.CompSend.SelfTerminate()
             xgc.CompRecv.SelfTerminate()
             // in case in middle of sending, callback does not execute
-            try
+            if (Utils.IsNotNull xgc.SendFinished) then
                 xgc.SendFinished.Set() |> ignore
-            with
-                | :? System.ObjectDisposedException -> ()
 
     member private x.OnSocketClose (conn : IConn) (o : obj) =
         if (Utils.IsNotNull x.ONet) then
@@ -1259,6 +1257,9 @@ UnprocessedCmD:%d bytes Status:%A"
             curRecvCmd <- new NetworkCommand(command, body)
             if (Utils.IsNotNull body) then
                 body.Dispose()
+            Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Receive packet %A of length %d from %s" 
+                                                                                command body.Length (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+            )
             //x.TraceCurRecvCommand(fun _ -> sprintf "Built bodyLen:%d eRem: %d" body.Length xgc.ERecvRem)
         curStateRecv <- ReceivingMode.EnqueuingCommand
         
@@ -1527,8 +1528,8 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="sendStream">The associated MemStream to send</param>
     /// <param name="bExpediateSend">Optional - Unused parameter</param>
     member x.ToSend (command, sendStream:StreamBase<byte>, ?bExpediateSend) =
-        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send packet %A to %s" 
-                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send packet %A of length %d to %s" 
+                                                                            command sendStream.Length (LocalDNS.GetShowInfo(x.RemoteEndPoint))
                     )
         let cmd = new NetworkCommand(command, sendStream)
         x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
@@ -1539,8 +1540,8 @@ UnprocessedCmD:%d bytes Status:%A"
         x.LastSendTicks <- (PerfDateTime.UtcNow())
 
     member x.ToSendNonBlock (command, sendStream:StreamBase<byte>, ?bExpediateSend) =
-        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send NonBlocking packet %A to %s" 
-                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send NonBlocking packet %A of length %d to %s" 
+                                                                            command sendStream.Length (LocalDNS.GetShowInfo(x.RemoteEndPoint))
                     )
         let cmd = new NetworkCommand(command, sendStream)
         x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))
@@ -1556,8 +1557,8 @@ UnprocessedCmD:%d bytes Status:%A"
     /// <param name="startPos">Start sending from this position</param>
     /// <param name="bExpediateSend">Optional - Unused parameter</param>
     member x.ToSendFromPos (command, sendStream:StreamBase<byte>, startPos:int64, ?bExpediateSend) =
-        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send packet %A with start pos to %s" 
-                                                                            command (LocalDNS.GetShowInfo(x.RemoteEndPoint))
+        Logger.LogF( DeploymentSettings.TraceLevelEveryNetworkIO, fun _ -> sprintf "Send packet %A with start pos of length %d to %s" 
+                                                                            command (sendStream.Length-startPos) (LocalDNS.GetShowInfo(x.RemoteEndPoint))
                     )
         let cmd = new NetworkCommand(command, sendStream, startPos)
         x.CommandSizeQ.Enqueue(int(cmd.CmdLen()))

@@ -8,6 +8,8 @@ using Prajna.Core;
 using Prajna.Api.CSharp;
 using Prajna.Api.CSharp.Linq;
 
+using Prajna.Tools.FSharp;
+
 namespace PrajnaTest.CS
 {
     class Program
@@ -35,6 +37,8 @@ namespace PrajnaTest.CS
 
         static void Main(string[] args)
         {
+            Logger.ParseArgs(args);
+
             Console.WriteLine("Init...");
             Prajna.Core.Environment.Init();
             Console.WriteLine("Init done.");
@@ -46,6 +50,13 @@ namespace PrajnaTest.CS
 
             GetProcessInfo(cluster);
 
+            var containers = Prajna.Service.DistributedFunctionBuiltIn.GetConnectedContainers();
+            foreach (var container in containers )
+            {
+                var name = container.Item1;
+                var info = container.Item2;
+                Console.WriteLine($"The connected containers are = {name}, {info}");
+            }
             Console.WriteLine("Cleanup...");
             Prajna.Core.Environment.Cleanup();
             Console.WriteLine("Cleanup done");

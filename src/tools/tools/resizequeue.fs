@@ -70,8 +70,8 @@ module internal Ev =
 [<AllowNullLiteral>]
 [<AbstractClass>]
 type BaseQ<'T>() =
-    let emptyEvent = new ManualResetEvent(true)
-    let fullEvent = new ManualResetEvent(false)
+    let mutable emptyEvent = new ManualResetEvent(true)
+    let mutable fullEvent = new ManualResetEvent(false)
 
     member x.Empty with get() = emptyEvent
     member x.Full with get() = fullEvent
@@ -168,7 +168,9 @@ type BaseQ<'T>() =
     interface IDisposable with
         member x.Dispose() = 
             emptyEvent.Dispose()
+            emptyEvent <- null
             fullEvent.Dispose()
+            fullEvent <- null
             GC.SuppressFinalize(x)
 
     static member internal ClearQ(x : ConcurrentQueue<'T>) =

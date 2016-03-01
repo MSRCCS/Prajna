@@ -1,6 +1,9 @@
 ﻿namespace Prajna.Nano
 
 open System
+open System.Threading.Tasks
+open System.Diagnostics
+open System.Collections.Concurrent
 open System.IO
 
 open Prajna.Tools
@@ -24,6 +27,8 @@ type Distributed<'T>(remotes: Remote<'T>[]) =
         |> Async.Parallel
 
 
+type internal RemoteStack = Remote<ConcurrentStack<int*MemoryStreamB>>
+
 type Broadcaster(clients: ClientNode[]) =
 
     [<Literal>]
@@ -38,32 +43,6 @@ type Broadcaster(clients: ClientNode[]) =
         |> Async.Parallel
         |> Async.RunSynchronously
         |> Array.toList
-
-////  Keeping this around as it seems to require less memory on the client
-//
-//    let distributedForwardRawOld (newRemote: ClientNode -> Async<Remote<'T>>) :  Async<Remote<'T>[]> =
-//            let rec broadcastTo (remotes: Remote<ClientNode> list) (building: Async<Remote<'T> list>) : Async<Remote<'T> list> =
-//                match remotes with 
-//                | [] -> building 
-//                | r::rs -> 
-//                    async {
-//                        let! syncBuilding = building
-//                        let prev = syncBuilding.Head
-//                        let! ret1 = r.AsyncApplyAndGetValue(fun next -> 
-//                            async {
-//                                let! myFoo = next.AsyncNewRemote(fun _ -> prev.GetValue())
-//                                return broadcastTo rs (async { return (myFoo :: syncBuilding) })
-//                            }
-//                            |> Async.RunSynchronously)
-//                        return! ret1
-//                    }
-//            async {
-//                let! first = newRemote clients.[0] 
-//                let! list = broadcastTo remoteNextClients (async { return [first] })
-//                return list
-//                    |> List.rev
-//                    |> List.toArray
-//            }
 
     let distributedForward (newRemote: ClientNode -> Async<Remote<'T>>) :  Async<Remote<'T>[]> =
             let rec broadcastTo (remotes: Remote<ClientNode> list) (prev: Remote<'T>) : Async<Remote<'T> list> =
@@ -83,27 +62,108 @@ type Broadcaster(clients: ClientNode[]) =
                 return (head::tail) |> List.toArray
             }
 
-    let transpose (arr: 'T[][]) : 'T[][] =
-        let nRows = arr.Length
-        let nCols = arr.[0].Length
-        Array.init nCols (fun j -> Array.init nRows (fun i -> arr.[i].[j]))
+    let newRemoteStacks() =
+        async {
+            let newStack = Serializer.Serialize(Func<_>(fun _ -> new ConcurrentStack<int*MemoryStreamB>()))
+            let! ret =
+                clients 
+                |> Array.map (fun c -> c.AsyncNewRemote newStack)
+                |> Async.Parallel 
+            newStack.Bytes.Dispose()
+            return ret
+        }
 
-    member private this.ForwardChained(func: Func<'T>) : Async<Remote<'T>[]> = 
-        distributedForward (fun c -> c.AsyncNewRemote func)
+//    let newForwarder (stacks: RemoteStack[])  =
+//        let forwardOne (rs: RemoteStack) (nextFuncOption: Option<Async<Remote<int * MemoryStreamB -> Task<unit> >>>) : Option<Async<Remote<int * MemoryStreamB -> Task<unit>>>> =
+//            match nextFuncOption with 
+//            | None -> Some(rs.AsyncApply(Func<_,_>(fun (stack: ConcurrentStack<_>) -> (fun bytes -> Task.Run(Func<_>(fun _ -> stack.Push bytes))))))
+//            | Some(asyncNextFunc) -> 
+//                Some(async {
+//                        let! nextFunc = asyncNextFunc
+//                        return! rs.AsyncApply(
+//                                    Func<_,_>(fun (stack: ConcurrentStack<_>) -> 
+//                                        fun posBytesPair ->
+//                                            stack.Push posBytesPair
+//                                            nextFunc.ApplyAsyncAndGetValueAsync(fun f -> f posBytesPair) |> Async.StartAsTask
+//                                    )
+//                                )
+//                        })
+//        Array.foldBack forwardOne stacks None |> Option.get
 
-    member internal this.BroadcastChained<'T>(serFunc: MemoryStreamB) : Async<Distributed<'T>> =
+    let newForwarder2 (stacks: RemoteStack[])  =
+        let forwardOne (rs: RemoteStack) (nextFuncOption: Option<Async<Remote<int * MemoryStreamB -> Async<unit> >>>) : Option<Async<Remote<int * MemoryStreamB -> Async<unit>>>> =
+            match nextFuncOption with 
+            | None -> Some(rs.AsyncApply(Func<_,_>(fun (stack: ConcurrentStack<_>) -> (fun bytes -> async { return stack.Push bytes }))))
+            | Some(asyncNextFunc) -> 
+                Some(async {
+                        let! nextFunc = asyncNextFunc
+                        return! rs.AsyncApply(
+                                    Func<_,_>(fun (stack: ConcurrentStack<_>) -> 
+                                        fun posBytesPair ->
+                                            stack.Push posBytesPair
+                                            nextFunc.AsyncApplyAndAsyncGetValue(fun f -> f posBytesPair)
+                                    )
+                                )
+                        })
+        Array.foldBack forwardOne stacks None |> Option.get
+
+    let getChunks (stream: MemoryStreamB) : MemoryStreamB[] =
         let chunkSize = 
             if BufferListStream<byte>.BufferSizeDefault <= PaddingToLeaveForSerialization then
                 BufferListStream<byte>.BufferSizeDefault
             else
                 BufferListStream<byte>.BufferSizeDefault - PaddingToLeaveForSerialization
-        let chunks =
-            [|while serFunc.Position < serFunc.Length do
-                let curChunkSize = min (int64 chunkSize) (serFunc.Length - serFunc.Position)
-                let ret = new MemoryStreamB(serFunc, serFunc.Position, curChunkSize)
-                ret.Seek(0L, SeekOrigin.Begin) |> ignore
-                serFunc.Position <- serFunc.Position + curChunkSize
-                yield ret|]
+        [|while stream.Position < stream.Length do
+            let curChunkSize = min (int64 chunkSize) (stream.Length - stream.Position)
+            let ret = new MemoryStreamB(stream, stream.Position, curChunkSize)
+            ret.Seek(0L, SeekOrigin.Begin) |> ignore
+            stream.Position <- stream.Position + curChunkSize
+            yield ret|]
+
+    let transpose (arr: 'T[][]) : 'T[][] =
+        let nRows = arr.Length
+        let nCols = arr.[0].Length
+        Array.init nCols (fun j -> Array.init nRows (fun i -> arr.[i].[j]))
+
+    member internal this.BroadcastChained2<'T>(serFunc: MemoryStreamB) : Async<Distributed<'T>> =
+        async {
+            let chunks = getChunks serFunc
+            let! remoteStacks = newRemoteStacks()
+            let! forwarder = newForwarder2 remoteStacks
+            do!
+                chunks
+                |> Array.mapi (fun i chunk -> forwarder.AsyncApplyAndAsyncGetValue(fun addToStackAndForward -> addToStackAndForward (i,chunk)))
+                |> Async.Parallel
+                |> Async.Ignore
+            let! remotes = 
+                remoteStacks
+                |> Array.map (fun remoteStack ->
+                    remoteStack.AsyncApply(fun stack ->
+                        let newStream = new MemoryStreamB()
+                        let orderedChunks = 
+                            seq {while stack.Count > 0 do match stack.TryPop() with | true,v -> yield v | _ -> failwith "Failed to pop"}
+                            |> Seq.sortBy fst
+                            |> Seq.map snd
+                            |> Seq.toArray
+                        for chunk in orderedChunks do
+                            newStream.AppendNoCopy(chunk, 0L, chunk.Length)
+                            //chunk.Dispose()
+                        newStream.Seek(0L, SeekOrigin.Begin) |> ignore
+                        let f = Serializer.Deserialize(newStream) :?> Func<'T>
+                        let ret = f.Invoke()
+                        newStream.Dispose()
+                        ret)
+                    )
+                |> Async.Parallel
+            chunks |> Array.iter (fun c -> c.Dispose())
+            return Distributed(remotes)
+        }
+
+    member private this.ForwardChained(func: Func<'T>) : Async<Remote<'T>[]> = 
+        distributedForward (fun c -> c.AsyncNewRemote func)
+
+    member internal this.BroadcastChained<'T>(serFunc: MemoryStreamB) : Async<Distributed<'T>> =
+        let chunks = getChunks serFunc
         async {
             try
                 let! distChunks = 
@@ -121,7 +181,8 @@ type Broadcaster(clients: ClientNode[]) =
                                         use newStream = new MemoryStreamB()
                                         for localRemoteChunk in chunkColumn do
                                             let! chunkBytes = localRemoteChunk.AsyncGetValue()
-                                            newStream.Append( chunkBytes, 0L, chunkBytes.Length)
+                                            newStream.AppendNoCopy( chunkBytes, 0L, chunkBytes.Length)
+                                            // newStream.WriteFromStream( chunkBytes, chunkBytes.Length)
                                             //chunkBytes.Dispose()
                                         newStream.Seek(0L, SeekOrigin.Begin) |> ignore
                                         let f = Serializer.Deserialize(newStream) :?> Func<'T>
@@ -137,11 +198,15 @@ type Broadcaster(clients: ClientNode[]) =
         }
 
     member this.BroadcastChained(func: Serialized<Func<'T>>) : Async<Distributed<'T>> =
-        this.BroadcastChained(func.Bytes)
+        this.BroadcastChained2<'T>(func.Bytes)
 
     member this.BroadcastChained(func: Func<'T>) : Async<Distributed<'T>> =
-        use serFunc = (Serializer.Serialize func).Bytes
-        this.BroadcastChained(serFunc)
+        let serFunc = (Serializer.Serialize func).Bytes
+        async {
+            let! dist = this.BroadcastChained2<'T>(serFunc)
+            serFunc.Dispose()
+            return dist
+        }
 
     member this.BroadcastParallel(func: Func<'T>) = 
         async {

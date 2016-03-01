@@ -17,7 +17,7 @@ open Prajna.Nano
 [<TestFixture(Description = "Tests for Nano project")>]
 module NanoTests =
 
-    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "wild"|])
+    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "info"|])
 
     let disposeAll xs = xs |> Seq.iter(fun x -> (x :> IDisposable).Dispose())
 
@@ -392,4 +392,38 @@ module NanoTests =
     let NanoBroadcastLarge() =
         do BufferListStream<byte>.BufferSizeDefault <- 1 <<< 23
         nanoBroadcastArray 10000000
+
+    let resetTiming, time =
+        let sw = Stopwatch()
+        (fun () -> sw.Restart()), (fun (msg: string) -> printfn "%s" <| sprintf "%s: %A" msg sw.Elapsed; sw.Restart())
+
+    [<Test>]
+    let NanoLatency() =
+        printfn "Starting"
+        use server = new ServerNode(1500)
+        use client = new ClientNode( ServerNode.GetDefaultIP(), 1500 )
+        let r = client.NewRemote(fun _ -> 1)
+        time "Connected and created"
+
+        do r.GetValue() |> ignore
+        time "First get"
+
+        let numTrips = 1000
+        resetTiming()
+        let vals = Array.init numTrips (fun _ -> r.GetValue())
+        time (sprintf "%d round trips" numTrips)
+
+    [<Test>]
+    let NanoApplyAndGetAsyncValue() = 
+        use __ = new ServerNode(1500)
+        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
+        let value = 
+            async {
+                let! r = cn.AsyncNewRemote(fun _ -> "Test")
+                let! x = r.AsyncApplyAndAsyncGetValue(fun str -> async { return str.Length } )
+                return x
+            }
+            |> Async.RunSynchronously
+        Assert.AreEqual(value, 4)
+
 

@@ -1,6 +1,8 @@
 ﻿namespace Prajna.Nano
 
 open System
+open System.Diagnostics
+open System.Collections.Concurrent
 open System.Threading.Tasks
 open System.Runtime.Serialization
 open System.Net
@@ -26,7 +28,9 @@ type ClientNode(address: IPAddress, port: int) as self =
 
     let onNewBuffer (responseBytes: MemoryStreamB) =
         async { 
+            let sw = Stopwatch.StartNew()
             let (Numbered(number,response)) = Serializer.Deserialize(responseBytes) :?> Numbered<Response>
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Client Handler: Deserialized %1.3fMB response." ((float responseBytes.Length) / 1000000.0))
             responseBytes.Dispose()
             callbacks.[number] response
             match callbacks.TryRemove(number) with
@@ -51,10 +55,10 @@ type ClientNode(address: IPAddress, port: int) as self =
 
     interface IRequestHandler with
         member this.AsyncHandleRequest(request: Request) : Async<Response> =
-            let memStream = new MemoryStreamB()
             let (Numbered(number,_)) as numberedRequest = newNumbered request
+            let sw = Stopwatch.StartNew()
             let memStream = Serializer.Serialize(numberedRequest).Bytes
-
+            Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Client Handler: Serialized %1.3fMB request." ((float memStream.Length) / 1000000.0))
             let responseHolder : Response option ref = ref None
             let semaphore = new SemaphoreSlim(0) 
             let callback (response: Response) = 
@@ -66,9 +70,9 @@ type ClientNode(address: IPAddress, port: int) as self =
             lock responseHolder (fun _ ->
                 writeQueue.Add memStream
                 async {
-                    do! Async.AwaitIAsyncResult(semaphore.WaitAsync(), 10) |> Async.Ignore
+                    do! Async.AwaitIAsyncResult(semaphore.WaitAsync(), 200) |> Async.Ignore
                     while !responseHolder = None do
-                        do! Async.Sleep 10
+                        do! Async.Sleep 200
                     return responseHolder.Value.Value
                 }
             )
@@ -109,6 +113,10 @@ type ClientNode(address: IPAddress, port: int) as self =
         member __.Dispose() = 
             writeQueue.CompleteAdding()
 
+and RemoteModule() =
+
+    static member val ClientByEndpoint = ConcurrentDictionary<IPAddress * int, ClientNode>()
+
 and Remote<'T> =
     
     [<NonSerialized>]
@@ -124,7 +132,17 @@ and Remote<'T> =
             match ServerNode.TryGetServer((this.serverInfo.Address, this.serverInfo.Port)) with
             | Some(server) -> this.handler <- server
             | None -> 
-                this.handler <- ClientNode(this.serverInfo.Address, this.serverInfo.Port) :> IRequestHandler
+                let endPoint = (this.serverInfo.Address, this.serverInfo.Port)
+                this.handler <- 
+                    match RemoteModule.ClientByEndpoint.TryGetValue(endPoint) with
+                    | true, client -> client :> IRequestHandler
+                    | _ -> 
+                        let client = new ClientNode(this.serverInfo.Address, this.serverInfo.Port)
+                        RemoteModule.ClientByEndpoint.AddOrUpdate(
+                            endPoint, 
+                            Func<IPAddress*int,ClientNode>(fun ep -> new ClientNode(fst ep, snd ep)), 
+                            Func<IPAddress*int,ClientNode,ClientNode>(fun _ c -> c)) |> ignore
+                        client :> IRequestHandler
             
     /// Apply<Func>
     member this.AsyncApply(func: Func<'T, 'U>) =
@@ -143,7 +161,7 @@ and Remote<'T> =
         | RunDelegateResponse(pos) -> new Remote<'U>(pos, this.handler)
         | _ -> raise <| Exception("Unexpected response to RunDelegate request.")
 
-    /// Apply<Func>
+    /// ApplyAndGetValue<Func>
     member this.AsyncApplyAndGetValue(func: Func<'T, 'U>) : Async<'U> =
         this.ReinitHandler()
         async {
@@ -153,6 +171,24 @@ and Remote<'T> =
             | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
         }
 
+    /// ApplyAndAsyncGetValue<Func>
+    member this.ApplyAsyncAndGetValueAsync(func: Func<'T, Task<'U>>) : Async<'U> =
+        this.ReinitHandler()
+        async {
+            let! response = this.handler.AsyncHandleRequest( RunDelegateAndAsyncGetValue(this.pos, func) )
+            match response with
+            | GetValueResponse(obj) -> return obj :?> 'U
+            | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
+        }
+
+    member this.AsyncApplyAndAsyncGetValue(func: Func<'T, Async<'U>>) : Async<'U> =
+        this.ReinitHandler()
+        async {
+            let! response = this.handler.AsyncHandleRequest( RunDelegateAndAsyncGetValue(this.pos, func) )
+            match response with
+            | GetValueResponse(obj) -> return obj :?> 'U
+            | _ -> return (raise <| Exception("Unexpected response to RunDelegate request."))
+        }
 
     /// Apply<SerializedFunc>
     member this.ApplyAsync(func: Serialized<Func<'T, 'U>>) = this.AsyncApply(func) |> Async.StartAsTask
@@ -188,5 +224,4 @@ and Remote<'T> =
         | GetValueResponse(obj) -> obj :?> 'T
         | _ -> raise <| Exception("Unexpected response to RunDelegate request.")
 
-//    static member Flip(asyncRemote: Async<Remote<'T>>) : Remote<Async<'T>> =
         

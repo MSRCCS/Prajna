@@ -30,7 +30,7 @@ type QueueMultiplexer<'T> private () =
             while not stop do
                 try
                     let mutable buffer = Unchecked.defaultof<'T>
-                    let queueIndex = BlockingCollection<'T>.TryTakeFromAny(readQueues, &buffer, 10)
+                    let queueIndex = BlockingCollection<'T>.TryTakeFromAny(readQueues, &buffer, 200)
                     if queueIndex <> -1 then
                         callbacks.[queueIndex] buffer
                 with

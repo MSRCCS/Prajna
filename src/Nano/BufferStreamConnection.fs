@@ -16,8 +16,6 @@ type BufferQueue = BlockingCollection<MemoryStreamB>
 
 type BufferStreamConnection() =
 
-    // Eventually these should change to using MemoryStreamB's, so we get better buffer management
-    // For now, correctness and simplicity are more important
     let readQueue  = new BufferQueue(50)
     let writeQueue = new BufferQueue(50)
 
@@ -61,8 +59,6 @@ type BufferStreamConnection() =
                     let getPosition (x,y,z) = y
                     Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "%d bytes written." (int bufferToSend.Position - getPosition mark))
                     bufferToSend.Dispose()
-                    // TODO: Do we need to reset the stream?
-                    //bufferToSend.Position
                     semaphore.Release() |> ignore
                 with
                     | :? IOException -> 

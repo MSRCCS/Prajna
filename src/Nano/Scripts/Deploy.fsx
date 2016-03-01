@@ -100,7 +100,9 @@ let killRemoteProcessByName (imageBase: string) (host: RemoteHost) : KillResult 
 
 let machines =
     [|20..35|]
-    |> Array.map(RemoteHost << sprintf "OneNet%02d")
+    |> Array.map(fun n -> async {return RemoteHost(sprintf "OneNet%02d" n)})
+    |> Async.Parallel
+    |> Async.RunSynchronously
 
 let testResults = 
     machines 
@@ -116,6 +118,8 @@ let pids =
     |> Async.Parallel
     |> Async.RunSynchronously
 
+let allSuccessful = pids |> Seq.forall (function | Pid(_) -> true | _ -> false)
+
 //let killResults =
 //    pids 
 //    |> Array.map (fun (Pid(pid)) -> pid)
@@ -124,10 +128,29 @@ let pids =
 //    |> Async.Parallel
 //    |> Async.RunSynchronously
 
-let killByNameResults =
-    machines
-    |> Array.map (fun host -> async {return killRemoteProcessByName @"c:\Nano\NanoServer.exe" host})
-    |> Async.Parallel
-    |> Async.RunSynchronously
+let kill() = 
+    let killByNameResults =
+        machines
+        |> Array.map (fun host -> async {return killRemoteProcessByName @"c:\Nano\NanoServer.exe" host})
+        |> Async.Parallel
+        |> Async.RunSynchronously
+    killByNameResults |> Array.forall (function | Success | ProcessNotFound -> true | _ -> false)
+
+let restart() = 
+    do
+        machines
+        |> Array.map (fun host -> async {return killRemoteProcessByName @"c:\Nano\NanoServer.exe" host})
+        |> Async.Parallel
+        |> Async.RunSynchronously
+        |> ignore
+    let pids =
+        machines
+        |> Array.map (fun host -> async{ return createRemoteProcess @"c:\Nano\NanoServer.exe 1500" host})
+        |> Async.Parallel
+        |> Async.RunSynchronously
+    pids |> Seq.forall (function | Pid(_) -> true | _ -> false)
+
+restart()
+            
 
 

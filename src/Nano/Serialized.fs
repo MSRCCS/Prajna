@@ -5,42 +5,42 @@ open System.IO
 open Prajna.Tools
 
 
+module SerializerModule = 
+
+    MemoryStreamB.InitSharedPool()
+
+    let memStreamBGuid = new Guid("D325A888-32E5-4758-A9B3-1A607CBD3542")
+    let copyTo ((memStream,outStream) : MemoryStreamB * Stream) = 
+        let count = memStream.Length - memStream.Position
+        outStream.WriteInt64 count
+        match outStream with 
+        | :? MemoryStreamB as outStreamB -> 
+            outStreamB.AppendNoCopy(memStream, memStream.Position, count)
+        | _ -> 
+            use clone = new MemoryStreamB(memStream)
+            clone.Seek(0L, SeekOrigin.Begin) |> ignore
+            clone.ReadToStream(outStream, count)
+    let copyFrom (inStream: Stream) = 
+        let retStream = new MemoryStreamB()
+        let count = inStream.ReadInt64()
+        match inStream with
+        | :? MemoryStreamB as inStreamB -> 
+            retStream.AppendNoCopy(inStreamB, inStreamB.Position, count)
+        | _ -> 
+            retStream.WriteFromStream(inStream, count)
+        retStream.Seek(0L, SeekOrigin.Begin) |> ignore
+        retStream
+    CustomizedSerialization.InstallSerializer<MemoryStreamB>(memStreamBGuid, copyTo, true)
+    CustomizedSerialization.InstallDeserializer<MemoryStreamB>(memStreamBGuid, copyFrom)
+
+
+
 type Serialized internal (bytes: MemoryStreamB) = 
 
     member this.Bytes = bytes
 
 
 type Serializer private () =
-
-    static do 
-        MemoryStreamB.InitSharedPool()
-        let memStreamBGuid = new Guid("D325A888-32E5-4758-A9B3-1A607CBD3542")
-        let copyTo ((memStream,outStream) : MemoryStreamB * Stream) = 
-            let count = memStream.Length - memStream.Position
-            outStream.WriteInt64 count
-            match outStream with 
-            | :? MemoryStreamB as outStreamB -> 
-            // For whatever reason (probably thread safety), AppendNoCopy is never faster than Append
-//                outStreamB.AppendNoCopy(memStream, memStream.Position, count)
-                outStreamB.Append(memStream, memStream.Position, count)
-            | _ -> 
-                use clone = new MemoryStreamB(memStream)
-                clone.Seek(0L, SeekOrigin.Begin) |> ignore
-                clone.ReadToStream(outStream, count)
-        let copyFrom (inStream: Stream) = 
-            let retStream = new MemoryStreamB()
-            let count = inStream.ReadInt64()
-            match inStream with
-            | :? MemoryStreamB as inStreamB -> 
-//                retStream.AppendNoCopy(inStreamB, inStreamB.Position, count)
-                retStream.Append(inStreamB, inStreamB.Position, count)
-            | _ -> 
-                retStream.WriteFromStream(inStream, count)
-            retStream.Seek(0L, SeekOrigin.Begin) |> ignore
-            retStream
-        CustomizedSerialization.InstallSerializer<MemoryStreamB>(memStreamBGuid, copyTo, true)
-        CustomizedSerialization.InstallDeserializer<MemoryStreamB>(memStreamBGuid, copyFrom)
-
 
     member val serializer = 
         let memStreamBConstructors = (fun () -> new MemoryStreamB() :> MemoryStream), (fun (a,b,c,d,e) -> new MemoryStreamB(a,b,c,d,e) :> MemoryStream)

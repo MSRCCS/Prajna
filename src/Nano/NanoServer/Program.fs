@@ -9,6 +9,9 @@ let printUsage() = printfn "Usage: NanoServer.exe <portToLisen>"
 
 [<EntryPoint>]
 let main argv = 
+
+    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "med"; "-con"|])
+
     if argv.Length <> 1 then
         printUsage()
         -1

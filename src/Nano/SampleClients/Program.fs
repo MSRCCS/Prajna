@@ -2,7 +2,9 @@
 // See the 'F# Tutorial' project for more help.
 
 open System
+open System.Threading
 open System.Net
+open System.Net.Sockets
 open System.Diagnostics
 open Prajna.Nano
 
@@ -50,23 +52,29 @@ let getOneNetClusterIPs(machines: int list) =
         |> Seq.nth 0)
     |> Seq.toList
 
-let startTiming, time =
+let resetTiming, time =
     let sw = Stopwatch()
     (fun () -> sw.Restart()), (fun (msg: string) -> printfn "%s: %A" msg sw.Elapsed; sw.Restart())
 
-[<EntryPoint>]
-let main argv = 
 
+let broadcastCluster() =
     Prajna.Tools.BufferListStream<byte>.BufferSizeDefault <- 1 <<< 23
 
-    startTiming()
+    resetTiming()
     let ips = getOneNetClusterIPs [20..35]
     time "Getting IPs"
 
-    let clients = ips |> List.map(fun ip -> new ClientNode(ip, 1500))
+    let clients = 
+        ips 
+        |> List.toArray 
+        |> Array.map(fun ip -> async{ return new ClientNode(ip, 1500) })
+        |> Async.Parallel
+        |> Async.RunSynchronously
     time "Connecting"
 
-    let broadcaster = Broadcaster(clients |> List.toArray)
+    let broadcaster = Broadcaster(clients)
+    time "Starting broadcaster"
+
     let d = 
         broadcaster.BroadcastParallel(fun _ ->
             let m = Environment.MachineName
@@ -77,17 +85,41 @@ let main argv =
 
     printfn "Machine names: %A" (d.Remotes |> Array.map (fun r -> r.GetValue()))
 
-    let longs = [|1..100000000|] 
+    resetTiming()
+    let longs = Array.init 4 (fun _ -> 
+                    Array.init 100000000 (fun i -> i)
+                ) 
+    time "Initializing arrays"
 
-    startTiming()
-    let mbs = (float(longs.Length * 8) / 1000000.0)
+    resetTiming()
+    let mbs = [for arr in longs -> 
+                (float(arr.Length * 8) / 1000000.0 
+              )] |> List.sum
     printfn "Broadcasting %2.2fMB" mbs
-    let arrs = broadcaster.BroadcastParallel(fun _ -> printfn "Received longs"; longs) |> Async.RunSynchronously
-    time (sprintf "Broadcasted %2.2fMB" mbs)
+    let arrs = broadcaster.BroadcastChained(fun _ -> printfn "Received longs"; longs) |> Async.RunSynchronously
+    time (sprintf "Broadcast %2.2fMB" mbs)
+
+let latency() =
+
+    printfn "Starting"
+    let client = new ClientNode( getOneNetClusterIPs [21] |> Seq.nth 0, 1500 )
+    let r = client.NewRemote(fun _ -> 1)
+    time "Connected and created"
+
+    do r.GetValue() |> ignore
+    time "First get"
+
+    let numTrips = 200
+    resetTiming()
+    let vals = Array.init numTrips (fun _ -> r.GetValue())
+    time (sprintf "%d round trips" numTrips)
 
 
-//    Prajna.Tools.BufferListStream<byte>.BufferSizeDefault <- 1 <<< 24
-//
-//    broadcast()
+[<EntryPoint>]
+let main argv = 
+
+//    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "med"; "-con"|])
+
+    broadcastCluster()
 
     0 // return an integer exit code

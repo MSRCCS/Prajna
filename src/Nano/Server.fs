@@ -1,6 +1,8 @@
 ﻿namespace Prajna.Nano
 
 open System
+open System.Collections.Concurrent
+open System.Threading.Tasks
 open System.Net
 open System.Net.NetworkInformation
 open System.Net.Sockets
@@ -59,6 +61,10 @@ type ServerNode(port: int) as self =
         Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Ran method")
         ret
 
+    let concurrentMemo (f: 'a -> 'b) =
+        let cache = ConcurrentDictionary<'a, 'b>()
+        fun x -> cache.GetOrAdd(x, f)
+
     let handleDelegateFunc (pos: int) (func: Delegate) : Response =
         let ret = applyDelegate pos func
         if func.Method.ReturnType <> typeof<Void> then
@@ -67,21 +73,30 @@ type ServerNode(port: int) as self =
         else
             RunDelegateResponse(-1)
 
-    let handleRequest(request: Request) : Response =
+    let dynamicReturnResponse =
+        concurrentMemo (fun (tType: Type) ->
+            typeof<ServerNode>.GetMethod("GetReturnResponse").MakeGenericMethod(tType).Invoke(null, null) :?> Delegate)
+
+    let handleRequest(request: Request) : Async<Response> =
         match request with
         | RunDelegate(pos,func) ->
-            handleDelegateFunc pos func
+            async.Return(handleDelegateFunc pos func)
         | RunDelegateAndGetValue(pos,func) ->
             let ret = applyDelegate pos func
-            GetValueResponse(ret)
+            async.Return(GetValueResponse(ret))
+        | RunDelegateAndAsyncGetValue(pos,func) ->
+            let asyncU = applyDelegate pos func
+            let uType = asyncU.GetType().GetGenericArguments().[0]
+            let myDynamicReturnResponse = dynamicReturnResponse uType
+            let ret = myDynamicReturnResponse.DynamicInvoke(asyncU)
+            ret :?> Async<Response>
         | RunDelegateSerialized(pos, bytes) ->
             let func = Serializer.Deserialize(bytes) :?> Delegate
             bytes.Dispose()
-            handleDelegateFunc pos func
+            async.Return(handleDelegateFunc pos func)
         | GetValue(pos) -> 
             Logger.LogF(LogLevel.MediumVerbose, fun _ -> sprintf "Returning GetValue response")
-            GetValueResponse(objects.[pos])
-
+            async.Return(GetValueResponse(objects.[pos]))
 
     let onConnect readQueue writeQueue =
         let handler = ServerBufferHandler(readQueue, writeQueue, self)
@@ -99,6 +114,19 @@ type ServerNode(port: int) as self =
         // But there's no guarantee that this is what we'll be listening at.
         network.Listen<BufferStreamConnection>(port, (*address.ToString(),*) onConnect)
 
+
+    static member GetReturnResponse<'T>() = 
+        Func<Async<'T>, Async<Response>>(fun (at: Async<'T>) -> 
+            async {
+                let! t = at
+                return GetValueResponse(t)
+            })
+
+//    static member GetReturn<'T>() = Func<'T,Async<'T>>(fun x -> async.Return(x))
+
+    static member GetBind<'T,'U>() =
+        Func<Async<'T>, Func<'T, Async<'U>>, Async<'U>>(fun at f -> async.Bind(at, fun x -> f.Invoke(x)))
+        
     static member GetDefaultIP() =
         let firstIP =
             Dns.GetHostAddresses("")
@@ -116,9 +144,9 @@ type ServerNode(port: int) as self =
         member __.Address = address
         member x.Port = port
         
-        member __.AsyncHandleRequest(req: Request) = async { return handleRequest req  }
+        member __.AsyncHandleRequest(req: Request) = handleRequest req
 
-        member __.HandleRequest(req: Request) = handleRequest req  
+        member __.HandleRequest(req: Request) = handleRequest req |> Async.RunSynchronously
 
     interface IDisposable with
         

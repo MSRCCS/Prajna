@@ -102,74 +102,74 @@ module NanoTests =
         |> Async.RunSynchronously
         |> ignore
         printfn "%s" <| sprintf "%d round trips took: %A" (numIters * 3) sw.Elapsed
-//        Assert.AreEqual(value, "Test")
 
-    let baseNumFloatsForPerf = 75000000 // 0.3GB
+//// Commenting out for test run speed
+//    let baseNumFloatsForPerf = 75000000 // 0.3GB
 
-    [<Test>]
-    let NanoBigArrayRoundTrip() =
-        use sn = new ServerNode(1500)
-        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
-        let r = Random()
-        let bigMatrix = Array.init<float32> baseNumFloatsForPerf (fun _ -> r.NextDouble() |> float32) 
-        let sw = Stopwatch.StartNew()
-        let value = 
-            async {
-                let! r = cn.AsyncNewRemote(fun _ -> bigMatrix)
-                let! ret =  r.AsyncGetValue()
-                return ret
-            }
-            |> Async.RunSynchronously
-        printf "%s" <| sprintf "Big matrix round-trip took: %A" sw.Elapsed
+//    [<Test>]
+//    let NanoBigArrayRoundTrip() =
+//        use sn = new ServerNode(1500)
+//        use cn = new ClientNode(ServerNode.GetDefaultIP(), 1500)
+//        let r = Random()
+//        let bigMatrix = Array.init<float32> baseNumFloatsForPerf (fun _ -> r.NextDouble() |> float32) 
+//        let sw = Stopwatch.StartNew()
+//        let value = 
+//            async {
+//                let! r = cn.AsyncNewRemote(fun _ -> bigMatrix)
+//                let! ret =  r.AsyncGetValue()
+//                return ret
+//            }
+//            |> Async.RunSynchronously
+//        printf "%s" <| sprintf "Big matrix round-trip took: %A" sw.Elapsed
 
-    [<Test>]
-    let NanoBigArrayRawSocket() = 
-        let numFloats = baseNumFloatsForPerf * 2
-        let numBytes = numFloats * sizeof<float32>
-        let r = Random()
-        let bigMatrix = Array.init<float32> numFloats (fun _ -> r.NextDouble() |> float32) 
-        let server = new TcpListener(ServerNode.GetDefaultIP(), 1500)
-        server.Start()
-        let swt = new Stopwatch()
-        let sw = new Stopwatch()
-
-        let clientThread = 
-            new Thread(new ThreadStart(fun _ ->
-                let client = new Socket(SocketType.Stream, ProtocolType.IP)
-                client.Connect(ServerNode.GetDefaultIP(), 1500)
-                let bytes = Array.zeroCreate numBytes
-                //let sw = Stopwatch.StartNew()
-                sw.Start()
-                Buffer.BlockCopy(bigMatrix, 0, bytes, 0, bytes.Length)
-                printfn "%s" <| sprintf "Copy only: %A" sw.Elapsed
-                let mutable count = 0
-                swt.Start()
-                while count < numBytes do            
-                    count <- count + client.Send(bytes, count, numBytes - count, SocketFlags.None)
-                client.Shutdown(SocketShutdown.Both)))
-        clientThread.Start()
-
-        let mutable result = 0.0f
-        let serverThread = 
-            new Thread(new ThreadStart(fun _ -> 
-                let socket = server.AcceptSocket()
-                let bytes = Array.zeroCreate<byte> numBytes
-                let mutable count = 0
-                while count < numBytes do
-                    count <- count + socket.Receive(bytes, count, numBytes - count, SocketFlags.None)
-                swt.Stop()
-                sw.Stop()
-                printfn "%s" <| sprintf "Data transfer only: %A" swt.Elapsed
-                printfn "%s" <| sprintf "Copy and transfer: %A" sw.Elapsed
-                let bigMatrixCopy = Array.zeroCreate<float32> numFloats
-                Buffer.BlockCopy(bytes, 0, bigMatrixCopy, 0, bytes.Length)
-                result <- bigMatrixCopy.[bigMatrixCopy.Length - 1]))
-        serverThread.Start()
-
-        clientThread.Join()
-        serverThread.Join()
-        server.Stop()
-        Assert.AreEqual(bigMatrix.[bigMatrix.Length-1], result)
+//    [<Test>]
+//    let NanoBigArrayRawSocket() = 
+//        let numFloats = baseNumFloatsForPerf * 2
+//        let numBytes = numFloats * sizeof<float32>
+//        let r = Random()
+//        let bigMatrix = Array.init<float32> numFloats (fun _ -> r.NextDouble() |> float32) 
+//        let server = new TcpListener(ServerNode.GetDefaultIP(), 1500)
+//        server.Start()
+//        let swt = new Stopwatch()
+//        let sw = new Stopwatch()
+//
+//        let clientThread = 
+//            new Thread(new ThreadStart(fun _ ->
+//                let client = new Socket(SocketType.Stream, ProtocolType.IP)
+//                client.Connect(ServerNode.GetDefaultIP(), 1500)
+//                let bytes = Array.zeroCreate numBytes
+//                //let sw = Stopwatch.StartNew()
+//                sw.Start()
+//                Buffer.BlockCopy(bigMatrix, 0, bytes, 0, bytes.Length)
+//                printfn "%s" <| sprintf "Copy only: %A" sw.Elapsed
+//                let mutable count = 0
+//                swt.Start()
+//                while count < numBytes do            
+//                    count <- count + client.Send(bytes, count, numBytes - count, SocketFlags.None)
+//                client.Shutdown(SocketShutdown.Both)))
+//        clientThread.Start()
+//
+//        let mutable result = 0.0f
+//        let serverThread = 
+//            new Thread(new ThreadStart(fun _ -> 
+//                let socket = server.AcceptSocket()
+//                let bytes = Array.zeroCreate<byte> numBytes
+//                let mutable count = 0
+//                while count < numBytes do
+//                    count <- count + socket.Receive(bytes, count, numBytes - count, SocketFlags.None)
+//                swt.Stop()
+//                sw.Stop()
+//                printfn "%s" <| sprintf "Data transfer only: %A" swt.Elapsed
+//                printfn "%s" <| sprintf "Copy and transfer: %A" sw.Elapsed
+//                let bigMatrixCopy = Array.zeroCreate<float32> numFloats
+//                Buffer.BlockCopy(bytes, 0, bigMatrixCopy, 0, bytes.Length)
+//                result <- bigMatrixCopy.[bigMatrixCopy.Length - 1]))
+//        serverThread.Start()
+//
+//        clientThread.Join()
+//        serverThread.Join()
+//        server.Stop()
+//        Assert.AreEqual(bigMatrix.[bigMatrix.Length-1], result)
 
     [<Test>]
     let NanoRunRemote() = 
@@ -388,10 +388,11 @@ module NanoTests =
     let NanoBroadcastMedium() =
         nanoBroadcastArray 1000000
 
-    [<Test>]
-    let NanoBroadcastLarge() =
-        do BufferListStream<byte>.BufferSizeDefault <- 1 <<< 23
-        nanoBroadcastArray 10000000
+//// Commenting out for test run speed
+//    [<Test>]
+//    let NanoBroadcastLarge() =
+//        do BufferListStream<byte>.BufferSizeDefault <- 1 <<< 20
+//        nanoBroadcastArray 10000000
 
     let resetTiming, time =
         let sw = Stopwatch()

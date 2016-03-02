@@ -1176,7 +1176,8 @@ UnprocessedCmD:%d bytes Status:%A"
             x.ONet.RemoveConnect(x)
         x.Close()
         // also clear send queue
-        xCSend.Q.Clear()
+        if Utils.IsNotNull xCSend.Q then 
+            xCSend.Q.Clear()
 
     /// <summary> 
     /// Terminate network queue, all pending actions are discarded. 

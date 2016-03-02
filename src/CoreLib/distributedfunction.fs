@@ -920,7 +920,8 @@ and internal OneRemoteDistributedFunctionRequest( stub: DistributedFunctionClien
                                 ms.WriteInt32( timeBudgetInMilliseconds )
                                 health.WriteEndMark(ms)
                                 if not bTimeout then 
-                                    Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Send Request, DistributedFunction (%dB) to %s"
+                                    Logger.LogF( jobID, RemoteDistributedFunctionRequestStore.TraceDistributedFunctionLevel, 
+                                                                fun _ -> sprintf "Send Request, DistributedFunction (%dB) to %s"
                                                                                         ms.Length
                                                                                         (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                                                 )
@@ -1137,6 +1138,7 @@ and internal OneRemoteDistributedFunctionRequest( stub: DistributedFunctionClien
 
 /// This class store all distributed function request that is pending of execution
 and internal RemoteDistributedFunctionRequestStore private () = 
+    static member val TraceDistributedFunctionLevel = LogLevel.Info with get, set
     static member val Current : RemoteDistributedFunctionRequestStore = RemoteDistributedFunctionRequestStore() with get
     member val CollectionOfRemoteDistributedFunctionRequest = ConcurrentDictionary<_,_>() with get 
     member x.AddRequest( jobID: Guid, request: OneRemoteDistributedFunctionRequest, rgsOption: CancellationTokenRegistration option) = 
@@ -1175,8 +1177,8 @@ and internal RemoteDistributedFunctionRequestStore private () =
         if bExist then 
             let oneRequest, _ = tuple 
             /// To perform the statistics
+            Logger.LogF( jobID, RemoteDistributedFunctionRequestStore.TraceDistributedFunctionLevel, fun _ -> sprintf "RemoteDistributedFunctionRequestStore.OnNext, process remote reply ")
             oneRequest.OnRemoteReply( signature, o, perfNetwork )
-            Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "RemoteDistributedFunctionRequestStore.OnNext, process remote reply ")
         else
             Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "RemoteDistributedFunctionRequestStore.OnNext, can't find the request in store, already removed? ")
     /// OnNext (when a reply has been received ) 
@@ -1184,10 +1186,10 @@ and internal RemoteDistributedFunctionRequestStore private () =
         let bExist, tuple = x.CollectionOfRemoteDistributedFunctionRequest.TryGetValue( jobID )
         if bExist then 
             let oneRequest, _ = tuple 
+            Logger.LogF( jobID, RemoteDistributedFunctionRequestStore.TraceDistributedFunctionLevel, fun _ -> sprintf "RemoteDistributedFunctionRequestStore.OnCompletion, process remote completion ")
             oneRequest.OnRemoteCompletion( signature )
-            Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "RemoteDistributedFunctionRequestStore.OnCompletion, process remote completion ")
         else
-            Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "RemoteDistributedFunctionRequestStore.OnCompletion, can't find the request in store, already removed? ")
+            Logger.LogF( jobID, RemoteDistributedFunctionRequestStore.TraceDistributedFunctionLevel, fun _ -> sprintf "RemoteDistributedFunctionRequestStore.OnCompletion, can't find the request in store, already removed? ")
 
 
 
@@ -1686,11 +1688,13 @@ type internal RemoteFunctionExecutor private () as thisInstance =
     /// return bool * holder, 
     ///     true: a new job has been created
     ///     false: a existing job holder with the same job ID exists
-    member x.RegisterHolder( jobID, constructHolderFunc: unit -> DistributedFunctionHolderImporter ) = 
+    member x.RegisterHolder( jobID:Guid , constructHolderFunc: unit -> DistributedFunctionHolderImporter ) = 
         let bNew = ref false
         let wrappedAddFunc _ = 
             bNew := true
+            Logger.LogF( jobID, LogLevel.ExtremeVerbose, fun _ -> "Begin Construct Holder Function ")
             let importer = constructHolderFunc()
+            Logger.LogF( jobID, LogLevel.ExtremeVerbose, fun _ -> "End Construct Holder Function ")
             match importer with 
             | NotFound( msg ) -> 
                 let ex = System.Exception( msg )
@@ -2412,7 +2416,7 @@ and DistributedFunctionStore internal () as thisStore =
             Logger.LogF( jobID, LogLevel.Info, fun _ -> sprintf "FailedReply, unable to send to %s (queue closed), with exception %A" 
                                                                     (LocalDNS.GetHostInfoInt64(signature))
                                                                     ex )
-
+    static member val TraceDistributedFunctionExecutionLevel = LogLevel.Info with get, set
     /// Parser for Distributed Function
     member x.DoParseDistributedFunction (queue:NetworkCommandQueue) (nc:NetworkCommand) =
         let cmd = nc.cmd
@@ -2464,21 +2468,21 @@ and DistributedFunctionStore internal () as thisStore =
                 health.ReadHeader( ms )
                 let jobID = ms.ReadGuid( )
                 try 
-                    Logger.LogF( jobID, LogLevel.WildVerbose, fun _ -> sprintf "Start to parse Request, DistributedFunction")
+                    Logger.LogF( jobID, DistributedFunctionStore.TraceDistributedFunctionExecutionLevel, fun _ -> sprintf "Start to parse Request, DistributedFunction")
                     let providerID = ms.ReadGuid()
                     let domainID = ms.ReadGuid( )
                     let schemaIn = ms.ReadGuid( ) 
                     let schemaOut = ms.ReadGuid( ) 
                     let objarrLength = ms.ReadVInt32( )
                     let objarr = Array.zeroCreate<Object> objarrLength
-                    Logger.LogF( jobID, LogLevel.WildVerbose, fun _ -> sprintf "Parse job metadata of Request, DistributedFunction")
+                    Logger.LogF( jobID, LogLevel.ExtremeVerbose, fun _ -> sprintf "Parse job metadata of Request, DistributedFunction")
                     for i = 0 to objarrLength - 1 do 
                         let obj = ms.DeserializeObjectWithSchema( schemaIn )
                         objarr.[i] <- obj
-                    Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Deserialize job object of Request, DistributedFunction")
                     /// Timebudget 
                     let timeBudgetInMilliseconds = ms.ReadInt32()
                     let bValid = health.ReadEndMark( ms )
+                    Logger.LogF( jobID, LogLevel.ExtremeVerbose, fun _ -> sprintf "Done parsing Request, DistributedFunction")
                     if not bValid then 
                         let msg = sprintf "Request, DistributedFunction failed to properly process the EndMarker for payload %dB " ms.Length
                         let ex = System.ArgumentException( msg )
@@ -2487,14 +2491,15 @@ and DistributedFunctionStore internal () as thisStore =
                     else
                         /// Do function call 
                         try 
-                            Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Start to construct job holder of Request, DistributedFunction")
                             let constructFunc () = 
                                 x.TryFindInternalLocal( providerID, domainID, schemaIn, schemaOut )
+                            Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Start to construct job holder of Request, DistributedFunction")
                             // Get job holder, register the job folder in 
                             // RemoteFunctionExecutor. If there is no imported function, i.e., 
                             // TryFindInternalLocal fails, an exception will be thrown, and be caught 
                             // and sent back to caller 
                             let bNew, holder = RemoteFunctionExecutor.RegisterHolder( jobID, constructFunc )
+                            Logger.LogF( jobID, LogLevel.ExtremeVerbose, fun _ -> sprintf "Done construction job holder of Request, DistributedFunction")
                             if not bNew then 
                                 // Place validation code if necessary. 
                                 // We currently simply trust jobID to be unique 
@@ -2502,7 +2507,7 @@ and DistributedFunctionStore internal () as thisStore =
                             // Try not to take queue in closure
                             let signature = queue.RemoteEndPointSignature
                             let perf = SingleRequestPerformance( )
-                            Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Start to observer function")
+                            Logger.LogF( jobID, LogLevel.ExtremeVerbose, fun _ -> sprintf "Start to observer function")
                             let observerToExecuteDistributedFunction = 
                                 {
                                     new IObserver<Object> with 
@@ -2515,12 +2520,14 @@ and DistributedFunctionStore internal () as thisStore =
                                                     healthReply.WriteHeader( ms )
                                                     ms.WriteGuid( jobID )
                                                     healthReply.WriteEndMark( ms )
-                                                    Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Send ReportClose, DistributedFunction to %s" 
+                                                    Logger.LogF( jobID, DistributedFunctionStore.TraceDistributedFunctionExecutionLevel, 
+                                                                                      fun _ -> sprintf "Send ReportClose, DistributedFunction to %s" 
                                                                                                         (LocalDNS.GetShowInfo(queueReply.RemoteEndPoint))
                                                                      )
                                                     queueReply.ToSend( ControllerCommand(ControllerVerb.ReportClose, ControllerNoun.DistributedFunction ), ms ) 
                                                 else
-                                                    Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "ReportClose, Distributed Function, queue %s related to job has already been closed"
+                                                    Logger.LogF( jobID, DistributedFunctionStore.TraceDistributedFunctionExecutionLevel, 
+                                                                                    fun _ -> sprintf "ReportClose, Distributed Function, queue %s related to job has already been closed"
                                                                                                         (LocalDNS.GetHostInfoInt64(signature))
                                                                 )
                                             with
@@ -2547,12 +2554,14 @@ and DistributedFunctionStore internal () as thisStore =
                                                     perf.NumSlotsAvailable <- curCount
                                                     SingleRequestPerformance.Pack( perf, ms )
                                                     healthReply.WriteEndMark( ms )
-                                                    Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Send Reply, DistributedFunction to %s" 
+                                                    Logger.LogF( jobID, DistributedFunctionStore.TraceDistributedFunctionExecutionLevel, 
+                                                                                fun _ -> sprintf "Send Reply, DistributedFunction to %s" 
                                                                                                         (LocalDNS.GetShowInfo(queueReply.RemoteEndPoint))
                                                                      )
                                                     queueReply.ToSend( ControllerCommand(ControllerVerb.Reply, ControllerNoun.DistributedFunction ), ms ) 
                                                 else
-                                                    Logger.LogF( jobID, LogLevel.MildVerbose, fun _ -> sprintf "Exception, Distributed Function, queue %s related to job has already been closed"
+                                                    Logger.LogF( jobID, DistributedFunctionStore.TraceDistributedFunctionExecutionLevel, 
+                                                                                fun _ -> sprintf "Exception, Distributed Function, queue %s related to job has already been closed"
                                                                                                         (LocalDNS.GetHostInfoInt64(signature))
                                                                 )
                                             with
@@ -2718,6 +2727,7 @@ and DistributedFunctionStore internal () as thisStore =
     /// Parser for Distributed Function (at Daemon)
     static member ParseDistributedFunctionCrossBar= 
         DistributedFunctionStore.Current.DoParseDistributedFunctionCrossBar
+    static member val TraceDistributedFunctionCrossBarLevel = LogLevel.Info with get, set
     member x.DoParseDistributedFunctionCrossBar (queue:NetworkCommandQueue) (nc:NetworkCommand) =
         let cmd = nc.cmd
         let ms = nc.ms
@@ -2733,7 +2743,8 @@ and DistributedFunctionStore internal () as thisStore =
                         let queueReroute = NetworkConnections.Current.LookforConnectBySignature( signature )
                         if queueReroute.CanSend then 
                             queueReroute.ToSend( cmd, ms) 
-                            Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "Reroute %A (%dB) from %s to %s"
+                            Logger.LogF( DistributedFunctionStore.TraceDistributedFunctionCrossBarLevel, 
+                                                    fun _ -> sprintf "Reroute %A (%dB) from %s to %s"
                                                                             cmd ms.Length 
                                                                             (LocalDNS.GetShowInfo(queue.RemoteEndPoint))
                                                                             (LocalDNS.GetShowInfo(queueReroute.RemoteEndPoint))

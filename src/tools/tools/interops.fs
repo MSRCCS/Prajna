@@ -206,11 +206,13 @@ module internal PerfADateTime =
     /// Equivalent to DateTime.UtcNow, but with a higher resolution clock. 
     let UtcNow() = 
         DateTime( (int64) (float stopWatch.ElapsedTicks * toTicks) + startTicks )
+        // DateTime(startTicks).Add(stopWatch.Elapsed)
 
     // UtcNowTicks can not be inlined, as it may bind startTick and stopWatch, which caused wrong behavior when the function is remoted. 
     /// Equivalent to DateTime.UtcNow.Ticks, but with a higher resolution clock. 
     let UtcNowTicks() = 
         (int64) (float stopWatch.ElapsedTicks * toTicks) + startTicks
+        // startTicks + stopWatch.Elapsed.Ticks
 
 /// <summary>
 /// PerfADateTime maps to DateTime (for UtcNow and UtcNowTicks). 

@@ -441,7 +441,7 @@ type DeploymentSettings() =
     /// Default values for local cluster
     static member val internal LocalClusterNumJobPortsPerClient = 5
     static member val internal LocalClusterStartingPort = 21000
-    /// Default Trace Level to start Local Cluster
+    /// Default Trace Level to start Local Cluster daemon
     static member val LocalClusterTraceLevel = LogLevel.MildVerbose with get, set
     
     /// The time interval that the container will check the liveness of the host client

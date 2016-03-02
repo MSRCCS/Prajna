@@ -167,6 +167,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests_extra", "tests_extra"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CleanUpTests", "CleanUpTests", "{F980A227-4BD2-49D2-8351-F9B62F8E2C01}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CleanUpTest.CS", "tests\ExtraTest\CleanUpTest\PrajnaTest.CS\CleanUpTest.CS.csproj", "{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}"
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PrajnaTest.CS", "tests\ExtraTest\CleanUpTest\PrajnaTest.CS\PrajnaTest.CS.csproj", "{903E6FAA-49A5-40C5-AA8C-CA7B32E7FEA6}"
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nano.Tests", "tests\Nano\Nano.Tests.fsproj", "{554EFC4F-1C4F-4376-A065-101E2B34A80F}"
 EndProject

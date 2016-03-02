@@ -10,6 +10,7 @@ using Prajna.Api.CSharp.Linq;
 
 using Prajna.Tools.FSharp;
 
+
 namespace PrajnaTest.CS
 {
     class Program
@@ -43,19 +44,28 @@ namespace PrajnaTest.CS
             Prajna.Core.Environment.Init();
             Console.WriteLine("Init done.");
 
-            var cluster = new Cluster("cluster.lst");
+            //var cluster = new Cluster("cluster.lst");
+            var cluster = new Cluster("local[1]");
             var nodes = cluster.Nodes;
-            //var cluster = new Cluster("local[2]");
             Console.WriteLine($"nodes = {cluster.NumNodes}");
 
             GetProcessInfo(cluster);
-
-            var containers = Prajna.Service.DistributedFunctionBuiltIn.GetConnectedContainers();
-            foreach (var container in containers )
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            watch.Start();
+            for ( int i = 0; i<3; i++ )
             {
-                var name = container.Item1;
-                var info = container.Item2;
-                Console.WriteLine($"The connected containers are = {name}, {info}");
+                var t1 = watch.Elapsed;
+                Prajna.Tools.CSharp.Logger.Log(Prajna.Tools.LogLevel.Info, "Start executing ... ");
+                var containers = Prajna.Service.DistributedFunctionBuiltIn.GetConnectedContainers().ToArray<Tuple<string,string>>();
+                Prajna.Tools.CSharp.Logger.Log(Prajna.Tools.LogLevel.Info, "Done executing ... ");
+                var elapse = ( watch.Elapsed.Subtract( t1 )).TotalMilliseconds; 
+
+                foreach (var container in containers)
+                {
+                    var name = container.Item1;
+                    var info = container.Item2;
+                    Console.WriteLine($"The connected containers are = {name}, {info}, time = {elapse}ms");
+                }
             }
             Console.WriteLine("Cleanup...");
             Prajna.Core.Environment.Cleanup();

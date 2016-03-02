@@ -409,10 +409,10 @@ type Logger internal ()=
     static member Log(logId: string, jobId: Guid, logLevel : LogLevel, message : string) =
         if Logger.LoggerProvider.IsEnabled(logId, logLevel) then
             if Logger.ShowTimeForJobId then 
-                let curTicks = DateTime.UtcNow.Ticks 
+                let curTicks = (PerfADateTime.UtcNowTicks())
                 let firstTicks = jobTimerCollection.GetOrAdd( jobId, curTicks)
-                let elapseInMs = (curTicks-firstTicks)/(TimeSpan.TicksPerMillisecond)
-                Logger.Log(logId, logLevel, sprintf "JobID=%A(%dms),%s" jobId elapseInMs message)
+                let elapseInMs = (float) (curTicks-firstTicks)/(float) (TimeSpan.TicksPerMillisecond)
+                Logger.Log(logId, logLevel, sprintf "JobID=%A(%.3fms),%s" jobId elapseInMs message)
             else
                 Logger.Log(logId, logLevel, sprintf "JobID=%A,%s" jobId message)
 

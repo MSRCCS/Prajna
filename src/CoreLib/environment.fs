@@ -48,6 +48,7 @@ type Environment() =
     static let init = lazy(
         Cluster.SetCreateLocalCluster(LocalCluster.Create)
         DistributedFunctionBuiltIn.Init()
+        DeploymentSettings.LocalClusterTraceLevel <- Logger.DefaultLogIdLogLevel
     )
 
     /// Initialize Prajna Environment for running Prajna program

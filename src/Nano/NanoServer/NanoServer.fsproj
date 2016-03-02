@@ -80,22 +80,11 @@
     </ProjectReference>
   </ItemGroup>
   <PropertyGroup>
-    <PostBuildEvent>xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet20\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet21\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet22\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet23\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet24\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet25\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet26\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet27\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet28\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet29\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet30\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet31\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet32\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet33\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet34\c$\Nano
-xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet35\c$\Nano</PostBuildEvent>
+    <PostBuildEvent>
+    </PostBuildEvent>
+  </PropertyGroup>
+  <PropertyGroup>
+    <PostBuildEvent>REM xcopy /y $(ProjectDir)$(OutDir)*.* \\OneNet20\c$\Nano</PostBuildEvent>
   </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

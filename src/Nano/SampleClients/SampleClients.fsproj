@@ -59,22 +59,8 @@
     </PostBuildEvent>
   </PropertyGroup>
   <PropertyGroup>
-    <PostBuildEvent>xcopy /y $(TargetDir)SampleClients.* \\OneNet20\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet21\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet22\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet23\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet24\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet25\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet26\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet27\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet28\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet29\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet30\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet31\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet32\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet33\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet34\c$\Nano
-xcopy /y $(TargetDir)SampleClients.* \\OneNet35\c$\Nano</PostBuildEvent>
+    <PostBuildEvent>
+    </PostBuildEvent>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
@@ -100,6 +86,11 @@ xcopy /y $(TargetDir)SampleClients.* \\OneNet35\c$\Nano</PostBuildEvent>
       <Private>True</Private>
     </ProjectReference>
   </ItemGroup>
+  <PropertyGroup>
+    <PostBuildEvent>REM xcopy /y $(TargetDir)SampleClients.* \\OneNet20\c$\Nano
+
+</PostBuildEvent>
+  </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

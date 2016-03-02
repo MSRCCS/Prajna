@@ -1063,7 +1063,6 @@ type BufferListStream<'T> internal (bufSize : int, doNotUseDefault : bool) =
     static let streamsInUse = ConcurrentDictionary<int64, BufferListStream<'T>>()
     static let streamsInUseCnt = ref 0L
 
-    static let bufferSizeDefault = 64000
     static let mutable memStack : SharedMemoryPool<RefCntBuf<'T>,'T> = null
     static let memStackInitLock = Object()
 
@@ -1077,7 +1076,7 @@ type BufferListStream<'T> internal (bufSize : int, doNotUseDefault : bool) =
         if (bufSize > 0) then
             bufSize
         else
-            bufferSizeDefault
+            BufferListStream<'T>.BufferSizeDefault
     let mutable getNewWriteBuffer : unit->RBufPart<'T> = (fun _ ->
         let buf = Array.zeroCreate<'T>(bufferSize)
         new RBufPart<'T>(buf, 0, 0L)
@@ -1103,7 +1102,7 @@ type BufferListStream<'T> internal (bufSize : int, doNotUseDefault : bool) =
             x.SetDefaults(true)
 
     new() =
-        new BufferListStream<'T>(bufferSizeDefault)
+        new BufferListStream<'T>(BufferListStream<'T>.BufferSizeDefault)
 
     // use an existing buffer to initialize
     new(buf : 'T[], index : int, count : int) as x =
@@ -1129,7 +1128,7 @@ type BufferListStream<'T> internal (bufSize : int, doNotUseDefault : bool) =
 
     abstract GetNewNoDefault : unit->BufferListStream<'T>
     default x.GetNewNoDefault() =
-        let e = new BufferListStream<'T>(bufferSizeDefault, true)
+        let e = new BufferListStream<'T>(BufferListStream<'T>.BufferSizeDefault, true)
         e.SetDefaults(false)
         e
 
@@ -1204,6 +1203,8 @@ type BufferListStream<'T> internal (bufSize : int, doNotUseDefault : bool) =
 
     member private x.StackTrace with get() = stackTrace
 
+    static member val BufferSizeDefault : int = 64000 with get, set
+
     static member DumpStreamsInUse() =
 #if DEBUG
         if (BufferListDebugging.DebugLeak) then
@@ -1241,7 +1242,7 @@ type BufferListStream<'T> internal (bufSize : int, doNotUseDefault : bool) =
             )
 
     static member InitSharedPool() =
-        BufferListStream<'T>.InitMemStack(128, 64000)
+        BufferListStream<'T>.InitMemStack(1024, BufferListStream<'T>.BufferSizeDefault)
 
     member internal x.GetStackElem() =
         let (event, buf) = RBufPart<'T>.GetFromPool(x.GetInfoId()+":RBufPart", BufferListStream<'T>.MemStack,
@@ -1790,7 +1791,7 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
                 x.CreateBuffer() // add until size reached
 
     new() as x =
-        new MemoryStreamB(64000, 0uy)
+        new MemoryStreamB(BufferListStream<byte>.BufferSizeDefault, 0uy)
         then
             x.SetDefaults(true)
 
@@ -1841,7 +1842,7 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
         new MemoryStreamB(buf, index, count, b1, b2) :> StreamBase<byte>
 
     override x.GetNewNoDefault() =
-        let e = new MemoryStreamB(64000, 0uy)
+        let e = new MemoryStreamB(BufferListStream<byte>.BufferSizeDefault, 0uy)
         e.SetDefaults(false)
         e :> BufferListStream<byte>
 
@@ -1862,8 +1863,21 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
             let writeAmt = fh.Read(buf, int pos, toRead)
             bCount <- bCount - int64 writeAmt
             x.MoveForwardAfterWrite(int64 writeAmt)
-            if (writeAmt <> toRead) then
+            if (writeAmt = 0) then
                 failwith "Write to memstream from file fails as file is out data"
+
+    member x.AsyncWriteFromStream(fh : Stream, count : int64) : Async<unit> =
+        async {
+            let mutable bCount = count
+            while (bCount > 0L) do
+                let (buf, pos, amt) = x.GetWriteBuffer()
+                let toRead = int (Math.Min(bCount, int64 amt))
+                let! writeAmt = fh.AsyncRead(buf, int pos, toRead)
+                bCount <- bCount - int64 writeAmt
+                x.MoveForwardAfterWrite(int64 writeAmt)
+                if (writeAmt = 0) then
+                    failwith "Write to memstream from file fails as file is out data"
+        }
 
     member x.WriteFromStreamAlign(fh : Stream, count : int64, align : int) =
         let mutable bCount = count
@@ -1938,6 +1952,18 @@ type MemoryStreamB(defaultBufSize : int, toAvoidConfusion : byte) =
             let readAmt = Math.Min(bCount, int64 amt)
             fh.Write(buf.Buffer, int pos, int readAmt)
             x.MoveForwardAfterRead(readAmt)
+            bCount <- bCount - readAmt
+
+    member x.AsyncReadToStream(fh : Stream, count : int64) =
+        async {
+            let mutable bCount = count
+            while (bCount > 0L) do
+                let (buf, pos, amt) = x.GetReadBuffer()
+                let readAmt = Math.Min(bCount, int64 amt)
+                do! fh.AsyncWrite(buf.Buffer, int pos, int readAmt)
+                x.MoveForwardAfterRead(readAmt)
+                bCount <- bCount - readAmt
+        }
 
     // read count starting from offset, and don't move position forward
     override x.ReadToStream(s : Stream, offset : int64, count : int64) =

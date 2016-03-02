@@ -10,7 +10,7 @@ open Prajna.Nano
 
 let hello() =
     use client = new ClientNode(ServerNode.GetDefaultIP(), 1500)
-    client.NewRemote(fun _ -> printfn "Hello") |> ignore
+    client.AsyncNewRemote(fun _ -> printfn "Hello") |> Async.RunSynchronously |> ignore
 
 let helloParallel() =
     let clients = [1500..1503] |> List.map (fun p -> new ClientNode(ServerNode.GetDefaultIP(), p)) |> List.toArray
@@ -58,10 +58,10 @@ let resetTiming, time =
 
 
 let broadcastCluster() =
-    Prajna.Tools.BufferListStream<byte>.BufferSizeDefault <- 1 <<< 23
+    Prajna.Tools.BufferListStream<byte>.BufferSizeDefault <- 1 <<< 20
 
     resetTiming()
-    let ips = getOneNetClusterIPs [20..35]
+    let ips = getOneNetClusterIPs [21..35]
     time "Getting IPs"
 
     let clients = 
@@ -83,10 +83,10 @@ let broadcastCluster() =
         |> Async.RunSynchronously
     time "Broadcasting machine name fetch"
 
-    printfn "Machine names: %A" (d.Remotes |> Array.map (fun r -> r.GetValue()))
+    printfn "Machine names: %A" (d.Remotes |> Array.map (fun r -> r.AsyncGetValue()) |> Async.Parallel |> Async.RunSynchronously )
 
     resetTiming()
-    let longs = Array.init 4 (fun _ -> 
+    let longs = Array.init 5 (fun _ -> 
                     Array.init 100000000 (fun i -> i)
                 ) 
     time "Initializing arrays"
@@ -103,22 +103,22 @@ let latency() =
 
     printfn "Starting"
     let client = new ClientNode( getOneNetClusterIPs [21] |> Seq.nth 0, 1500 )
-    let r = client.NewRemote(fun _ -> 1)
+    let r = client.AsyncNewRemote(fun _ -> 1) |> Async.RunSynchronously
     time "Connected and created"
 
-    do r.GetValue() |> ignore
+    do r.AsyncGetValue() |> Async.RunSynchronously |> ignore
     time "First get"
 
     let numTrips = 200
     resetTiming()
-    let vals = Array.init numTrips (fun _ -> r.GetValue())
+    let vals = Array.init numTrips (fun _ -> r.AsyncGetValue() |> Async.RunSynchronously)
     time (sprintf "%d round trips" numTrips)
 
 
 [<EntryPoint>]
 let main argv = 
 
-//    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "med"; "-con"|])
+    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "info"; "-con"|])
 
     broadcastCluster()
 

@@ -10,7 +10,7 @@ let printUsage() = printfn "Usage: NanoServer.exe <portToLisen>"
 [<EntryPoint>]
 let main argv = 
 
-    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "med"; "-con"|])
+    do Prajna.Tools.Logger.ParseArgs([|"-verbose"; "err" (*; "-con"*)|])
 
     if argv.Length <> 1 then
         printUsage()
@@ -18,7 +18,7 @@ let main argv =
     else
         match UInt16.TryParse argv.[0] with
         | true, port ->
-            BufferListStream<byte>.BufferSizeDefault <- 1 <<< 23
+            BufferListStream<byte>.BufferSizeDefault <- 1 <<< 20
             BufferListStream<byte>.InitSharedPool()
             let thisAsm = System.Reflection.Assembly.GetExecutingAssembly()
             printfn "Starting NanoServer on port %d" port

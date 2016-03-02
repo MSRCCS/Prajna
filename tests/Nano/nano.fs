@@ -402,15 +402,15 @@ module NanoTests =
         printfn "Starting"
         use server = new ServerNode(1500)
         use client = new ClientNode( ServerNode.GetDefaultIP(), 1500 )
-        let r = client.NewRemote(fun _ -> 1)
+        let r = client.AsyncNewRemote(fun _ -> 1) |> Async.RunSynchronously
         time "Connected and created"
 
-        do r.GetValue() |> ignore
+        do r.AsyncGetValue() |> Async.RunSynchronously |> ignore
         time "First get"
 
         let numTrips = 1000
         resetTiming()
-        let vals = Array.init numTrips (fun _ -> r.GetValue())
+        let vals = Array.init numTrips (fun _ -> r.AsyncGetValue() |> Async.RunSynchronously)
         time (sprintf "%d round trips" numTrips)
 
     [<Test>]

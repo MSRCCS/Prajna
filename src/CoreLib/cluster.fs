@@ -314,14 +314,18 @@ type internal NodeConnectionInfo(machineName:string,port:int) =
     interface IDisposable with
         member x.Dispose() = 
             bDisposed <- true
-            x.TimerToReonnect.Cancel()
+            if Utils.IsNotNull x.TimerToReonnect then 
+                x.TimerToReonnect.Cancel()
+                x.TimerToReonnect <- null 
             if Utils.IsNotNull x.ConnectionToDaemon then
                 (x.ConnectionToDaemon :> IDisposable).Dispose()
             x.EvConnectionToDaemon.Dispose()
             GC.SuppressFinalize(x)
 
-type internal NodeConnectionFactory() = 
+type internal NodeConnectionFactory() as thisInstance = 
     inherit CacheFactory<string*int,NodeConnectionInfo>( StringTComparer<int>(StringComparer.OrdinalIgnoreCase) )
+    do
+        CleanUp.Current.Register( 800, thisInstance, (fun _ -> ( thisInstance :>IDisposable).Dispose()), fun _ -> "NodeConnectionFactory" ) |> ignore 
     static member val Current = new NodeConnectionFactory() with get
     member x.StoreNodeInfo( machineName, port, jobName, jobVer, info ) = 
         let machineStore = x.GetOrAdd( (machineName, port), fun _ -> new NodeConnectionInfo(machineName, port) )
@@ -343,7 +347,7 @@ type internal NodeConnectionFactory() =
             /// If not first connect, at least wait for the queue to be created. 
             machineStore.EvConnectionToDaemon.WaitOne() |> ignore 
         machineStore.ConnectionToDaemon
-    
+
     override x.Evict( elapseSeconds ) =
         let evictedItems = base.EvictAndReturnEvictedItems(elapseSeconds)
         evictedItems

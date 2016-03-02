@@ -155,6 +155,7 @@ type internal OneCleanUp ( o:Object, infoFunc, f, earlyCleanUp: unit -> unit ) =
 // ThreadPoolTimerCollection:       300
 // ContainerJobCollection:          500
 // DistributedFunctionStore:        700
+// NodeConnectionInfo               800
 // Cluster:                   1000
 // ThreadPoolWithWaitHandlesSystem:       1500
 // ThreadPoolWait:                  2000

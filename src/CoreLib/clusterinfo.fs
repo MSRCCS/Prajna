@@ -214,12 +214,6 @@ type internal ClientStatus() =
         sprintf "%s\t%s\t%d\t%d\t%d\t%x\t%s\t%d\t%d\t%d\t%d" x.Name x.ClientVersionInfo x.ProcessorCount (x.GetRamUsage()) (x.GetDriveUsage()) (x.GetMachineID()) (x.GetCpuUsage()) (x.GetRamCapacity()) (x.GetDiskCapactiy()) (x.GetNetworkMTU()) (x.GetNetworkSpeed())
     static member val LocalIPs = 
         let seqLocalIP = 
-//            seq {
-//                let host = Dns.GetHostEntry( Dns.GetHostName() )
-//                for ip in host.AddressList do 
-//                    if ip.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork then 
-//                        yield ip.GetAddressBytes()
-//                }
             seq {
                 for nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces() do
                     let ipProps = nic.GetIPProperties()

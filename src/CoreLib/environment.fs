@@ -39,15 +39,22 @@ namespace Prajna.Core
 open System
 open System.Threading
 open Prajna.Tools
+open Prajna.Tools.Network
 open Prajna.Tools.FSharp
 open Prajna.Service
+open Prajna.Api.FSharp
 
 /// Represent Prajna Environment for running Prajna program
 [<Sealed>]
 type Environment() =
+    static let initCluster( cl: Cluster ) = 
+        let dset = DSet<_> ( Name = "InitContainer", Cluster = cl)
+        let result = (dset |> DSet.source ( fun () -> seq { yield (sprintf "%i-%i" (System.Diagnostics.Process.GetCurrentProcess().Id) (Thread.CurrentThread.ManagedThreadId)) })).ToSeq() |> Array.ofSeq
+        ()
     static let init = lazy(
         Cluster.SetCreateLocalCluster(LocalCluster.Create)
         DistributedFunctionBuiltIn.Init()
+        RemoteRunner.InitClusterFunc <- initCluster
         DeploymentSettings.LocalClusterTraceLevel <- Logger.DefaultLogIdLogLevel
     )
 
@@ -62,3 +69,16 @@ type Environment() =
     static member Cleanup() =
         Logger.Log( LogLevel.Info, "Cleanup the environment" )
         CleanUp.Current.CleanUpAll()
+
+    /// Get the timeout value (in seconds) for setting up the remote container
+    static member GetRemoteContainerEstablishmentTimeout() = 
+        int DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit
+
+    /// Set the timeout value (in seconds) for setting up the remote container
+    static member SetRemoteContainerEstablishmentTimeout( timeoutInSeconds: int ) = 
+        DeploymentSettings.RemoteContainerEstablishmentTimeoutLimit <- int64 timeoutInSeconds
+
+    /// Log DNS resolution
+    static member EnableLoggingOnDNS() = 
+        LocalDNS.TraceLevelMonitorDNSResolution <- LogLevel.Info
+

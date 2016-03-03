@@ -1865,6 +1865,8 @@ and [<AllowNullLiteral; Serializable>]
             Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Link program back to daemon")
 
             DistributedFunctionBuiltIn.Init()
+            RemoteRunnerEngine.InitAtDaemon()
+
 
             // Wait for connection to PrajnaClient to establish
             let maxWait = (PerfDateTime.UtcNow()).AddSeconds( 5. )

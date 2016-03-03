@@ -60,7 +60,7 @@ open Prajna.Core
 
 // The class DistributedFunctionProvider is public to allow the programmer to provider information
 
-/// Infromation of distributed Function Provider 
+/// Information of distributed Function Provider 
 /// To use distributed function, 
 type DistributedFunctionProvider() = 
     /// Provider version information, in a.b.c.d. Each of a, b, c, d should be from 0..255, and a should be from 0 to 255 the provider version is represented as an unsigned integer. 
@@ -1765,6 +1765,7 @@ and internal RegisteredDistributedFunctionMultiple ( schemas: seq<Guid*Guid*Guid
         
 /// DistributedFunctionStore provides a central location for handling distributed functions. 
 and DistributedFunctionStore internal () as thisStore = 
+    static let serializerTagStack = Stack<DefaultSerializerForDistributedFunction>()
     /// A collection of all distributed stores 
     do 
         // Clean up registration 
@@ -1784,6 +1785,20 @@ and DistributedFunctionStore internal () as thisStore =
     static member val Current = DistributedFunctionStore() with get
     /// Default tag for the codec
     static member val DefaultSerializerTag = DefaultSerializerForDistributedFunction.JSonSerializer with get, set
+    /// Use a certain serializer 
+    static member UseSerializerTag( tag: DefaultSerializerForDistributedFunction ) = 
+        lock( serializerTagStack ) ( fun _ -> 
+            serializerTagStack.Push( DistributedFunctionStore.DefaultSerializerTag )  
+            DistributedFunctionStore.DefaultSerializerTag <- tag
+        )
+    /// Revert the the serializer used earlier
+    static member PopSerializerTag() = 
+        lock( serializerTagStack ) ( fun _ -> 
+            if serializerTagStack.Count > 0 then 
+                let tag = serializerTagStack.Pop()
+                DistributedFunctionStore.DefaultSerializerTag <- tag
+        )
+
     /// Install Serializer, only one serializer should be installed per type. 
     /// User should call this to supply its own serializer/deserializer if desired. 
     static member InstallCustomizedSerializer<'T>( fmt: string, serializeFunc, deserializeFunc, bInstallByDefault ) = 

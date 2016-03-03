@@ -4,12 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Prajna;
 using Prajna.Core;
 using Prajna.Api.CSharp;
 using Prajna.Api.CSharp.Linq;
 
-using Prajna.Tools.FSharp;
-
+using Prajna.Tools.CSharp;
 
 namespace PrajnaTest.CS
 {
@@ -42,6 +42,8 @@ namespace PrajnaTest.CS
 
             Console.WriteLine("Init...");
             Prajna.Core.Environment.Init();
+            Prajna.Core.Environment.SetRemoteContainerEstablishmentTimeout(10);
+            Prajna.Core.Environment.EnableLoggingOnDNS();
             Console.WriteLine("Init done.");
 
             //var cluster = new Cluster("cluster.lst");
@@ -55,9 +57,9 @@ namespace PrajnaTest.CS
             for ( int i = 0; i<3; i++ )
             {
                 var t1 = watch.Elapsed;
-                Prajna.Tools.CSharp.Logger.Log(Prajna.Tools.LogLevel.Info, "Start executing ... ");
+                Logger.Log(Prajna.Tools.LogLevel.Info, "Start executing ... ");
                 var containers = Prajna.Service.DistributedFunctionBuiltIn.GetConnectedContainers().ToArray<Tuple<string,string>>();
-                Prajna.Tools.CSharp.Logger.Log(Prajna.Tools.LogLevel.Info, "Done executing ... ");
+                Logger.Log(Prajna.Tools.LogLevel.Info, "Done executing ... ");
                 var elapse = ( watch.Elapsed.Subtract( t1 )).TotalMilliseconds; 
 
                 foreach (var container in containers)

@@ -42,7 +42,7 @@ if (!(Test-Path (Join-Path $SourceLocation $ClientName)))
 }
 
 # stop the clients if any to allow the copy
-.\Stop-Clients.ps1 -ComputerNames $ComputerNames -ClientLocation $ClientLocation
+.\Stop-Clients.ps1 -ComputerNames $ComputerNames -ClientLocation $ClientLocation -Cred $Cred
 
 
 # copy files

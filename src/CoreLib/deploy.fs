@@ -327,7 +327,7 @@ type DeploymentSettings() =
     /// Timeout when trying to setup a remote container (in seconds). The default value is 30 seconds. If the remote execution roster is particularly large, 
     /// e.g., including data files of multi-gigabyte in size, the program should enlarge this timeout value so that there is time to send the entire remote execution roster 
     /// to the remote node. 
-    static member val RemoteContainerEstablishmentTimeoutLimit = 30L with get, set // in seconds
+    static member val RemoteContainerEstablishmentTimeoutLimit = 300L with get, set // in seconds
     /// Timeout for reserve job port
     static member val internal TimeOutJobPortReservation = 1800. with get, set // in second
     /// Timeout to wait for DefaultJobInfo in DStream to be filled (in milliseconds) 

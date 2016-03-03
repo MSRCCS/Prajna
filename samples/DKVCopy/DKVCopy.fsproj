@@ -35,7 +35,7 @@
     <DocumentationFile>bin\Debugx64\DKVCopy.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
     <PlatformTarget>x64</PlatformTarget>
-    <StartArguments>-cluster c:\Prajna\Cluster\OneNet_JinL_6to10.inf -localdir h:\album\pick -remote jinl\1012_pick -in -rep 3 -rec -balancer 1 -verbose 4 -con</StartArguments>
+    <StartArguments>-cluster C:\onenet\cluster\cluster01-04.lst -localdir e:\test\skynettest\images2 -remote sanjeevm\onenettest -in -rep 3 -balancer 1 -verbose 4 -rec -log c:\OneNet\writeDKV.log -con</StartArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
     <DebugType>pdbonly</DebugType>

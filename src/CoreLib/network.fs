@@ -830,7 +830,8 @@ type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
 
         // make connections
         xCSend.ConnectTo x.ONet.CmdProcPoolSend false xgc.CompSend None None
-        // xgc.CompSend already connected      
+        // xgc.CompSend already connected, but overwrite close action to not trigger socket close as we explictly call it
+        xgc.CompSend.Close <- Component<RBufPart<byte>>.DefaultClose xgc.CompSend null None
         xgc.CompRecv.ConnectTo x.ONet.bufProcPool true xCRecv None None
         //xCRecv.ConnectTo null (Some(fun _ -> bNoMoreRecv <- true)) None
         xCRecv.ConnectTo x.ONet.CmdProcPoolRecv false null None None
@@ -1141,61 +1142,68 @@ UnprocessedCmD:%d bytes Status:%A"
             (x.SendQueueSize) (x.RecvQueueSize) 
             (x.UnProcessedCmdInBytes) x.ConnectionStatus
 
-    member val private CloseDone = ref 0 with get
+    member val private CloseDone = false with get, set
+    member private x.ConnectionClose() =
+        if (not x.CloseDone) then
+            lock (x) (fun _ ->
+                if (not x.CloseDone) then
+                    // Logger.LogStackTrace(LogLevel.MildVerbose)
+                    Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo)
+                    // Calling system wide disconnect processor
+                    x.ProcessSystemwideDisconnectProcessor( )
+                    Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
+                    Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
+                    Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
+                    Logger.LogF(LogLevel.MildVerbose, x.StatusInfo)
+                    MemoryStreamB.DumpStreamsInUse()
+                    MemoryStreamB.MemStack.DumpInUse()
+                    x.ONet.BufStackRecv.DumpInUse()
+                    x.ONet.BufStackSend.DumpInUse()
+                    //xCSend.SelfClose()
+                    // manually terminate everything - this will do following
+                    // 1) clear the queues, 2) set the IsTerminated flag, 3) set event being waited upon
+                    xCSend.SelfTerminate()
+                    xCRecv.SelfTerminate()
+                    xgc.CompSend.SelfTerminate()
+                    xgc.CompRecv.SelfTerminate()
+                    // in case in middle of sending, callback does not execute
+                    xgc.SendFinished.Set() |> ignore
+                    x.CloseDone <- true
+            )
+
     /// <summary>
     /// Normal close of socket/queue, 
     /// </summary>
     abstract Close : unit -> unit
     default x.Close() =
-        if (Interlocked.CompareExchange(x.CloseDone, 1, 0) = 0) then
-            // Logger.LogStackTrace(LogLevel.MildVerbose)
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Close of NetworkCommandQueue %s" x.EPInfo)
-            // Calling system wide disconnect processor
-            x.ProcessSystemwideDisconnectProcessor( )
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Recv Stack size %d %d" x.ONet.BufStackRecv.StackSize x.ONet.BufStackRecv.GetStack.Size)
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "SA Send Stack size %d %d" x.ONet.BufStackSend.StackSize x.ONet.BufStackSend.GetStack.Size)
-            Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Memory Stream Stack size %d %d" MemoryStreamB.MemStack.StackSize MemoryStreamB.MemStack.GetStack.Size)
-            Logger.LogF(LogLevel.MildVerbose, x.StatusInfo)
-            MemoryStreamB.DumpStreamsInUse()
-            MemoryStreamB.MemStack.DumpInUse()
-            x.ONet.BufStackRecv.DumpInUse()
-            x.ONet.BufStackSend.DumpInUse()
-            xCSend.SelfClose()
-            // manually terminate everything - this will do following
-            // 1) clear the queues, 2) set the IsTerminated flag, 3) set event being waited upon
-            xCSend.SelfTerminate()
-            xCRecv.SelfTerminate()
-            xgc.CompSend.SelfTerminate()
-            xgc.CompRecv.SelfTerminate()
-            // in case in middle of sending, callback does not execute
-            if (Utils.IsNotNull xgc.SendFinished) then
-                xgc.SendFinished.Set() |> ignore
+        xgc.OnSocketClose <- Some(x.OnSocketClose)
+        xgc.CloseSocket()
 
     member private x.OnSocketClose (conn : IConn) (o : obj) =
-        if (Utils.IsNotNull x.ONet) then
-            x.ONet.RemoveConnect(x)
-        x.Close()
+        x.ConnectionClose()
         // also clear send queue
-        if Utils.IsNotNull xCSend.Q then 
-            xCSend.Q.Clear()
-
-    /// <summary> 
-    /// Terminate network queue, all pending actions are discarded. 
-    /// </summary>
-    member x.Terminate() = 
-        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Terminate of NetworkCommandQueue %s" x.EPInfo))
-        // terminate propagates, through pipeline and back
-        xCSend.SelfTerminate()
+        xCSend.Q.Clear()
         if (Utils.IsNotNull x.ONet) then
             x.ONet.RemoveConnect(x)
-        x.Close()
-        // explicitly set shutdown to true since threadpools may not have initialized
-        bNoMoreRecv <- true
+
+//    /// <summary> 
+//    /// Terminate network queue, all pending actions are discarded. 
+//    /// </summary>
+//    member x.Terminate() = 
+//        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Terminate of NetworkCommandQueue %s" x.EPInfo))
+//        // terminate propagates, through pipeline and back
+//        xCSend.SelfTerminate()
+//        if (Utils.IsNotNull x.ONet) then
+//            x.ONet.RemoveConnect(x)
+//        x.Close()
+//        // explicitly set shutdown to true since threadpools may not have initialized
+//        bNoMoreRecv <- true
 
     /// Mark the connection as having failed and terminate
     member x.MarkFail() = 
         x.NumFailed <- x.NumFailed + 1
-        x.Terminate()
+        //x.Terminate()
+        x.Close()
 
     /// Tells if queue is null or has failed
     static member inline QueueFail(x : NetworkCommandQueue) =
@@ -1615,6 +1623,8 @@ UnprocessedCmD:%d bytes Status:%A"
 
     member x.DisposeResource() = 
         x.OnDisconnect.Trigger()
+        // make sure close done
+        x.Close()
         (xgc :> IDisposable).Dispose()
         (xCRecv :> IDisposable).Dispose()
         (xCSend :> IDisposable).Dispose()

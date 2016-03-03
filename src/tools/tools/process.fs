@@ -254,9 +254,14 @@ type internal CleanUp private () =
         let allKeys = cleanUpStore.Keys |> Seq.sort |> Seq.toArray
         for key in allKeys do 
             let bExist, oneCleanUp = cleanUpStore.TryRemove( key )
+            let sw = new Stopwatch()
             if bExist then 
-                Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "::: Enter to clean up %s" (oneCleanUp.InfoFunc()) ))
-                oneCleanUp.CleanUpFunc();
+                Logger.LogF( LogLevel.ExtremeVerbose, ( fun _ -> sprintf "::: Enter to clean up %s" ((oneCleanUp.InfoFunc())) ))
+                sw.Restart()
+                oneCleanUp.CleanUpFunc()
+                Logger.LogF(LogLevel.Info, (fun _ -> sprintf "Cleanup %s takes %d ms" (oneCleanUp.InfoFunc()) sw.ElapsedMilliseconds))
+                //Console.WriteLine("Cleanup {0} takes {1} ms", (oneCleanUp.InfoFunc()), sw.Elapsed.Milliseconds)
+                //Logger.LogF( LogLevel.MildVerbose, ( fun _ -> sprintf "::: Done clean up %s" (oneCleanUp.InfoFunc()) ))
         x.FlushAllListeners()
 
 module internal Process =

@@ -418,18 +418,24 @@ and [<AllowNullLiteral>] GenericConn() as x =
         x.InitConnectionAndStart (sock, state) x.StartNetwork
 
     // use own CloseSocketDone reference as Socket close would also call this
-    member val private CloseSocketDone : int ref = ref -1
+    member val private CloseSocketDone = false with get, set
     member private x.CloseSocketConnection() =
-        if (Interlocked.Increment(x.CloseSocketDone) = 0) then
-            Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "SocketClosed Endpoint: %s" connKey))
-            bSocketClosed <- true
-            if (Utils.IsNotNull xConn.Socket) then
-                xConn.Socket.Close()
-            match x.OnSocketClose with
-                | None -> ()
-                | Some cb -> cb x x.OnSocketCloseState
-            // following automatically gets called when socket close takes place (see CloseConnection)
-            //xRecvC.SelfClose() // go backward 
+        lock (x) (fun _ ->
+            if (not x.CloseSocketDone) then
+                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "SocketClosed Endpoint: %s" connKey))
+                bSocketClosed <- true
+                if (Utils.IsNotNull xConn.Socket) then
+                    xConn.Socket.Close()
+                match x.OnSocketClose with
+                    | None -> ()
+                    | Some cb -> cb x x.OnSocketCloseState
+                // following automatically gets called when socket close takes place (see CloseConnection)
+                //xRecvC.SelfClose() // go backward 
+                x.CloseSocketDone <- true
+        )
+
+    member x.CloseSocket() =
+        x.CloseSocketConnection()
 
     // upon socket close
     member private x.CloseConnection() =
@@ -480,7 +486,8 @@ and [<AllowNullLiteral>] GenericConn() as x =
             x.ContinueReceive(null, false)
         else
             // no data received, call again with same SocketAsyncEventArgs after some time
-            PoolTimer.AddTimer(x.ReceiveAfterSomeTime e, 5L)
+            //PoolTimer.AddTimer(x.ReceiveAfterSomeTime e, 5L)
+            x.CloseConnection()
 
     /// The function to call to enqueue received SocketAsyncEventArgs
     member val RecvQEnqueue = xRecvC.Q.EnqueueWaitTime with get, set
@@ -699,19 +706,25 @@ and [<AllowNullLiteral>] GenericConn() as x =
             bDone <- false
         (bDone, event)
 
+    member val private Disposed = false with get, set
     interface IDisposable with
         /// Releases all resources used by the current instance.
         member x.Dispose() = 
-            if (Utils.IsNotNull eSendSA) then
-                (eSendSA :> IDisposable).Dispose()
-            if (Utils.IsNotNull eRecvSA) then
-                (eRecvSA :> IDisposable).Dispose()
-            (xSendC :> IDisposable).Dispose()
-            (xRecvC :> IDisposable).Dispose()
-            cts.Dispose()
-            tokenTimer.Dispose()
-            tokenWaitHandle.Dispose()
-            eSendStackWait.Dispose()
-            eSendFinished.Dispose()
-            eSendFinished <- null
-            GC.SuppressFinalize(x)
+            if (not x.Disposed) then
+                lock (x) (fun _ ->
+                    if (not x.Disposed) then
+                        if (Utils.IsNotNull eSendSA) then
+                            (eSendSA :> IDisposable).Dispose()
+                        if (Utils.IsNotNull eRecvSA) then
+                            (eRecvSA :> IDisposable).Dispose()
+                        (xSendC :> IDisposable).Dispose()
+                        (xRecvC :> IDisposable).Dispose()
+                        cts.Dispose()
+                        tokenTimer.Dispose()
+                        tokenWaitHandle.Dispose()
+                        eSendStackWait.Dispose()
+                        eSendFinished.Dispose()
+                        eSendFinished <- null
+                        GC.SuppressFinalize(x)
+                        x.Disposed <- true
+                )

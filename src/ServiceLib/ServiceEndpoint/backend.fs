@@ -565,7 +565,7 @@ type BackEndInstance< 'StartParamType
             let remoteSignature = pair.Key
             let queue = Cluster.Connects.LookforConnectBySignature( remoteSignature ) 
             if not (Utils.IsNull queue ) then 
-                queue.Terminate()
+                queue.Close()
         x.EvPrimaryQueue.Set() |> ignore 
     /// Parse Receiving command 
     member internal x.ParseFrontEndRequest queue cmd ms = 

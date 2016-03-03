@@ -1297,7 +1297,7 @@ type [<AllowNullLiteral>]
                             let ch = NetworkConnections.Current.LookforConnectBySignature( oldEntry )
                             if Utils.IsNotNull ch then 
                                 // Close the outdated queue
-                                ch.Terminate() 
+                                ch.Close()
                             x.ResolvedServerNameToIP.TryRemove( serverEntry ) |> ignore 
                         if bReconnect then 
                             let sig64 = LocalDNS.IPv4AddrToInt64( addrList.[0], port)

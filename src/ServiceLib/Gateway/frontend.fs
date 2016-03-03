@@ -555,7 +555,7 @@ type FrontEndInstance< 'StartParamType
             let remoteSignature = pair.Key
             let queue = Cluster.Connects.LookforConnectBySignature( remoteSignature ) 
             if not (Utils.IsNull queue ) then 
-                queue.Terminate()
+                queue.Close()
         x.EvPrimaryQueue.Set() |> ignore 
         if not(Utils.IsNull x.TimerBufferCache) then 
             x.TimerBufferCache.Cancel() 

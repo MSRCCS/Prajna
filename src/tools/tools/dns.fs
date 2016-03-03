@@ -64,7 +64,8 @@ type LocalDNS() =
         for ip in copyIPAddress do 
             let ipNum = BitConverter.ToUInt32( ip, 0 )
             LocalDNS.IPToHostName.Item( ipNum ) <- uhostname
-
+    /// Monitor DNS host resolution
+    static member val TraceLevelMonitorDNSResolution = LogLevel.ExtremeVerbose with get, set
     /// Similar to Dns.GetHostAddresses, but only use IPv4 addresses, and caches its result.\
     /// <param name="hostname">The hostname to resolve</param>
     /// <param name="bTryResolve">
@@ -76,21 +77,25 @@ type LocalDNS() =
     static member GetHostAddresses( hostname:string, ?bTryResolve:bool ) = 
         let tryResolve = defaultArg bTryResolve true
         let uhostname = hostname.ToUpper()
-        let refValue = ref Unchecked.defaultof<_>
-        if LocalDNS.HostNameToIP.TryGetValue( uhostname, refValue ) then 
-            !refValue
+        let bExst, addrArray = LocalDNS.HostNameToIP.TryGetValue( uhostname ) 
+        if bExst then 
+            if Utils.IsNotNull ( addrArray ) then 
+                addrArray |> Array.map( fun addr -> IPAddress(addr) ) 
+            else
+                null   
         elif tryResolve then 
             let t1 = (PerfDateTime.UtcNow())
             let addr = Dns.GetHostAddresses( uhostname )
-            Logger.LogF( LogLevel.WildVerbose, ( fun _ -> let elapse = (PerfDateTime.UtcNow()).Subtract( t1 ).TotalMilliseconds
-                                                          sprintf "Calling Dns.GetHostAddresses, resolve hostname %s in %f ms" hostname elapse ))
             let addrBytes = addr |> Array.filter ( fun addr -> addr.AddressFamily = Net.Sockets.AddressFamily.InterNetwork ) 
                                  |> Array.map ( fun addr -> addr.GetAddressBytes() )
+            Logger.LogF( LocalDNS.TraceLevelMonitorDNSResolution, 
+                                               ( fun _ -> let elapse = (PerfDateTime.UtcNow()).Subtract( t1 ).TotalMilliseconds
+                                                          sprintf "Calling Dns.GetHostAddresses, resolve hostname %s in %f ms to %A" hostname elapse addrBytes))
             LocalDNS.AddEntry( hostname, addrBytes )
-            addrBytes
+            addrBytes |> Array.map( fun addr -> IPAddress(addr) )
         else
             null
-
+    
     /// Similar to Dns.GetHostEntry, but cache its result. 
     /// <param name="addr">The ipaddress as array of bytes</param>
     /// <param name="bTryResolve">
@@ -125,10 +130,10 @@ type LocalDNS() =
     /// <returns>A random IPv4 address of the hostname</returns>
     static member GetAnyIPAddress( hostname:string, ?bTryResolve:bool ) =
         let tryResolve = defaultArg bTryResolve true
-        let addrBytes = LocalDNS.GetHostAddresses( hostname, tryResolve )
-        if Utils.IsNotNull addrBytes && addrBytes.Length >0 then 
+        let addr = LocalDNS.GetHostAddresses( hostname, tryResolve )
+        if Utils.IsNotNull addr && addr.Length >0 then 
             let rnd = RandomWithSalt( hostname.GetHashCode() ) 
-            IPAddress( addrBytes.[ rnd.Next( addrBytes.Length ) ] )
+            addr.[ rnd.Next( addr.Length ) ]
         else
             null
     /// Show host information of an endpoint ep. If the hostname is not in DNS cache, IP address and port information is shown. 

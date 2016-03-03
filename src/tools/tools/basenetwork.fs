@@ -459,8 +459,7 @@ type Network() =
     let mutable listen : TcpListener = null
     let networkQ = ConcurrentDictionary<string, IConn>()
     let numConn = ref 0
-    let localAddr = Dns.GetHostAddresses("")
-    let localAddrV4 = localAddr |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
+    let localAddrV4 = LocalDNS.GetHostAddresses("", true)
 
     member private x.GetConnNum() =
         Interlocked.Increment(numConn)
@@ -528,8 +527,8 @@ type Network() =
         if (bind.Equals("")) then
             x.Listen<'T>(port, state)
         else
-            let addr = Dns.GetHostAddresses(bind)
-            listen <- new TcpListener(addr.[0], port)
+            let addr = LocalDNS.GetAnyIPAddress(bind, true)
+            listen <- new TcpListener(addr, port)
             listen.Start()
             try
                 let newFn = (fun () -> new 'T() :> IConn)
@@ -581,11 +580,9 @@ type Network() =
                 sock.Bind(IPEndPoint(localAddrV4.[index], 0))
                 Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Bind to local %d out of %d - %A" index localAddrV4.Length localAddrV4.[index]))
                 // use IP v4 address, randomly pick one for remote
-                let addrs = Dns.GetHostAddresses(addrStr)
-                let addrsv4 = addrs |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
-                let index = NetUtils.RandGen.Next(0, addrsv4.Length)
-                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %d - %A" index addrsv4.[index]))
-                sock.Connect(addrsv4.[index], port)
+                let addr = LocalDNS.GetAnyIPAddress(addrStr, true)
+                Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %d - %A" index addr))
+                sock.Connect(addr, port)
                 x.InitConn(conn, sock, state)
                 success <- true
                 conn
@@ -620,16 +617,14 @@ type Network() =
             try
                 sock <- new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
                 let conn = new 'T() :> IConn
-                let addr = (Dns.GetHostAddresses(bind)).[0]
+                let addr = LocalDNS.GetAnyIPAddress(bind, true)
                 try
                     sock.Bind(IPEndPoint(addr, 0))
                     Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Bind to local %A" addr))
                     // use IP v4 address, randomly pick one for remote
-                    let addrs = Dns.GetHostAddresses(addrStr)
-                    let addrsv4 = addrs |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
-                    let index = NetUtils.RandGen.Next(0, addrsv4.Length)
-                    Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %d - %A" index addrsv4.[index]))
-                    sock.Connect(addrsv4.[index], port)
+                    let connectAddr = LocalDNS.GetAnyIPAddress(addrStr, true ) 
+                    Logger.LogF( LogLevel.Info, (fun _ -> sprintf "Connect to remote %A" connectAddr ))
+                    sock.Connect(connectAddr, port)
                     x.InitConn(conn, sock, state)
                     success <- true
                     conn

@@ -73,6 +73,7 @@
     <Compile Include="distributedfunction.fs" />
     <Compile Include="RemoteRunner.fs" />
     <Compile Include="service.fs" />
+    <Compile Include="network.fs" />
     <None Include="paket.references" />
   </ItemGroup>
   <ItemGroup>

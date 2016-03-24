@@ -72,22 +72,31 @@ type JobListener() =
 
     member internal x.InitializeListenningTask( ) = 
         while Volatile.Read( x.nTerminateListening) = 0 do
-           try 
-                let soc = x.Listener.Accept() 
+            let soc =
+                try 
+                    x.Listener.Accept()
+                with
+                    | :? ObjectDisposedException as ex ->
+                        // listener has been disposed - terminate loop
+                        Volatile.Write( x.nTerminateListening, 1 )
+                        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Accept() call on jobport %d encounters an ObjectDisposedException, Accept() loop will be terminated" x.JobPort ))
+                        null
+                    | _ as ex ->
+                        Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Exception when Accept: %A" ex ))
+                        null
+            try
                 if Utils.IsNotNull soc then 
+                    soc.NoDelay <- true
                     let queue = x.ConnectsClient.AddPeerConnect( soc ) 
                     x.OnAcceptedExecutor.Trigger( queue, fun _ -> sprintf "from %s" (LocalDNS.GetShowInfo(queue.RemoteEndPoint)) )
-                    // Post another listening request. 
                     Logger.LogF( LogLevel.MildVerbose, (fun _ -> let ep = soc.RemoteEndPoint 
                                                                  let eip = ep :?> IPEndPoint
                                                                  sprintf "incoming connection established from socket %A with name %A" ep (LocalDNS.GetHostByAddress( eip.Address.GetAddressBytes(),false)  ) ))
-           with 
-           | :? ObjectDisposedException as ex -> 
-                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Accept() call on jobport %d encounters an ObjectDisposedException, Accept() loop will be terminated" x.JobPort ))
-                Volatile.Write( x.nTerminateListening, 1 )
-           | ex -> 
-                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Exception when Accept: %A" ex )         )
-    // 05/31/2014, Jin Li, I change the active code to synchronous code, because I observe that on the Prajna cluster, 
+            with ex ->
+                // perhaps socket has been disposed due to illegal connection, continue loop
+                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Exception when Accept: %A" ex ))
+
+// 05/31/2014, Jin Li, I change the active code to synchronous code, because I observe that on the Prajna cluster, 
     // sometime the EndAccept call doesn't get called for a long time (!!!minutes!!!, even I believe that the packet comes in). 
     // change the code to synchronous listen fixed the issue. The 1st accept still can take 3-5 seconds, but it was not the dreadful minutes. 
     /// Start a listening port on certain port
@@ -163,6 +172,7 @@ type JobListener() =
                 Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when repost BeginAccept: %A" e ))
             try
                 let soc = x.Listener.EndAccept( ar )
+                soc.NoDelay <- true
                 // add queue
                 let queue = x.ConnectsClient.AddPeerConnect( soc ) 
                 queue.Initialize()

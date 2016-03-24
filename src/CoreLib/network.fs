@@ -1082,6 +1082,7 @@ type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
             remoteEndPoint <- IPEndPoint( addr, port )
             remoteEndPointSignature <- LocalDNS.IPEndPointToInt64( x.RemoteEndPoint :?> IPEndPoint ) 
             soc <- new Socket( AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp )
+            soc.NoDelay <- true
             if not (x.ONet.IpAddr.Equals("")) then
                 Logger.LogF(LogLevel.MildVerbose, fun _ -> sprintf "Local bind to %A" x.ONet.IpAddr)
                 soc.Bind(new IPEndPoint(IPAddress.Parse(x.ONet.IpAddr), 0))

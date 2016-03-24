@@ -784,28 +784,35 @@ type internal Listener =
         let state = ar.AsyncState
         match state with 
         | :? Listener as x ->
+            let mutable listenerDisposed = false
             // Post another listening request. 
             try
                 x.Listener.BeginAccept( AsyncCallback( Listener.EndAccept ), x) |> ignore
-            with e ->
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when repost BeginAccept: %A" e ) )
-            try
-                let soc = x.Listener.EndAccept( ar )
-                let queue = x.ConnectsClient.AddPeerConnect( soc ) 
-                queue.CallOnClose.Add ( OnPeerClose( CallbackOnClose = x.RemoveConnectedQueue queue ) )
-                // add processing for command 
-                let procItem = (
-                    fun (cmd : NetworkCommand) -> 
-                        x.ParseCommandAtDaemon queue cmd.cmd (cmd.ms)
-                        null
-                )
-                queue.GetOrAddRecvProc("ParseCommandAtDaemon", procItem ) |> ignore
-                // set queue to initialized
-                queue.Initialize()
-                Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Incoming connection established from socket %A" soc.RemoteEndPoint ))
-                x.Activity <- true
-            with e ->
-                Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when try to accept conection: %A" e ) )
+            with
+                | :? ObjectDisposedException -> 
+                    listenerDisposed <- true
+                    Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Listener %A disposed" x.Listener.LocalEndPoint ) )
+                | _ as e ->
+                    Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when repost BeginAccept: %A" e ) )
+            if not (listenerDisposed) then
+                try
+                    let soc = x.Listener.EndAccept( ar )
+                    soc.NoDelay <- true
+                    let queue = x.ConnectsClient.AddPeerConnect( soc ) 
+                    queue.CallOnClose.Add ( OnPeerClose( CallbackOnClose = x.RemoveConnectedQueue queue ) )
+                    // add processing for command 
+                    let procItem = (
+                        fun (cmd : NetworkCommand) -> 
+                            x.ParseCommandAtDaemon queue cmd.cmd (cmd.ms)
+                            null
+                    )
+                    queue.GetOrAddRecvProc("ParseCommandAtDaemon", procItem ) |> ignore
+                    // set queue to initialized
+                    queue.Initialize()
+                    Logger.LogF( LogLevel.MildVerbose, (fun _ -> sprintf "Incoming connection established from socket %A" soc.RemoteEndPoint ))
+                    x.Activity <- true
+                with e ->
+                    Logger.LogF( LogLevel.WildVerbose, (fun _ -> sprintf "Exception when try to accept conection: %A" e ) )
         | _ ->
             failwith "Incorrect logic, Listener.EndAccept should always be called with Listener as an object"
 

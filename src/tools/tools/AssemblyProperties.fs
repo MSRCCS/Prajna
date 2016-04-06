@@ -60,5 +60,7 @@ module internal AssemblyProperties =
     [<assembly: InternalsVisibleTo("PrajnaCopy" )>]
     // Temporary! SortBenchmark is currently using internal stuff
     [<assembly: InternalsVisibleTo("SortBenchmark")>]
+    // Temporary! BinSort is currently using internal stuff
+    [<assembly: InternalsVisibleTo("BinSort")>]
 
     do()

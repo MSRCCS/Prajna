@@ -465,22 +465,26 @@ Target "RunReleaseTests" (fun _ -> runTests "Releasex64")
 // the ability to step through the source code of external libraries http://ctaggart.github.io/SourceLink/ 
 
 Target "SourceLink" (fun _ ->
-    let baseUrl = (sprintf "%s/%s/{0}/" gitRaw project) + "%var2%"
+    let baseUrl = (sprintf "%s/%s/" gitRaw project) + "%var2%/{0}"
 
     // Collect all the PDBs that have been generated before being source indexed
     let dic = ConcurrentDictionary<_,List<_>>(StringComparer.OrdinalIgnoreCase)
     !! "**/**/*.pdb"
+    |> Seq.filter( fun pdb -> not (pdb.Contains("Nano")) )
     |> Seq.iter ( fun pdb -> let shortName = Path.GetFileName( pdb )
                              let entry = dic.GetOrAdd( shortName, fun _ -> List<_>() )
                              entry.Add( pdb )
                         )
 
     !! "src/**/*.??proj"
+    |> Seq.filter( fun projFile -> not (projFile.Contains("Nano")) )
     |> Seq.iter (fun projFile -> 
+        //trace (sprintf "Start to work on projFile %s" projFile)
         let proj = VsProj.LoadRelease projFile 
         try
+            //trace (sprintf "Start to sourceLink file %A %A %A %A" proj.CompilesNotLinked proj.OutputFilePdb __SOURCE_DIRECTORY__ baseUrl)
             SourceLink.Index proj.CompilesNotLinked proj.OutputFilePdb __SOURCE_DIRECTORY__ baseUrl 
-
+            //trace (sprintf "Done SourceLink.Index" )
             // Replace the same PDB in all directories with the source indexed PDB
             let pdbShortName = Path.GetFileName( proj.OutputFilePdb )
             let bExist, entry = dic.TryGetValue( pdbShortName )
@@ -489,12 +493,15 @@ Target "SourceLink" (fun _ ->
                     if String.Compare( Path.GetFullPath(proj.OutputFilePdb), Path.GetFullPath(file1), true )<>0 then 
                         // trace ( sprintf "To copy file %s to %s " proj.OutputFilePdb file1 )
                         File.Copy( proj.OutputFilePdb, file1, true )
+            //trace (sprintf "Done sourceLink" )
         with 
-        | ex -> traceImportant (sprintf "Fail to sourceLink file '%s': %s" proj.OutputFilePdb ex.Message)
+        | ex -> trace (sprintf "Fail to sourceLink file '%s': %s" proj.OutputFilePdb ex.Message)
     )
 
     // Make sure the bin folder contains source indexed PDB
+    //trace (sprintf "Start copy binary" )
     CopyBinariesFun("Releasex64")
+    //trace (sprintf "End copy binary" )
 )
 #endif
 

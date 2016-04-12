@@ -1,18 +1,20 @@
 NUGET
   remote: https://www.nuget.org/api/v2
   specs:
-    Extended.Wpf.Toolkit (2.6)
-    FAKE (4.20.0)
+    Extended.Wpf.Toolkit (2.7)
+    FAKE (4.25.2)
     FSharp.Charting (0.90.13)
-    FSharp.Compiler.Service (2.0.0.4)
+    FSharp.Compiler.Service (2.0.0.6)
     FSharp.Data (2.2.5)
-      Zlib.Portable (>= 1.10.0) - framework: portable-net40+sl50+wp80+win80
-    FSharp.Formatting (2.14.0)
-      FSharp.Compiler.Service (>= 2.0.0.3 < 2.1.0)
-      FSharpVSPowerTools.Core (>= 2.3.0 < 2.4.0)
-    FSharpVSPowerTools.Core (2.3.0)
+      Zlib.Portable (>= 1.10) - framework: portable-net40+sl50+wp80+win80
+    FSharp.Formatting (2.14.2)
+      FSharp.Compiler.Service (2.0.0.6)
+      FSharpVSPowerTools.Core (>= 2.3 < 2.4)
+    FSharpVSPowerTools.Core (2.3)
       FSharp.Compiler.Service (>= 2.0.0.3)
-    LibGit2Sharp (0.21.0.176)
+    LibGit2Sharp (0.22)
+      LibGit2Sharp.NativeBinaries (1.0.129)
+    LibGit2Sharp.NativeBinaries (1.0.129)
     Microsoft.Bcl (1.1.10)
       Microsoft.Bcl.Build (>= 1.0.14)
     Microsoft.Bcl.Build (1.0.21) - import_targets: false
@@ -21,14 +23,14 @@ NUGET
       Microsoft.Bcl.Build (>= 1.0.14)
     NUnit (2.6.4)
     NUnit.Runners (2.6.4)
-    Octokit (0.18.0)
+    Octokit (0.19)
       Microsoft.Net.Http
-    SourceLink.Fake (1.1.0)
-    Zlib.Portable (1.11.0) - framework: portable-net40+sl50+wp80+win80
+    SourceLink.Fake (1.1)
+    Zlib.Portable (1.11) - framework: portable-net40+sl50+wp80+win80
 GITHUB
   remote: fsharp/FAKE
   specs:
-    modules/Octokit/Octokit.fsx (43c4800c5f132d2c2d6832a3a59232a64d83d4c0)
+    modules/Octokit/Octokit.fsx (59dfade480c5f9107107f11af366aaae1f4a9157)
       Octokit
 HTTP
   remote: https://live.sysinternals.com

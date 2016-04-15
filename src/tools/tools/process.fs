@@ -2660,7 +2660,7 @@ and [<AllowNullLiteral>]
     let mutable dueTimeInternal = dueTimeInMilliSeconds
     let mutable periodInternal = periodInMilliSeconds
     let callFunc (o:Object) = 
-        Logger.LogF( LogLevel.MildVerbose, fun _ -> sprintf "ThreadPoolTimer %s is fired .... " (infoFunc()) )
+        Logger.LogF( LogLevel.WildVerbose, fun _ -> sprintf "ThreadPoolTimer %s is fired .... " (infoFunc()) )
         callback() 
     let timerCallback = TimerCallback( callFunc ) 
     let timer = new System.Threading.Timer(timerCallback, null, dueTimeInternal, periodInternal)

@@ -481,6 +481,7 @@ namespace Prajna {
                     {
                         int e = GetLastError();
                         printf("Last error on CreateFile: 0x%x", e);
+                        throw gcnew IOException("Unable to open file handle " + name);
                     }
                     return (IntPtr)h;
                 }
@@ -553,10 +554,10 @@ namespace Prajna {
                 {
                     // close the stream
                     Lock lock(this);
-                if (m_cb != nullptr)
-                    m_cb->Close();
-                // this will actually dispose stuff, so close stuff before
-                Stream::Close();
+                    if (m_cb != nullptr)
+                        m_cb->Close();
+                    // this will actually dispose stuff, so close stuff before
+                    Stream::Close();
                 }
 
                     property bool CanRead
@@ -605,11 +606,11 @@ namespace Prajna {
                 {
                     return ReadFileSync(buf, offset, cnt);
                 }
-                    virtual void __clrcall Write(array<byte> ^buf, int offset, int cnt) new = Stream::Write
+                virtual void __clrcall Write(array<byte> ^buf, int offset, int cnt) new = Stream::Write
                 {
                     int ret = WriteFileSync(buf, offset, cnt);
-                if (ret != cnt)
-                    throw gcnew IOException("Unable to write to stream");
+                    if (ret != cnt)
+                        throw gcnew IOException("Unable to write to stream");
                 }
 
                 bool BufferLess() { return m_bBufferless; }
@@ -617,12 +618,12 @@ namespace Prajna {
                 virtual void UpdatePos(IntPtr tpio, Int64 amt) = IIO::UpdateIO
                 {
                     m_position += amt;
-                m_length = max(m_length, m_position);
-                if (IntPtr::Zero != tpio)
-                    m_tpioColl->Add(tpio);
+                    m_length = max(m_length, m_position);
+                    if (IntPtr::Zero != tpio)
+                        m_tpioColl->Add(tpio);
                 }
 
-                    void SetLock(Object^ lockObj)
+                void SetLock(Object^ lockObj)
                 {
                     m_ioLock = lockObj;
                 }
@@ -713,7 +714,7 @@ namespace Prajna {
                     int amtRead = m_cb->ReadFileSync<byte>((byte*)pBuf, nNum*sizeof(T));
                     if (amtRead >= 0)
                         UpdatePos(IntPtr::Zero, amtRead);
-                    return amtRead;
+                    return amtRead / sizeof(T);
                 }
 
                 generic <class T> int WriteFileSync(array<T> ^pBuffer, int offset, int nNum)
@@ -723,7 +724,7 @@ namespace Prajna {
                     int amtWrite = m_cb->WriteFileSync<byte>((byte*)pBuf, nNum*sizeof(T));
                     if (amtWrite >= 0)
                         UpdatePos(IntPtr::Zero, amtWrite);
-                    return amtWrite;
+                    return amtWrite / sizeof(T);
                 }
 
                 generic <class T> void AdjustFilePosition(int amt)
@@ -752,6 +753,78 @@ namespace Prajna {
                     Lock lock(this);
                     if (nullptr != m_cb)
                         m_cb->WaitForIoComplete();
+                }
+
+                generic <class T> static int ReadBuffer(FileStream ^strm, array<T> ^buf, int offset, int num)
+                {
+                    pin_ptr<T> pBuf = &buf[offset];
+                    SafeFileHandle ^sfh = strm->SafeFileHandle;
+                    bool success = false;
+                    sfh->DangerousAddRef(success);
+                    if (success)
+                    {
+                        HANDLE hFile = sfh->DangerousGetHandle().ToPointer();
+                        int numToRead = Math::Min(num, buf->Length - offset);
+                        if (numToRead != num)
+                        {
+                            sfh->DangerousRelease();
+                            throw gcnew IndexOutOfRangeException();
+                        }
+                        DWORD bytesRead;
+                        if (::ReadFile(hFile, (void*)pBuf, numToRead*sizeof(T), &bytesRead, nullptr))
+                        {
+                            sfh->DangerousRelease();
+                            return bytesRead / sizeof(T);
+                        }
+                        else
+                        {
+                            sfh->DangerousRelease();
+                            return -1;
+                        }
+                    }
+                    else
+                    {
+                        return -1;
+                    }
+                }
+
+                // write elements of arbitrary type
+                generic <class T> static void WriteBuffer(FileStream ^strm, array<T> ^buf, int offset, int num)
+                {
+                    pin_ptr<T> pBuf = &buf[0];
+                    SafeFileHandle ^sfh = strm->SafeFileHandle;
+                    bool success = false;
+                    sfh->DangerousAddRef(success);
+                    int numWritten = 0;
+                    if (success)
+                    {
+                        HANDLE hFile = sfh->DangerousGetHandle().ToPointer();
+                        int numToWrite = Math::Min(num, buf->Length - offset);
+                        if (numToWrite != num)
+                        {
+                            sfh->DangerousRelease();
+                            throw gcnew IndexOutOfRangeException("Index out of range");
+                        }
+                        DWORD bytesWritten = 0;
+                        if (::WriteFile(hFile, (void*)pBuf, numToWrite*sizeof(T), &bytesWritten, nullptr))
+                        {
+                            sfh->DangerousRelease();
+                            numWritten = bytesWritten / sizeof(T);
+                        }
+                        else
+                        {
+                            sfh->DangerousRelease();
+                            numWritten = -1;
+                        }
+                    }
+                    else
+                    {
+                        numWritten = -1;
+                    }
+                    if (numWritten != num)
+                    {
+                        throw gcnew IOException("Cannot write");
+                    }
                 }
             };
         }

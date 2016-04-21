@@ -126,11 +126,12 @@ let gitRaw = environVarOrDefault "gitRaw" "https://raw.github.com/" + gitOwner
 let release = LoadReleaseNotes "RELEASE_NOTES.md"
 
 // Helper active pattern for project types
-let (|Fsproj|Csproj|Vbproj|) (projFileName:string) = 
+let (|Fsproj|Csproj|Vbproj|Vcxproj|) (projFileName:string) = 
     match projFileName with
     | f when f.EndsWith("fsproj") -> Fsproj
     | f when f.EndsWith("csproj") -> Csproj
     | f when f.EndsWith("vbproj") -> Vbproj
+    | f when f.EndsWith("vcxproj") -> Vcxproj
     | _                           -> failwith (sprintf "Project file %s not supported. Unknown project type." projFileName)
 
 Target "PrintBuildMachineConfiguration" ( fun _ ->
@@ -182,14 +183,17 @@ Target "AssemblyInfo" (fun _ ->
           (getAssemblyInfoAttributes projectName)
         )
 
-    !! "src/**/*.??proj"
+//    !! "src/**/*.??proj"
+    !! "src/**/*.*proj"
     |> Seq.map getProjectDetails
     |> Seq.iter (fun (projFileName, projectName, folderName, attributes) ->
         let createAssemblyInfoFunc, asmInfoFile =
+            //printf "Match %s" projFileName
             match projFileName with
             | Fsproj -> CreateFSharpAssemblyInfo, (folderName @@ "AssemblyInfo.fs")
             | Csproj -> CreateCSharpAssemblyInfo, ((folderName @@ "Properties") @@ "AssemblyInfo.cs")
             | Vbproj -> CreateVisualBasicAssemblyInfo, ((folderName @@ "My Project") @@ "AssemblyInfo.vb")
+            | vcxproj -> CreateCppCliAssemblyInfo, (folderName @@ "AssemblyInfo.cpp")
         createAssemblyInfoFunc asmInfoFile attributes
         replaceCrLfWithLf asmInfoFile
         removeBom asmInfoFile

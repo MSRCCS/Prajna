@@ -295,6 +295,9 @@ type DeploymentSettings() =
     static member val BufferListBufferSize = 64000 with get, set
     /// Number of threads for network processing
     static member val NumNetworkThreads = DeploymentSettings.NumParallelJobs(Environment.ProcessorCount) with get, set
+    /// timeout before network connection needs to be verified (in seconds)
+    static member val NetworkConnectTimeout = 60.0 with get, set
+
     /// Monitor Flow Control 
     /// --------------------------
     /// Flow Control Parameter

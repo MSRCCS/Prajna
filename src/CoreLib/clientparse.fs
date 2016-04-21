@@ -114,8 +114,16 @@ type internal RemoteConfig() =
     static member ParseDriveSpace( oReturnCollection ) = 
         let driveList = List<_>()
         for oRet in oReturnCollection do
-            let freeSpace:uint64 = unbox(oRet.GetPropertyValue("FreeSpace"))
-            let size:uint64 =  unbox(oRet.GetPropertyValue("FreeSpace"))
+            let freeSpace:uint64 = 
+                try
+                    unbox(oRet.GetPropertyValue("FreeSpace"))
+                with e ->
+                    0UL
+            let size:uint64 = 
+                try
+                    unbox(oRet.GetPropertyValue("FreeSpace"))
+                with e->
+                    0UL
             let drName = oRet.GetPropertyValue("Name") :?> string
             driveList.Add( drName, freeSpace, size )
         driveList.ToArray()

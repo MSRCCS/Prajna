@@ -1848,6 +1848,22 @@ type BufferListStream<'T> internal (bufSize : int, doNotUseDefault : bool) =
         use rbufAdd = new RBufPart<'T>(rbuf, int offset, count)
         x.WriteRBufNoCopy(rbufAdd)
 
+    member x.WriteFromFileStream(fh : FileStream, count : int64, align : int) =
+        let mutable bCount = count
+        while (bCount > 0L) do
+            let (buf, pos, amt) = x.GetWriteBuffer()
+            let bufRemAlign = amt / (int64 align) * (int64 align)
+            if (bufRemAlign = 0L) then
+                x.SealWriteBuffer()
+            else
+                let toRead = Math.Min(bCount, bufRemAlign)
+                //let writeAmt = fh.Read(buf, int pos, int toRead)
+                let writeAmt = Native.AsyncStreamIO.ReadBuffer<'T>(fh, buf, int pos, int toRead)
+                bCount <- bCount - int64 writeAmt
+                x.MoveForwardAfterWrite(int64 writeAmt)
+                if (writeAmt <> int toRead) then
+                    failwith "Write to memstream from file fails as file is out data"
+
 // MemoryStream which is essentially a collection of RefCntBuf
 // Not GetBuffer is not supported by this as it is not useful
 [<AllowNullLiteral>]

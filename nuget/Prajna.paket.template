@@ -29,6 +29,7 @@ files
     ../src/Tools/Tools/bin/Releasex64/Prajna.Tools.xml ==> lib/net45
     ../src/Client/Client/bin/Releasex64/* ==> tools/Client
     !../src/Client/Client/bin/Releasex64/*.srcsrv
+	!../src/Client/Client/bin/Releasex64/PrajnaClientExt.*
     ../src/Client/ClientExt/bin/Releasex64/PrajnaClientExt* ==> tools/Client
     !../src/Client/ClientExt/bin/Releasex64/*.srcsrv
     ../scripts ==> tools/Scripts

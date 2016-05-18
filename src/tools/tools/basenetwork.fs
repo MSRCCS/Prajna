@@ -371,7 +371,11 @@ type GenericBuf(conn : IConn, maxBufferSize : int) as x =
             match callbackO with
                 | Some(callback) -> callback(state)
                 | None -> ()
-            eSendComplete.Set() |> ignore
+            try
+                eSendComplete.Set() |> ignore
+            with
+                // ignore objectdisposedexception as other thread (e.g. receiver callback) may dispose of it
+                | :? ObjectDisposedException as e -> ()
 
     /// Asynchronously send buffer and execute callback upon completion
     /// <param name="callbackO">

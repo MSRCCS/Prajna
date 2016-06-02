@@ -2915,17 +2915,24 @@ type internal ExecuteEveryTrigger<'U when 'U : equality>(traceLevel) =
     member x.Add( del: Action<'U>, info: string ) = 
         x.Add( del, fun _ -> info ) 
     member internal x.TryTrigger() = 
-       for pair in toExecuteWorks do 
-           let param = pair.Key
-           let pTrigger, dic = pair.Value
-           for pair in dic do 
-               let del = pair.Key
-               let exists, iFunc = dic.TryGetValue( del )
-               if exists then
-                   del.Invoke( param ) 
-                   Logger.LogF(traceLevel, ( fun _ -> sprintf "ExecuteEveryTrigger.Trigger, execute %s on %s once" (iFunc()) (pTrigger()) ))
-           dic.Clear()
-
+        let ex = List<Exception>()
+        for pair in toExecuteWorks do 
+            let param = pair.Key
+            let pTrigger, dic = pair.Value
+            for pair in dic do 
+                let del = pair.Key
+                let exists, iFunc = dic.TryGetValue( del )
+                if exists then
+                    try
+                        del.Invoke( param ) 
+                        Logger.LogF(traceLevel, ( fun _ -> sprintf "ExecuteEveryTrigger.Trigger, execute %s on %s once" (iFunc()) (pTrigger()) ))
+                    with e ->
+                        dic.Remove(del) |> ignore
+                        ex.Add(e)
+                        //reraise()
+            dic.Clear()
+        if (ex.Count > 0) then
+            raise(ex.[0])
         
 /// SingleCreation<'U> holds a single object 'U, and garantees that the creation function and destroy function is only called once. 
 /// At time of init, the class garantees that initFunc will be called once to create the instance. At the time of 

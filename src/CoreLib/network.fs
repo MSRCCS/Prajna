@@ -1126,8 +1126,12 @@ type [<AllowNullLiteral>] NetworkCommandQueue internal () as x =
     /// Initialize the NetworkCommandQueue - Only call after AddRecvProc are all done
     member x.Initialize() =
         x.Stopwatch.Start()
-        eInitialized.Set() |> ignore
-        bInitialized <- true
+        try
+            eInitialized.Set() |> ignore
+            bInitialized <- true
+        with
+            | :? ObjectDisposedException as ex ->
+                ()
 
     member x.StatusInfo() =
         sprintf "\

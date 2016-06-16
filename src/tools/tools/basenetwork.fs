@@ -1062,34 +1062,40 @@ type [<AllowNullLiteral>] Component<'T when 'T:null and 'T:equality>() =
     static member internal StartOnSystemThreadPool (tpKey: 'TP) (processFunc : unit->ManualResetEvent*bool) (finishCb : Option<unit->unit>) =
         let waitAndContinue (o : obj) (bTimeOut : bool) =
             try
-                Process.ReportThreadPoolWorkItem((fun _ -> sprintf "%A start execute as callback for RegisterWaitForSingleObject 1" tpKey), true)
-                let (rwh, handle, registrationCompleted, func) = o :?> RegisteredWaitHandle ref*ManualResetEvent*ManualResetEventSlim*WaitCallback
-                if (not bTimeOut) then
-                    System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
-                    registrationCompleted.Wait()
-                    (!rwh).Unregister(null) |> ignore
-                    registrationCompleted.Dispose()
+                try
+                    Process.ReportThreadPoolWorkItem((fun _ -> sprintf "%A start execute as callback for RegisterWaitForSingleObject 1" tpKey), true)
+                    let (rwh, handle, registrationCompleted, func) = o :?> RegisteredWaitHandle ref*ManualResetEvent*ManualResetEventSlim*WaitCallback
+                    if (not bTimeOut) then
+                        System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
+                        registrationCompleted.Wait()
+                        (!rwh).Unregister(null) |> ignore
+                        registrationCompleted.Dispose()
+                with e ->
+                    Logger.LogF(LogLevel.Error, fun _ -> sprintf "%A callback for RegisterWaitForSingleObject encounters exception %A" tpKey e)
             finally
                 Process.ReportThreadPoolWorkItem(( fun _ -> sprintf "%A end execute as callback for RegisterWaitForSingleObject 1" tpKey), false)
 
         let wrappedFunc (o : obj) : unit =
             try
-                Process.ReportThreadPoolWorkItem(( fun _ -> sprintf "%A start execute as a user work item" tpKey), true)
-                let func = o :?> WaitCallback
-                let (event, finish) = processFunc()
-                if (not finish) then
-                    if (Utils.IsNotNull event) then
-                        let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
-                        let registrationCompleted = new ManualResetEventSlim(false)
-                        rwh := ThreadPool.RegisterWaitForSingleObject(event, waitAndContinue, (rwh, event, registrationCompleted, func), -1, true)
-                        registrationCompleted.Set()
+                try
+                    Process.ReportThreadPoolWorkItem(( fun _ -> sprintf "%A start execute as a user work item" tpKey), true)
+                    let func = o :?> WaitCallback
+                    let (event, finish) = processFunc()
+                    if (not finish) then
+                        if (Utils.IsNotNull event) then
+                            let rwh = ref Unchecked.defaultof<RegisteredWaitHandle>
+                            let registrationCompleted = new ManualResetEventSlim(false)
+                            rwh := ThreadPool.RegisterWaitForSingleObject(event, waitAndContinue, (rwh, event, registrationCompleted, func), -1, true)
+                            registrationCompleted.Set()
+                        else
+                            // queue again if not finished
+                            System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
                     else
-                        // queue again if not finished
-                        System.Threading.ThreadPool.QueueUserWorkItem(func, func) |> ignore
-                else
-                    match finishCb with
-                        | None -> ()
-                        | Some(cb) -> cb()
+                        match finishCb with
+                            | None -> ()
+                            | Some(cb) -> cb()
+                with e ->
+                    Logger.LogF(LogLevel.Error, fun _ -> sprintf "%A work item encounters exception %A" tpKey e)
             finally
                 Process.ReportThreadPoolWorkItem((fun _ -> sprintf "%A end execute as a user work item" tpKey), false)
 
